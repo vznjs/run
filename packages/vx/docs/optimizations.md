@@ -6,9 +6,9 @@ If you change code near one of these, the invariant column is the
 contract you must re-verify. Measured numbers come from
 [`benchmarks.md`](./benchmarks.md) and the CLAUDE.md decision log.
 
-The headline result: on the 100-project synthetic workspace, vx's
-all-hits path is **~3.9× faster than Turbo and ~5.4× faster than Nx**,
-and the no-cache run lands within 4% of the bare-shell floor.
+The headline numbers live in [`benchmarks.md`](./benchmarks.md) and
+move with each measurement; this catalog carries the decisions and the
+invariants, not the figures.
 
 ## Hashing & cache keys
 
@@ -61,7 +61,7 @@ and the no-cache run lands within 4% of the bare-shell floor.
 | 19  | Memoized `Bun.color` ANSI lookups                                                                  | `orchestrator/colors.ts`                        | Called thousands of times with one of four hex strings                  | Cache key is the color string; gating (NO_COLOR etc.) happens before lookup                     |
 | 20  | `Bun.Glob` for filter matching + recursive listing (was hand-rolled regex / readdir recursion)     | `workspace/filter.ts`, `cache/layered-cache.ts` | Native glob engine                                                      | Glob semantics are now Bun's — brace/bracket behavior changes with Bun upgrades                 |
 | 21  | Concurrent project discovery (`Promise.all` over package globs)                                    | `workspace/workspace.ts`                        | Was serialized                                                          | Dedupe pass after must keep deterministic order                                                 |
-| 22  | `AbortSignal.timeout` for remote-cache fetches                                                     | `cache/remote-cache.ts`                         | Drops the manual controller + setTimeout ceremony                       | Catch both `AbortError` and `TimeoutError`                                                      |
+| 22  | `AbortSignal.timeout` for remote-cache fetches                                                     | `@vzn/vx-turbo-cache`, `@vzn/vx-nx-cache` (the wires left core) | Drops the manual controller + setTimeout ceremony                       | Catch both `AbortError` and `TimeoutError`                                                      |
 | 23  | `toPosix` fast path when `path.sep === '/'`                                                        | `util/paths.ts`                                 | Skips split/join on the dominant platform                               | Windows is unsupported anyway; revisit if that changes                                          |
 | 24  | Hoisted dynamic imports out of per-task paths                                                      | `execute-task.ts`, `layered-cache.ts`           | `await import()` per task was measurable                                | —                                                                                               |
 | 25  | `Bun.spawn` everywhere (with `resourceUsage()`)                                                    | `exec/runner.ts`                                | Native spawn + free cpu_ms / peak-RSS capture per child                 | —                                                                                               |

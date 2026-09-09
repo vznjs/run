@@ -1082,6 +1082,20 @@ function`); the seam now checks the returned shape once and refuses
     it restores, so a temp under an output glob is gone before anything
     packs; the extractor's own `abort()` covers the error path.
 
+38. DONE (the sibling probe: identifiers): the same script for code
+    identifiers in backticks across docs, module docs and guides,
+    checked against every `src/` in the repo. Real misses: `RemoteCache`
+    in `architecture.md`'s module map (the type is `RemoteCacheLayer`),
+    `SandboxNetworkConfig` in the façade table (the schema exports are
+    `SandboxConfig`, `SandboxGrants`, `SandboxDenials`; `ResourcesConfig`
+    was missing from the row), and `optimizations.md` row 22 living in
+    `cache/remote-cache.ts` — the wire that left core; the
+    `AbortSignal.timeout` it describes lives in the turbo and nx cache
+    packages now. The same catalog opened with "~3.9× faster than Turbo
+    and ~5.4× faster than Nx", numbers `benchmarks.md` no longer
+    carries (its table reads 1.9× and ~7× warm); the catalog now points
+    at the benchmarks doc instead of restating a figure that moves.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams
