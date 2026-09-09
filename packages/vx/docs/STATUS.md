@@ -1021,7 +1021,7 @@ from …/node_modules/astro/dist/cli/index.js` — astro's OWN
    measures nothing; streaming needs a two-pass digest and a chunked
    compressed upload through the adaptive-downgrade path. Do it when a
    real workspace uploads > 100 MiB artifacts, not before.
-3. **Zero-migration adoption as a plugin (candidate, owner's call).**
+3. **DONE 2026-09-09 — zero-migration adoption as a plugin.** (Kept for the reasoning.)
    The Vite-shaped ecosystem lever: `plugins: [turbo()]` in a Turbo
    repo (or `nx()`) and `vx run build --all` works against `turbo.json`
    - `package.json` scripts with no generated files — a trial that
@@ -1070,6 +1070,10 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    A/B against an immutable worktree settles any gap
    (`scratchpad/ab.ts`-style: alternate arms, min and median of N).
    Closing figures for 2026-09-09 on a noisy 4-core Linux container
+   (late, after the improvement loop's 25 items): head vs main
+   (c0b20ca), 1000 projects, both orders, min 296/304 and 302/295 ms,
+   20 reps 310/313 — within run-to-run jitter, no `VX_TIMING` stage
+   moved (loop item 25). Every warm-path step was A/B'd at its commit.
    (not the owner's box — compare against 2026-09-04 only by ratio):
    `run.ts` medians before the day's perf commit, 100 projects 109 ms
    warm / 180 ms restore, 1000 projects 281 / 1337; the commit's A/B is
@@ -1145,6 +1149,21 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    hashing what the cycle wrote before re-arming would zero it — only
    if a real workspace shows the cycle mattering. (d) DONE 2026-09-04: a filter set that matches nothing is one
    error line naming the patterns and the nearest project name.
+8. **Improvement-loop candidates (2026-09-09, in order).** (a) The
+   cached path's save block in `execute-task.ts` (resolve outputs,
+   save, record output dirs, mark git outputs) as its own module —
+   stale-hit-critical, so only with the execute suites and CI's
+   unsafe job green, and behind a differential pin that a moved line
+   would fail. (b) `vx cache prune --max-size 10` reads a bare number
+   as 10 BYTES and evicts everything; `--older-than 5` refuses a bare
+   number. Decide: refuse unitless sizes there (the zero bound is
+   already refused for the same reason), or keep the documented
+   `<bytes>` and say so louder. (c) Anything else that reads config
+   files raw: only `vx lock` remains, on purpose (it freezes the
+   file's own evaluation). Grep for `loadProjectConfig(` before
+   adding a fourth consumer of the staged load. (d) `logger.ts` (716)
+   and `framed-output.ts` (528) are the last large files; split only
+   if a concern separates as cleanly as the three splits today did.
 
 ## Decisions (this arc)
 
