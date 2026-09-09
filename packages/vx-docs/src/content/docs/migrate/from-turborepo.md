@@ -9,6 +9,31 @@ DSL, same `--affected` selection. The main change
 is that config moves from one `turbo.json` to per-package `vx.config.ts`
 files — and `vx migrate` writes them for you.
 
+## Try it first, without writing a file
+
+`@vzn/vx-turbo` runs a `turbo.json` workspace under vx as it is: the
+plugin fills vx's `project` stage from your `turbo.json` and each
+package's scripts, using the same mapper `vx migrate` renders files from.
+One file, and the repo runs:
+
+```ts
+// vx.workspace.ts
+import { defineWorkspace } from '@vzn/vx'
+import { turbo } from '@vzn/vx-turbo'
+
+export default defineWorkspace({ plugins: [turbo()] })
+```
+
+```bash
+bun add -d @vzn/vx @vzn/vx-turbo
+vx run build --all
+```
+
+Whatever the mapping cannot express is a warning on every run — the same
+list `vx migrate --dry` prints once. A package that writes its own
+`vx.config.ts` keeps it (the plugin fills, never overwrites), so you can
+migrate one package at a time and leave the rest on `turbo.json`.
+
 ## Let `vx migrate` do it
 
 ```bash
