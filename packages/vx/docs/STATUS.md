@@ -1003,8 +1003,10 @@ function`); the seam now checks the returned shape once and refuses
     here (no sandbox as root): a device node and a directory named
     `.mcp.json` both pass locally, so the mask's exact shape inside
     bwrap, and why every earlier head passed the same task, are not
-    known. CI on the next head is the arbiter; if it reds the same
-    way with the ignore in place, the cause is elsewhere.
+    known — the four heads after 1414cf2 passed the same task, so the
+    walker meets the mask only sometimes (a race in the sandbox's
+    mount setup is the likeliest shape). The ignore makes the check
+    independent of it either way.
 
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
