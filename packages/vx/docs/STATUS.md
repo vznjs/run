@@ -721,6 +721,19 @@ nx` stays the Nx path.
    to win. What is left on a cold slot is the shell and the process
    (execute) and the artifact save; the save's five spans are each
    under 0.6 ms.
+8. DONE: `Cache` composed from four slices, behaviour-preserving. A map
+   of every method to the private fields it touches showed the class
+   was four stores sharing one handle: file hashes (two statements,
+   the object format), config evaluations (two statements, the
+   read/write axes), the output index (four statements), the run
+   history (two statements, the binders). Each is its own class over
+   the same `Database`, owning its statements; `Cache` keeps the
+   schema — the one place every table is declared — the entry store,
+   and thin delegates, so the `CacheLayer` contract and every importer
+   are unchanged, and the save transaction still writes an entry and
+   its output rows together (`OutputIndex.replaceFileRows` inside it).
+   cache.ts 1,850 → 1,330 lines; the slices 260 / 90 / 210 / 150. Warm
+   path ties both orders (211/219 vs 212/221, 218/222 vs 217/220).
 
 ## In flight
 

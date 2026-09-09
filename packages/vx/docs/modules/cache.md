@@ -16,9 +16,22 @@ and key derivation logic live here.
   `--cache=<spec>` grammar.
 - `zstd.ts` — artifact framing: the declared-size gate against a
   decompression bomb, the bounded one-call and streamed decoders.
-- `cache.ts` — the schema and its version notes, the `Cache` store, the
-  SQL binders. Re-exports the three above so `./cache.js` stays one
-  import path for the index, the sibling layers and the tests.
+- `file-hashes.ts` — `FileHashStore`: the per-file blob-OID memo over
+  `file_hashes` (a symlink hashes as its target string) and the repo's
+  object format.
+- `config-evals.ts` — `ConfigEvalTable`: the `config_evals` /
+  `config_closures` tables behind the `ConfigEvalStore` contract, with
+  their retention.
+- `output-index.ts` — `OutputIndex`: `output_files` / `output_dirs` rows
+  and the two proofs a hit runs before skipping a restore.
+- `run-history.ts` — `RunHistory`: `runs` + `invocations` writes (one
+  transaction per run), the SQL binders, and the 30-day retention.
+- `cache.ts` — the schema (the one place every table is declared), the
+  entry store (get / save / ingest / restore / prune), and the `Cache`
+  class that composes the four slices above over one handle and
+  delegates to them. Re-exports `layer.ts`, `policy.ts` and `zstd.ts`
+  so `./cache.js` stays one import path for the index, the sibling
+  layers and the tests.
 
 ## Public surface
 
