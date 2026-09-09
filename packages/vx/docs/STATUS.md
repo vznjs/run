@@ -708,6 +708,19 @@ Cache`, the handle a layer may wrap) is a type import. Next candidate
    placeholder command that exits 1 — under a live plugin that is a
    run that fails by design, not a repo that runs. `vx migrate --from
 nx` stays the Nx path.
+7. DONE: the miss path's two output passes glob synchronously. A cold
+   1,000-task run here (4 workers) spends, per task-slot, execute 4.7
+   ms, save 1.8, clean outputs 0.83, resolve outputs 0.59 — the last
+   two a glob over a one-file `dist/`, run through the async walker
+   that was chosen on 2026-09-02 for the HIT path, which no longer
+   globs. Synchronous, interleaved against the previous head on private
+   workspace copies, 3 cold reps each order: min 2586 → 2467 ms and
+   2830 → 2733, median 2699 → 2577 and 2831 → 2779; the restore path
+   (which still globs after a wiped output) 814/942 → 798/870 and
+   964/990 → 915/948, so no regression where the async form was meant
+   to win. What is left on a cold slot is the shell and the process
+   (execute) and the artifact save; the save's five spans are each
+   under 0.6 ms.
 
 ## In flight
 
