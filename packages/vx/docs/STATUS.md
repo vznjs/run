@@ -901,6 +901,10 @@ function`); the seam now checks the returned shape once and refuses
     with the same warning a throwing hook gets. `graph` was already
     right: a missing edge target and a cycle both name the plugin. The
     plugins guide gained a "What core refuses" list for items 23–24.
+    Checked against the shipped plugins, since the REAPI suite cannot
+    run here: every `cache` hook returns a `LayeredCache` (key, get,
+    has, save, close all present) and the REAPI executor is named
+    (`vx/reapi`) with `execute` — the shape checks refuse none of them.
 25. DONE: `cli/run.ts` composed: what a run is asked to run (the
     `--filter` resolution, `--affected`'s orphan owners, the cwd
     project, the interactive picker) is `cli/select.ts`; run.ts keeps
