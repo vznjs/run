@@ -773,9 +773,13 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     `info`'s task count all call it, and `loadWorkspacePlugins` owns
     the `config` stage the same way. `show` gained the bare `<task>` form (every project
     declaring it), prints every field the run reads, and suggests by
-    edit distance as well as partial name. Found on the way, fixed
-    next: the Turbo mapper lists a workspace file twice when both
-    `globalDependencies` and a task's `$TURBO_ROOT$/` input name it.
+    edit distance as well as partial name. Found on the way and
+    fixed: the Turbo mapper listed a workspace file twice when both
+    `globalDependencies` and a task's `$TURBO_ROOT$/` input named it
+    (the same for an env name in `globalEnv` and a task `env`). Strings
+    the mapper can see are listed once; the `vx migrate` renderer's
+    opaque preset spread stays as written, so a generated config can
+    still repeat one — the user's file to tidy.
 
 ## In flight
 

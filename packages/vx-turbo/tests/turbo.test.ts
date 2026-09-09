@@ -102,8 +102,9 @@ describe('@vzn/vx-turbo', () => {
       expect(app.deps.sort()).toEqual(['app#codegen', 'lib#build'])
       const cache = app.config.cache!
       expect(cache.inputs.files).toEqual(['**/*', '!**/*.md'])
-      // globalDependencies inlined, then the $TURBO_ROOT$/ input.
-      expect(cache.inputs.workspaceFiles).toEqual(['tsconfig.base.json', 'tsconfig.base.json'])
+      // globalDependencies and the $TURBO_ROOT$/ input both name the
+      // file; the mapper sees both strings and lists it once.
+      expect(cache.inputs.workspaceFiles).toEqual(['tsconfig.base.json'])
       expect(cache.inputs.env).toEqual(['GLOBAL_MODE', 'NODE_ENV'])
       expect(cache.outputs.files).toEqual(['dist/**'])
       expect(app.config.exec?.env?.passThrough).toEqual(['GLOBAL_MODE', 'AWS_PROFILE', 'NODE_ENV'])

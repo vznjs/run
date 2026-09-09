@@ -218,6 +218,26 @@ export async function mapTurboWorkspace(
   return { projects, notes, globals }
 }
 
+/**
+ * A name both a global list and the task's own list carry — `globalEnv`
+ * and a task `env`, `globalDependencies` and a `$TURBO_ROOT$/` input —
+ * is listed once, in its first position. Only concrete strings are
+ * compared: the `vx migrate` renderer splices globals as an opaque
+ * preset spread, which stays as written.
+ */
+function uniq(values: readonly unknown[]): unknown[] {
+  const seen = new Set<string>()
+  const out: unknown[] = []
+  for (const v of values) {
+    if (typeof v === 'string') {
+      if (seen.has(v)) continue
+      seen.add(v)
+    }
+    out.push(v)
+  }
+  return out
+}
+
 function buildTask(
   name: string,
   def: TurboTask,
@@ -293,7 +313,7 @@ function buildTask(
     } else passNames.push(e)
   }
 
-  const passThrough: unknown[] = [...global('env'), ...global('pass'), ...envNames, ...passNames]
+  const passThrough = uniq([...global('env'), ...global('pass'), ...envNames, ...passNames])
 
   const exec: Record<string, unknown> = { command }
   if (passThrough.length > 0) exec.env = { passThrough }
@@ -350,10 +370,10 @@ function buildTask(
       } else outFiles.push(o)
     }
 
-    const cacheEnv: unknown[] = [...global('env'), ...envNames]
+    const cacheEnv = uniq([...global('env'), ...envNames])
 
     const inputs: Record<string, unknown> = { files }
-    if (wsFiles.length > 0) inputs.workspaceFiles = wsFiles
+    if (wsFiles.length > 0) inputs.workspaceFiles = uniq(wsFiles)
     if (cacheEnv.length > 0) inputs.env = cacheEnv
     const outputs: Record<string, unknown> = { files: outFiles }
     if (wsOutFiles.length > 0) outputs.workspaceFiles = wsOutFiles
