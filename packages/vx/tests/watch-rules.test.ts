@@ -16,10 +16,11 @@ import {
   pollWatcher,
   isIgnoredWatchPath,
   makeWatchIgnore,
+  sweepConfigs,
   WATCH_PROBE,
   watchCmd,
 } from '../src/cli/watch.js'
-import { WORKSPACE_FINGERPRINT_FILES } from '../src/workspace/index.js'
+import { listProjects, loadWorkspace, WORKSPACE_FINGERPRINT_FILES } from '../src/workspace/index.js'
 
 describe('the ignore filter', () => {
   // Every project dir is watched RECURSIVELY, so without this a `bun install`
@@ -117,6 +118,43 @@ describe('the ignore filter follows the RESOLVED cache dir, not the .vx literal'
     const ignore = makeWatchIgnore(path.join(root, 'build', 'vxcache'))
     expect(ignore(proj, path.join('build', 'vxcache', 'x'))).toBe(false)
     expect(ignore(root, path.join('build', 'vxcache', 'x'))).toBe(true)
+  })
+})
+
+describe('the sweep sees what a run sees', () => {
+  let root: string
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), 'vx-watch-sweep-'))
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'r', private: true }))
+    // A `project` plugin gives a config-less package a cached task whose
+    // outputs land in its dir — the zero-migration shape.
+    await writeFile(
+      path.join(root, 'vx.workspace.mjs'),
+      `export default { plugins: [{ name: 'gen', project(config) {
+        config.tasks.build = { exec: { command: 'echo' }, cache: {
+          inputs: { files: ['src/**'], workspaceFiles: ['tsconfig.base.json'] },
+          outputs: { files: ['dist/**'] } } }
+      } }] }\n`,
+    )
+    await mkdir(path.join(root, 'packages', 'bare'), { recursive: true })
+    await writeFile(
+      path.join(root, 'packages', 'bare', 'package.json'),
+      JSON.stringify({ name: 'bare' }),
+    )
+  })
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('a plugin-given output is in the ignore set like a declared one', async () => {
+    // Read raw, the config-less package had no config to sweep: its
+    // `dist/**` was not ignored, so the run's own write re-triggered the
+    // loop, and its workspace input did not widen the watch.
+    const metas = await listProjects(await loadWorkspace(root))
+    const swept = await sweepConfigs(metas, root)
+    expect(swept.workspaceWide).toBe(true)
+    expect([...swept.outputs]).toEqual([[path.join(root, 'packages', 'bare'), ['dist/**']]])
   })
 })
 

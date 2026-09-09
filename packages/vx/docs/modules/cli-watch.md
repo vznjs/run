@@ -52,7 +52,12 @@ Everything else (`--all`, `--filter`, `--affected`, `--concurrency`,
      every cycle), and each project's declared outputs
      (`cache.outputs.files`, root-relative `workspaceFiles`) — a cycle
      that writes `dist/` is not an edit (`makeWatchIgnore`, pinned in
-     `tests/watch-rules.test.ts`).
+     `tests/watch-rules.test.ts`). The outputs come from the run
+     path's staged load (`sweepConfigs` → `loadProjects`), so an
+     output a `project` plugin gave a config-less package is ignored
+     like a declared one, and a pure config is served from its cached
+     evaluation; a config that fails to load drops the sweep to the
+     files that do load.
    - Catch UNDECLARED writes by content: a task with no `cache` block
      declares no outputs and still writes into its project, and its
      own write re-triggered the cycle without end (the init walkthrough,

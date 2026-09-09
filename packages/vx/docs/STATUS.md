@@ -798,6 +798,16 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     warms that spawn on an aged file and asserts only on an attempt the
     clock proves stayed inside the window, retrying with a fresh file
     otherwise; a runner that never manages it fails loudly.
+14. DONE: the `vx watch` sweep sees what a run sees. It read config
+    files raw for the outputs to ignore and the workspace-wide
+    decision, so under a `project` plugin a config-less package's
+    `dist/**` was an edit (one wasted cycle, the content check caught
+    the second) and its `workspaceFiles` input did not widen the
+    watch. `sweepConfigs` now calls `loadProjects` — the fourth
+    consumer after prepareRun, show and info — with the eval cache, so
+    the sweep's repeat loads of pure configs hit instead of paying a
+    worker each; a load that fails drops to the raw per-file sweep it
+    had before.
 
 ## In flight
 
