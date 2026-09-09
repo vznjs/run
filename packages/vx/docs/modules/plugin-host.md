@@ -15,13 +15,15 @@ list (`prepared.plugins`). (A whole-run `backend` capability was resolved
 by the CLI layer before `run()` started, until that seam was removed in
 2026-08 — it moved the scheduler server-side, which is exactly what core
 does not do. `executor` replaced it at the per-task grain.)
-Nothing is appended — no executor or no cache is a named error
-(`MISSING_PLUGIN_HINT`).
+Core's floor is appended: `resolveExecutors` puts `localExecutor()` at
+the tail of the list and `resolveCache` puts the host's local `Cache` at
+the tail of the chain (dropped again when a declared layer already wraps
+it), so a workspace that declares nothing runs and caches here.
 
 ## Public surface
 
-- `resolveExecutors(plugins, ctx, opts?)` → `TaskExecutor[]` (ordered; a
-  throwing factory aborts; an empty result is a named error).
+- `resolveExecutors(plugins, ctx)` → `TaskExecutor[]` (ordered, the local
+  executor last; a throwing factory aborts).
 - `resolveCache(plugins, ctx, opts?)` → `CacheLayer` (one layer as is; two or
   more chained in order — `ChainedCache`; a layer wrapping the local
   handle subsumes the bare local layer; none is a named error).

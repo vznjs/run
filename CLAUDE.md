@@ -13,8 +13,11 @@ seams**. Core discovers projects, evaluates `vx.config.ts` files, builds a
 task graph, derives cache keys, and schedules. Plugins decide where a task
 runs (`executor`), where artifacts live (`cache`), who observes
 (`telemetry`), and — as the seams widen — how the graph is shaped and which
-CLI verbs exist. Core applies NO plugin by default; even the local executor
-and cache are declared in `vx.workspace.ts`.
+CLI verbs exist. Core applies NO plugin by default. Running here and
+caching here are core's FLOOR, not plugins: the local executor and the
+local cache sit at the tail of every executor list and cache chain, so a
+workspace with no `vx.workspace.ts` runs and caches, and a plugin that
+declines a task hands it back to this machine.
 
 Pipeline stages a plugin can fill, in order: `config` → `project` →
 `graph` → `key` → `schedule` → `executor` / `cache` → `telemetry` /
@@ -45,8 +48,8 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/workspace/        discovery, config eval (+ config-cache.ts), package graph, --filter/--affected, lockfile
   src/graph/            task graph + two-tier scheduler
   src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (git enumeration)
-  src/exec/             runner (Bun.spawn), env isolation, sandbox
-  src/plugins/          core's own plugins: local-executor, local-cache, schedule-history
+  src/exec/             runner (Bun.spawn), env isolation, sandbox, local-executor (the floor)
+  src/plugins/          core's own plugins: schedule-history
   src/util/             incl. timing.ts (`VX_TIMING=1` stage table)
   index.ts, plugins/*/index.ts  root shims (Bun's compiled binary ignores the exports map)
 packages/vx-reapi       Bazel REAPI plugin: remote cache + remote execution
@@ -112,8 +115,9 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
 4. **Resolved-config hashing.** The key sees the evaluated config object.
 5. **Cascade through deps** by folding upstream INPUT keys, never outputs.
 6. **Project boundaries are hard.** Globs never cross into another project.
-7. **No defaults.** Core names no plugin. A workspace with no executor or
-   cache fails before any task runs, naming the fix.
+7. **No defaults.** Core names no plugin; only the local floor is
+   implicit. A capability a plugin must supply (a remote, a wire) is
+   declared in `vx.workspace.ts` or it does not exist.
 8. **Seam over special case.** When core grows a branch for one consumer,
    the seam is too narrow.
 

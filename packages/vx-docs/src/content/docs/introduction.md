@@ -88,24 +88,24 @@ declare them:
 | observe   | `telemetry(ctx)`       | where run records go                             |
 | cli       | `commands`             | which verbs `vx` has                             |
 
-Core applies **none** of them by default. Even vx's own local executor
-and local cache are plugins, declared in `vx.workspace.ts` like any
-third-party one. A workspace that declares none fails before a single
-task runs, and tells you what to add.
+Core applies **none** of them by default. What it has is a floor:
+running a command on this machine and storing its artifact in
+`.vx/cache` are what those words mean when no plugin says otherwise, so
+a workspace with no `vx.workspace.ts` runs and caches. A plugin goes in
+front of the floor — it takes the tasks and artifacts it accepts, and
+what it declines lands on the machine you are sitting at.
 
-That sounds like ceremony; it buys something specific. There is no
-privileged first-party path — a remote cache, remote execution, a
-dashboard, or a metrics pipeline are all built on the same contracts
-core's own defaults use, so none of them is a second-class citizen, and
-core never grows a special case for one consumer.
+There is no privileged first-party path — a remote cache, remote
+execution, a dashboard, or a metrics pipeline are all built on the same
+contracts core's floor fills, so none of them is a second-class citizen,
+and core never grows a special case for one consumer.
 
 ```ts
-// vx.workspace.ts — nothing runs until you say what runs it
+// vx.workspace.ts — plugins are consulted in this order; the local floor is last
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
+import { reapi } from '@vzn/vx-reapi'
 
-export default defineWorkspace({ plugins: [localExecutorPlugin(), localCachePlugin()] })
+export default defineWorkspace({ plugins: [reapi({ endpoint: 'cache.example.com:443' })] })
 ```
 
 What ships on those seams today:

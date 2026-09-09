@@ -68,11 +68,12 @@ deliberately dumb. The same plugin can also RUN your tasks on that pool —
 see [Remote execution](../remote-execution/).
 
 ```ts
-// vx.workspace.ts — reapi BEFORE localCachePlugin so a remote hit wins.
+// vx.workspace.ts — the local store is the floor under every declared cache.
+import { defineWorkspace } from '@vzn/vx'
 import { reapi } from '@vzn/vx-reapi'
 
 export default defineWorkspace({
-  plugins: [reapi({ endpoint: 'cache.example.com:443' }), localExecutorPlugin(), localCachePlugin()],
+  plugins: [reapi({ endpoint: 'cache.example.com:443' })],
 })
 ```
 

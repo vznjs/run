@@ -7,12 +7,10 @@ workflow run page.
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { github } from '@vzn/vx-github'
 
 export default defineWorkspace({
-  plugins: [localExecutorPlugin(), localCachePlugin(), github()],
+  plugins: [github()],
 })
 ```
 

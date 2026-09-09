@@ -29,10 +29,11 @@ When more than one plugin contributes a `cache` layer, `resolveCache`
 ## The subsume rule
 
 A layer exposes `local` when it wraps the host's local handle
-(`LayeredCache.local`). `resolveCache` drops a bare local layer that another
-declared layer already wraps, so `[remote(), localCachePlugin()]` resolves to
-the remote plugin's layered cache alone instead of writing the local store
-twice — with no edit to the remote plugin.
+(`LayeredCache.local`). `resolveCache` appends the host's local store to
+the tail of every chain, then drops it again when a declared layer already
+wraps it — so `[remote()]` resolves to the remote plugin's layered cache
+alone instead of writing the local store twice, with no edit to the remote
+plugin.
 
 ## Tests
 

@@ -33,11 +33,11 @@ Every parenthesis is a plugin hook, and every one is optional — see
 
 ### 0. Plugins
 
-Core applies nothing by default. The thing that *runs* a command and the
-thing that *stores* an artifact both arrive as plugins — vx ships its own
-as `localExecutorPlugin()` and `localCachePlugin()`, and you declare them
-like any third-party one. A workspace that declares neither fails before
-the first task with a message naming what to add.
+Core applies no plugin by default. The thing that *runs* a command and
+the thing that *stores* an artifact are seams; vx's own local executor
+and local cache sit at the tail of each, as the floor, and every plugin
+declared in `vx.workspace.ts` is consulted before them in declaration
+order. A workspace with no workspace file runs on the floor alone.
 
 This is why the stages below can talk about "the cache" without saying
 which one: a local store, a Bazel CAS, or something you wrote all fill

@@ -12,10 +12,11 @@ Everything beyond that — a **dashboard**, a **shared/remote cache**,
 **remote execution**, **telemetry export** — is a **plugin**. Core
 defines the extension seams; plugins fill them, and **no plugin is
 privileged**: core never names one and never needs one. Core's OWN
-execution and cache are plugins too (`@vzn/vx/plugins/local-executor`,
-`@vzn/vx/plugins/local-cache`), declared by your workspace exactly like a
-third-party one — which is how "a plugin can replace any part" is pinned
-rather than promised.
+execution and cache are the floor under every seam — the tail of the
+executor list and of the cache chain, consulted after every declared
+plugin — so a workspace with no plugins runs, and a plugin that accepts
+a task or an artifact takes it away from the floor. That is how "a
+plugin can replace any part" is pinned rather than promised.
 
 ## The pipeline
 
@@ -44,8 +45,8 @@ flowchart LR
 | graph    | `graph(nodes, ctx)`    | the run's edges                                         | nothing unless declared              |
 | key      | `key(task, ctx)`       | extra cache-key material (named in `vx why`)            | nothing unless declared              |
 | schedule | `schedule(nodes, ctx)` | which ready task runs first                             | `scheduleHistoryPlugin()`, or your own |
-| execute  | `executor(ctx)`        | *where* ONE task's command runs — local or a worker     | `localExecutorPlugin()`, or your own |
-| store    | `cache(ctx)`           | *which* cache is used — your server, S3, a CAS          | `localCachePlugin()`, or your own    |
+| execute  | `executor(ctx)`        | *where* ONE task's command runs — local or a worker     | your own; the local executor is the floor |
+| store    | `cache(ctx)`           | *which* cache is used — your server, S3, a CAS          | your own; the local store is the floor |
 | observe  | `telemetry(ctx)`       | *where* run data goes — OTel, Slack, your DB            | nothing unless declared              |
 | cli      | `commands`             | which verbs `vx` has                                    | nothing unless declared              |
 

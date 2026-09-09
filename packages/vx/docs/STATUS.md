@@ -40,7 +40,7 @@ Process: push directly to `main`, no PRs. Gate before every push:
 ## Shipped in this arc
 
 A digest, newest last; the commits carry the detail. Numbers are the
-1000-project bench (`bench/run.ts`, warm, whole process, best of 5)
+1000-project bench (`packages/vx-bench/run.ts`, warm, whole process, best of 5)
 unless a shape is named; "interleaved A/B" means arms alternated against
 an immutable `git worktree` of the previous commit.
 
@@ -148,9 +148,9 @@ in a fresh process); piped oxlint prints one line per finding.
 / 510 ms / 777 ms / 34.6 s; Turbo 2.10.12 5m 13s / 760 ms / 1.17 s /
 73 s; Nx 23.2.0 34m 44s / 3.59 s / 4.15 s / 114 min. Baseline is the
 theoretical best case (cold = critical-path-first list schedule of the
-exact DAG on 10 workers, 3m 38s, `bench/ideal.ts` with pins; the other
+exact DAG on 10 workers, 3m 38s, `packages/vx-bench/ideal.ts` with pins; the other
 rows 0); bars are proportional with an outlier clipped past 10×.
-`bench/update-site.ts` generates rows, tiles, note and
+`packages/vx-bench/update-site.ts` generates rows, tiles, note and
 `benchmarks.md` from `results.json`; `site-check` gates drift.
 `RUNNERS=vx` re-measures one runner in ~6 min; `BASELINE_ONLY=1` the
 floors. Re-measured after waves 6–7, 9 and 10: no regression.
@@ -631,7 +631,7 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    presence of `re-running...` separates a lost event from a slow
    re-run (see the 2026-09-03 watch entry).
 6. **Re-measure the warm run after each day's work** — the hot path is
-   the product. `bun bench/run.ts 100 5` and `1000 5`; an interleaved
+   the product. `bun packages/vx-bench/run.ts 100 5` and `1000 5`; an interleaved
    A/B against an immutable worktree settles any gap. Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
    projects 159 ms warm / 538 ms with restore, 100 projects 66 ms /
    104 ms — the sandbox and CI work touched nothing the warm path

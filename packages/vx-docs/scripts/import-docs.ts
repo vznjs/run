@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 /**
- * Import the canonical Markdown in `docs/` into the Starlight content
- * collection. The repo's `docs/` tree stays the single source of truth;
+ * Import the canonical Markdown in `packages/vx/docs/` into the Starlight content
+ * collection. That tree stays the single source of truth;
  * this script adds frontmatter and rewrites internal `.md` links to
  * Starlight clean URLs. It is idempotent and runs before every dev/build.
  *
- * Hand-authored pages (index.mdx, getting-started.md) are never touched —
+ * Hand-authored pages (introduction, quickstart, guides/, concepts/, migrate/) are never touched —
  * this script only writes the generated set listed in GENERATED below.
  */
 import { Glob } from 'bun'

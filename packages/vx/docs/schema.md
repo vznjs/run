@@ -291,9 +291,9 @@ daemon, a Docker socket, a device, a VPN-only host.
 }
 ```
 
-- **Only meaningful with a remote executor declared.** A workspace whose
-  only executor is `localExecutorPlugin()` already runs everything here,
-  so the field changes nothing.
+- **Only meaningful with a remote executor declared.** A workspace with
+  no executor plugin already runs everything here, so the field changes
+  nothing.
 - **Pinned by inference too.** A `persistent` task, and anything that
   depends on one (transitively), is pinned regardless of what it
   declares — a worker cannot reach a port served on the submitter.
@@ -984,15 +984,13 @@ default.
 
 ```ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { otel } from '@vzn/vx-otel'
 
 export default defineWorkspace({
   concurrency: 8,
   cacheDir: 'build/.vx-cache',
   timeout: 600_000,
-  plugins: [otel(), localExecutorPlugin(), localCachePlugin()],
+  plugins: [otel()],
 })
 ```
 
@@ -1021,15 +1019,14 @@ interface WorkspaceConfig {
   root; absolute paths are used as-is. `vx run`, `vx cache prune`,
   and any other reader use the same resolution
   (`src/workspace/workspace.ts:resolveCacheDir`).
-- **`plugins`** — the run-level extension points. **Required in
-  practice:** core applies nothing by default, so a workspace must declare
-  an executor and a cache provider — `localExecutorPlugin()` from
-  `@vzn/vx/plugins/local-executor` and `localCachePlugin()` from
-  `@vzn/vx/plugins/local-cache` for core's own (`vx migrate` emits them);
-  a workspace without either fails before any task runs, naming the fix.
+- **`plugins`** — the run-level extension points. Optional: core
+  applies no plugin by default, and the local executor and the local
+  cache are its floor — the tail of every executor list and cache chain
+  — so a workspace that declares none runs and caches here.
   Declaration order is precedence: every `executor` is consulted in order
-  per task (first to accept runs it); every `cache` layer is chained
-  (lookup walks, save reaches all). Each entry is a
+  per task (first to accept runs it; what all decline runs locally);
+  every `cache` layer is chained (lookup walks, save reaches all, the
+  local store last). Each entry is a
   `VxPlugin` object contributing any subset of the pipeline stages
   `config` (edit the workspace config), `project` (edit a loaded
   project's tasks — inject, remove, rewrite; re-validated by core and

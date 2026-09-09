@@ -11,16 +11,10 @@ Nothing is on by default. Declare the plugin in `vx.workspace.ts`, **before** th
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { nxCache } from '@vzn/vx-nx-cache'
 
 export default defineWorkspace({
-  plugins: [
-    nxCache({ server: 'https://cache.example.com', accessToken: process.env.CACHE_TOKEN }),
-    localExecutorPlugin(),
-    localCachePlugin(),
-  ],
+  plugins: [nxCache({ server: 'https://cache.example.com', accessToken: process.env.CACHE_TOKEN })],
 })
 ```
 

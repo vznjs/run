@@ -11,8 +11,6 @@ Nothing is on by default. Declare the plugin in `vx.workspace.ts`, **before** th
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { turboCache } from '@vzn/vx-turbo-cache'
 
 export default defineWorkspace({
@@ -24,8 +22,6 @@ export default defineWorkspace({
       // Optional: sign uploads and verify downloads (Turbo's artifact signature).
       // signatureKey: process.env.CACHE_SIGNATURE_KEY, teamId: 'team_acme',
     }),
-    localExecutorPlugin(),
-    localCachePlugin(),
   ],
 })
 ```

@@ -31,28 +31,25 @@ Using the standalone binary from a release instead? Still add
 and `vx.config.ts` import it, and the binary resolves that import from
 your `node_modules` (it also gives you the types).
 
-## 2. Say what runs your tasks
+## 2. The workspace file (optional)
 
-vx applies **nothing** by default — not even the thing that spawns your
-command or the cache that stores its output. Both arrive as plugins, and
-you declare them once at the workspace root:
+Running a command on this machine and caching its result in `.vx/cache`
+is what vx does with no configuration at all — a workspace with no
+`vx.workspace.ts` runs and caches. The file exists to add plugins: a
+remote cache, a remote executor, telemetry, extra CLI verbs. Each one is
+a line in a list, consulted in order, with the local executor and cache
+as the floor under all of them:
 
 ```ts
 // vx.workspace.ts (next to your root package.json)
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 
-export default defineWorkspace({ plugins: [localExecutorPlugin(), localCachePlugin()] })
+export default defineWorkspace({
+  plugins: [], // e.g. reapi({ endpoint: 'cache.example.com:443' })
+})
 ```
 
-Skip this and your first run stops before any task: with no
-`vx.workspace.ts` at all it says `run \`vx init\``, then
-`no cache plugin declared`, quoting the snippet above. It is one file,
-once — and it is why a remote cache or a remote executor later is a
-one-line change to this same list rather than a different product.
-
-Or let vx write it: `vx init` scaffolds this file and one `vx.config.ts`
+Let vx write it: `vx init` scaffolds this file and one `vx.config.ts`
 per package from your `package.json` scripts (`vx migrate` does the same
 from a `turbo.json` or an Nx graph). Steps 3–5 show what it generates —
 the generated files type themselves with `satisfies ProjectConfig` and
