@@ -40,19 +40,25 @@ export default defineProject({
       description: 'astro build → dist/',
       dependsOn: ['install'],
       exec: {
-        command: 'astro build',
+        // Under Bun, not the host's Node: `bun --bun` runs astro's bin on
+        // Bun's runtime, which builds the same 133 pages in half the time
+        // (18.5 s against 37 s under Node 22, 2026-09-09) and leaves no
+        // dependency on whichever Node a CI image ships — astro 6 refuses
+        // anything below 22.12, and the Linux gate's docs build had been
+        // exiting 1 in 61 ms with no output at all.
+        command: 'bun --bun astro build',
         // astro's telemetry does `mkdir ~/.config` before anything else; a
-        // sandboxed task may read HOME but not write it, so on Linux astro
-        // threw EROFS at startup (exit 1 in 225 ms, no output) until the
-        // telemetry was told to stay home.
+        // sandboxed task may read HOME but not write it, so it is told to
+        // stay home.
         env: { define: { ASTRO_TELEMETRY_DISABLED: '1' } },
         sandbox: {
           allow: {
             read: ['**/*'],
             write: ['dist/**', '.astro/**', 'node_modules/.astro/**', 'node_modules/.vite/**'],
+            // A static build binds no port; `localBinding` belongs to `dev`
+            // and `preview` below, which serve.
             systemInfo: ['vfs.disk-space', 'net.link.addr'],
             machLookup: ['com.apple.SystemConfiguration.DNSConfiguration'],
-            localBinding: true,
           },
         },
       },
@@ -69,7 +75,7 @@ export default defineProject({
       description: 'astro dev server (persistent)',
       dependsOn: ['install'],
       exec: {
-        command: 'astro dev',
+        command: 'bun --bun astro dev',
         env: { define: { ASTRO_TELEMETRY_DISABLED: '1' } },
         persistent: { readyWhen: 'Local' },
         timeout: 120000,
@@ -89,7 +95,7 @@ export default defineProject({
       description: 'serve the built dist/ (persistent)',
       dependsOn: ['build'],
       exec: {
-        command: 'astro preview',
+        command: 'bun --bun astro preview',
         env: { define: { ASTRO_TELEMETRY_DISABLED: '1' } },
         persistent: { readyWhen: 'Local' },
         timeout: 120000,

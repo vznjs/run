@@ -569,12 +569,22 @@ place with pins:
 green, 36/36, no violations. CI is not, and every remaining item is
 either a one-line decision or a known constraint, not a mystery:
 
-1. DONE 2026-09-09: `@vzn/vx-docs#build` on Linux CI — astro's
-   telemetry did `mkdir ~/.config`, which a sandboxed task may read but
-   not write, and threw at startup. The project's three astro tasks
-   define `ASTRO_TELEMETRY_DISABLED=1`; the core-wide HOME/XDG redirect
-   stays rejected for the reason recorded before (tools that legitimately
-   READ home, the cross-compile cache among them).
+1. `@vzn/vx-docs#build` on Linux CI (2026-09-09, in flight until the
+   next run is green). The telemetry EROFS recorded before is real, but
+   telling astro's telemetry to stay home did not change the failure:
+   the task still exits 1 after 61 ms with NOTHING on either stream,
+   which is before astro's bin could load, and the same silent exit is
+   what the Deploy docs workflow has shown on main since 2026-09-05.
+   Two candidates, both removed in one change: the runner's Node (astro
+   6 refuses anything below 22.12; neither workflow sets one up), and
+   `localBinding: true` on a task that binds no port — the only task in
+   the repo with it on Linux. The three astro tasks now run under
+   `bun --bun`, which builds the same 133 pages in 18.5 s against 37 s
+   under Node 22 here and removes the runner's Node from the equation;
+   the build task keeps only the grants a static build needs. If the
+   next run still exits silently, the cause is in the sandbox wrapper
+   and needs a diagnostic frame from CI (this box is root in a
+   container and cannot run the Linux sandbox).
 2. DONE 2026-09-09, and the diagnosis was wrong: the four perf baselines
    did not fail from eight-way contention but from ptrace. The Linux
    sandbox wraps every task in `strace -f -e trace=openat`, and without
