@@ -983,7 +983,12 @@ function`); the seam now checks the returned shape once and refuses
     the 1000-project figures are dominated by work the transpile does
     not touch. When a small-workspace number matters, time the
     bytecode binary (`scratchpad/abbin.ts` did; `vx-bench` has no
-    binary option yet — add one before quoting it).
+    binary option yet — add one before quoting it). Inside the
+    binary's 71 ms on two packages: startup 25–30 (the runtime's own),
+    the early `git ls-files` spawn 9, the per-run git context spawn
+    (commit + branch for the invocations row) ~4, the status walk, and
+    ~13 for two cache hits — a floor of deliberate spawns, nothing to
+    cut without a number.
 
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
