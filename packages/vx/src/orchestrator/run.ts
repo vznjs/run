@@ -487,8 +487,9 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       }
     }
     // Resource-aware admission: resolve every task's `exec.resources`
-    // into absolute costs ONCE, up front (percent forms against the
-    // budgets), so the scheduler's inner loop is a plain Map.get. The
+    // into absolute costs ONCE, up front, so the scheduler's inner loop is
+    // a plain Map.get (percent forms were removed 2026-08-30 — see
+    // resources.ts). The
     // CPU budget is the run's concurrency; the memory budget is
     // os.totalmem() unless `--memory` overrides it (pass `--memory` in
     // cgroup-limited containers — totalmem() reports the HOST's RAM).
