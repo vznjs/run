@@ -76,12 +76,21 @@ function suggest(query: string, candidates: readonly string[]): string {
  */
 function resolveTarget(cache: Cache, target: string): string {
   const db = cache.dbHandle()
+  if (target.includes('#')) {
+    // An exact id needs one row, and its newest is where a scan from the
+    // top of the table finds it first — the full DISTINCT walk below is for
+    // the error's suggestions and the bare-name form only.
+    const [project, task] = splitTaskId(target)
+    const hit = db
+      .query('SELECT 1 FROM runs WHERE project = ? AND task = ? ORDER BY id DESC LIMIT 1')
+      .get(project, task)
+    if (hit !== null) return target
+  }
   const pairs = db
     .query('SELECT DISTINCT project, task FROM runs ORDER BY project, task')
     .all() as Array<{ project: string; task: string }>
   const ids = pairs.map((p) => `${p.project}#${p.task}`)
   if (target.includes('#')) {
-    if (ids.includes(target)) return target
     throw new UserError(`vx why: no recorded runs for "${target}"${suggest(target, ids)}`)
   }
   const matches = ids.filter((id) => id.endsWith(`#${target}`))

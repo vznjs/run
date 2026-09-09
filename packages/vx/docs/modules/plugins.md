@@ -40,8 +40,9 @@ export default defineWorkspace({ plugins: [scheduleHistoryPlugin()] })
 `scheduleHistoryPlugin({ window? })` → `vx/schedule-history`. The
 reference `schedule` stage: orders ready tasks by their expected
 REMAINING critical-path duration (own p50 + the longest chain of
-dependents), learned from the local run history through
-`LocalHistoryProvider(ctx.localCache.dbHandle())`. Fails open — a broken
+dependents), learned from the last `window` invocations (default 20) of
+the local run history through
+`LocalHistoryProvider(ctx.localCache.dbHandle(), window)`. Fails open — a broken
 history read warns and leaves the baseline order. This was core's
 opt-in `predictive` mode until 2026-09-02; as a plugin its history read
 is paid only by the workspaces that declare it. `criticalPathPriorities`
