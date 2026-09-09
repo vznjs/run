@@ -480,6 +480,57 @@ no log output at all; the run's audit trail of which key each task
 resolved to, Turbo parity), `none` (no per-task output). The
 end-of-run summary always prints.
 
+### Failure propagation — `--continue`
+
+`--continue[=never|deps-ok|always]` controls what a failed task takes
+down with it:
+
+- **`deps-ok`** (default): the failure's transitive dependents are
+  skipped; independent siblings keep running.
+- **`never`**: fail fast — the first failure stops dispatch. In-flight
+  tasks finish naturally; everything not yet started (cache restores
+  included) completes as skipped.
+- **`always`** (bare `--continue`): dependents run even when an
+  upstream failed — to surface every failure in one pass. A task
+  downstream of a failure (directly, or through successes built on it)
+  runs and cleans its outputs as usual but is **never saved**: under
+  pure-input hashing its key is the one a healthy run derives, while its
+  bytes were built on a partial tree, so caching it would hand the next
+  clean run a stale hit. A cache hit still restores (that artifact came
+  from a healthy run), and the next run without the failure rebuilds the
+  rest.
+
+The mode rides the wire, so distributed runs honor it.
+
+### `--download <mode>`
+
+Where a **remotely-executed** task's outputs land. `all` (default)
+downloads every task's outputs to this machine as it completes —
+today's behaviour, byte for byte. `toplevel` brings home only the tasks
+you actually asked for — including the real tasks behind a requested
+group — and leaves intermediates remote. `none` leaves
+them in the remote CAS
+and fetches them **lazily**: only when a locally-placed task in the
+same run actually needs them (Bazel calls this "build without the
+bytes"). A CI job that only wants the verdict moves no output bytes at
+all.
+
+Locally-executed tasks always write in place and ignore the flag, and
+`exec.remote: 'only'` still means never — `--download` cannot override
+it in either direction. **It never affects a cache key**: transfer
+tuning cannot change what a command produces.
+
+One safety gate: a task whose outputs another task's `cache.inputs`
+globs could read on disk is silently kept eager, because deferring it
+would make that key depend on whether the bytes arrived. `--dry` reports
+how many tasks would keep their outputs remote and names each downgrade,
+so a run that defers nothing says why. A run in which any task declares a
+`cache.inputs.runtime` / `workspaceRuntime` command defers **nothing**:
+a shell command's reads cannot be bounded, so vx cannot prove it will
+not read a deferred output (the same reason vx refuses to infer inputs
+by tracing). When bytes are fetched later, vx saves an ordinary
+cache entry for them, so the next run is a plain local hit.
+
 ## Planning mode (`--dry`, `--graph`)
 
 Both flags short-circuit execution. They build the full task graph,
@@ -1248,38 +1299,12 @@ app#build — run 019f5a02-…
 The component-level rows come from the `entry_inputs` input
 fingerprints persisted with each cache entry; when either side's entry
 is gone (pruned, or the run failed and never saved one) the verb still
-names the hash change and says the component diff is unavailable.
+names the hash change and says the component diff is unavailable. A
+task with no `cache` block derives a key too — it is what dependents
+fold — but saves no entry, so for it the verb can only report the key
+change and says so.
 `--format json` emits one machine-readable object (`{ taskId, runId,
 why, diff }`).
-
-### `--download <mode>`
-
-Where a **remotely-executed** task's outputs land. `all` (default)
-downloads every task's outputs to this machine as it completes —
-today's behaviour, byte for byte. `toplevel` brings home only the tasks
-you actually asked for — including the real tasks behind a requested
-group — and leaves intermediates remote. `none` leaves
-them in the remote CAS
-and fetches them **lazily**: only when a locally-placed task in the
-same run actually needs them (Bazel calls this "build without the
-bytes"). A CI job that only wants the verdict moves no output bytes at
-all.
-
-Locally-executed tasks always write in place and ignore the flag, and
-`exec.remote: 'only'` still means never — `--download` cannot override
-it in either direction. **It never affects a cache key**: transfer
-tuning cannot change what a command produces.
-
-One safety gate: a task whose outputs another task's `cache.inputs`
-globs could read on disk is silently kept eager, because deferring it
-would make that key depend on whether the bytes arrived. `--dry` reports
-how many tasks would keep their outputs remote and names each downgrade,
-so a run that defers nothing says why. A run in which any task declares a
-`cache.inputs.runtime` / `workspaceRuntime` command defers **nothing**:
-a shell command's reads cannot be bounded, so vx cannot prove it will
-not read a deferred output (the same reason vx refuses to infer inputs
-by tracing). When bytes are fetched later, vx saves an ordinary
-cache entry for them, so the next run is a plain local hit.
 
 ## `vx prune`
 
@@ -1546,25 +1571,3 @@ provided).
 
 The CLI dispatcher (`run(argv)` in `src/cli/index.ts`) is not part of
 the public package exports; `bin.ts` calls it directly.
-
-### Failure propagation — `--continue`
-
-`--continue[=never|deps-ok|always]` controls what a failed task takes
-down with it:
-
-- **`deps-ok`** (default): the failure's transitive dependents are
-  skipped; independent siblings keep running.
-- **`never`**: fail fast — the first failure stops dispatch. In-flight
-  tasks finish naturally; everything not yet started (cache restores
-  included) completes as skipped.
-- **`always`** (bare `--continue`): dependents run even when an
-  upstream failed — to surface every failure in one pass. A task
-  downstream of a failure (directly, or through successes built on it)
-  runs and cleans its outputs as usual but is **never saved**: under
-  pure-input hashing its key is the one a healthy run derives, while its
-  bytes were built on a partial tree, so caching it would hand the next
-  clean run a stale hit. A cache hit still restores (that artifact came
-  from a healthy run), and the next run without the failure rebuilds the
-  rest.
-
-The mode rides the wire, so distributed runs honor it.

@@ -72,7 +72,12 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   return 0
 }
 
-/** Whether git's fsmonitor / untracked cache are on, with the remedy when not. */
+/**
+ * Whether git's fsmonitor / untracked cache are on. Reported as a fact,
+ * not a remedy: interleaved A/B at 1000 projects measured neither moving
+ * the warm run (STATUS, waves 5 and the 2026-09-03 refutations) — the
+ * status walk's cost is git's own, and vx already overlaps it.
+ */
 function gitStatusCache(root: string): string {
   try {
     const p = Bun.spawnSync({
@@ -91,7 +96,7 @@ function gitStatusCache(root: string): string {
       ...(fsmonitor ? [] : ['core.fsmonitor']),
       ...(untracked ? [] : ['core.untrackedCache']),
     ]
-    return `${missing.join(', ')} off — \`git config ${missing[0]} true\` makes every run's status walk near-free on a large tree`
+    return `${missing.join(', ')} off`
   } catch {
     return '(unknown)'
   }

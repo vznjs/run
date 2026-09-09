@@ -218,7 +218,7 @@ describe('vx info (e2e)', () => {
       expect(r.out).toContain('git:')
       // The status-cache row names the git settings whichever way they are set.
       expect(r.out).toMatch(
-        /^git status cache: +(fsmonitor \+ untrackedCache on|core\.(fsmonitor|untrackedCache).* off — `git config core\.\w+ true`)/m,
+        /^git status cache: +(fsmonitor \+ untrackedCache on|core\.(fsmonitor|untrackedCache).* off)$/m,
       )
       // macOS realpaths /var → /private/var inside the child; match on
       // the unique tmpdir basename rather than the absolute prefix.
