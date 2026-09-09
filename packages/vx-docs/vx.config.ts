@@ -49,13 +49,11 @@ export default defineProject({
         // TEMPORARY CI DIAGNOSTIC (reverted in the next commit): the build
         // exits 1 with no output on the Linux gate and nowhere else.
         command: [
-          'echo "cwd=$PWD home=$HOME"; bun --version',
-          'bun --bun -e \'console.error("child-stderr-ok"); console.log("child-stdout-ok", process.versions.node)\'',
-          'for d in .astro node_modules/.astro node_modules/.vite dist; do (touch "$d/.probe" && echo "write-ok $d" || echo "write-FAIL $d"); done',
-          'touch /tmp/.vx-probe && echo write-ok /tmp',
-          'ls -la node_modules/.bin/astro; readlink -f node_modules/.bin/astro',
-          'bun --bun astro --version; echo "astro-version-exit=$?"',
-          'bun --bun astro build --verbose; echo "astro-build-exit=$?"',
+          'echo "TMPDIR=$TMPDIR"; ls -ld /tmp "$TMPDIR" "$HOME" "$HOME/.config" 2>&1',
+          'touch "$TMPDIR/.vx-probe" && echo write-ok TMPDIR',
+          'node --version 2>&1; echo "node-exit=$?"',
+          'bun --bun diag.mjs; echo "diag-exit=$?"',
+          'bun --bun node_modules/astro/bin/astro.mjs --version; echo "astro-direct-exit=$?"',
           'exit 1',
         ].join('; '),
         // astro's telemetry does `mkdir ~/.config` before anything else; a
