@@ -81,9 +81,11 @@ export async function applyProjectHooks(
 
 /**
  * `graph` stage: every plugin edits the task graph in place, then the graph
- * is checked the way the builder checks its own output — every dep names a
- * node in the graph, and there is no cycle. A violation is reported against
- * the LAST plugin that ran, which is the one whose edit made it so.
+ * is checked ONCE the way the builder checks its own output — every dep
+ * names a node in the graph, and there is no cycle. A violation is reported
+ * against the LAST plugin that ran: usually the one whose edit made it so,
+ * but an earlier plugin's edit that a later one left in place is blamed on
+ * the later one, since nothing is checked between plugins.
  */
 export async function applyGraphHooks(
   plugins: readonly VxPlugin[],

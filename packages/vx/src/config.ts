@@ -14,9 +14,10 @@ export interface WorkspaceConfig {
    */
   timeout?: number
   /**
-   * Plugins registered for this workspace. Each plugin is an
-   * in-process subscriber on the run event bus, installed once per
-   * `vx run`. See `docs/design/extension-protocol-2026-06.md` §5.
+   * Plugins registered for this workspace, consulted in this order once
+   * per `vx run`: each fills any of the pipeline stages and capabilities
+   * below, and core's own executor and cache store sit at the tail of
+   * every list. See `docs/design/pipeline-2026-09.md`.
    */
   plugins?: readonly Plugin[]
 }
@@ -248,9 +249,8 @@ export interface ExecConfig {
    * on ready, not on exit. The orchestrator SIGTERMs every persistent
    * subprocess once the rest of the graph has finished.
    *
-   * `cache` is silently ignored for persistent tasks — there's no
-   * exit code to cache and the work continues after vx's run notion
-   * of "done".
+   * `cache` is rejected on a persistent task — there's no exit code
+   * to cache and the work continues after vx's run notion of "done".
    */
   persistent?: PersistentConfig
   /**
@@ -267,8 +267,9 @@ export interface ExecConfig {
    * OUTSIDE the project is denied but not reported — that is the wall
    * doing its job, not a finding.
    *
-   * Silently skipped for persistent tasks: a dev server needs unrestricted
-   * network and an indefinite process.
+   * A persistent task is confined the same way but never REPORTED on: the
+   * violation report reads the trace after the process exits, and a server
+   * exits at teardown. Enforced, not reported.
    */
   sandbox?: SandboxConfig
 }
@@ -343,8 +344,9 @@ export interface CacheOutputs {
    * files anywhere in the workspace, including inside other projects'
    * directories. Deliberate escape hatch — prefer project-relative
    * `files` whenever the task can write inside its own dir. Two tasks
-   * declaring overlapping workspace outputs is user responsibility;
-   * vx does not police it.
+   * whose workspace outputs provably overlap are refused at graph build,
+   * like overlapping `files` (vx cleans declared outputs before a run
+   * and before a restore, so the second would delete the first's).
    */
   workspaceFiles?: string[]
 }
