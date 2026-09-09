@@ -27,17 +27,17 @@ For the high-level data flow, read
 
 ## CLI
 
-| File                                         | Topic                                                                          |
-| -------------------------------------------- | ------------------------------------------------------------------------------ |
-| [`cli.md`](./cli.md)                         | `src/cli/index.ts` — module contract: dispatcher + re-exports for tests.       |
-| [`cli-run.md`](./cli-run.md)                 | `src/cli/run.ts` — the `vx run` parser, scope resolver, picker.                |
-| [`cli-watch.md`](./cli-watch.md)             | `src/cli/watch.ts` — `vx watch <task>`: re-run on FS change.                   |
-| [`cli-cache.md`](./cli-cache.md)             | `src/cli/cache.ts` — `vx cache prune`, duration / size parsers.                |
-| [`cli-help.md`](./cli-help.md)               | `src/cli/help.ts` — static help text.                                          |
-| [`plugin-commands.md`](./plugin-commands.md) | `src/cli/plugin-commands.ts` — plugin-contributed verbs (`VxPlugin.commands`). |
-| [`cli-format.md`](./cli-format.md)           | `src/cli/format.ts` — `formatBytes` and other shared formatters.               |
-| [`plan-format.md`](./plan-format.md)         | `src/cli/plan-format.ts` — plan → text / JSON / DOT.                           |
-| [`upgrade.md`](./upgrade.md)                 | `src/cli/upgrade.ts` — `vx upgrade` binary self-update.                        |
+| File                                         | Topic                                                                                                  |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| [`cli.md`](./cli.md)                         | `src/cli/index.ts` — module contract: dispatcher + re-exports for tests.                               |
+| [`cli-run.md`](./cli-run.md)                 | `src/cli/run.ts` — the `vx run` parser and verb; `src/cli/select.ts` — scope, affected owners, picker. |
+| [`cli-watch.md`](./cli-watch.md)             | `src/cli/watch.ts` — `vx watch <task>`: re-run on FS change.                                           |
+| [`cli-cache.md`](./cli-cache.md)             | `src/cli/cache.ts` — `vx cache prune`, duration / size parsers.                                        |
+| [`cli-help.md`](./cli-help.md)               | `src/cli/help.ts` — static help text.                                                                  |
+| [`plugin-commands.md`](./plugin-commands.md) | `src/cli/plugin-commands.ts` — plugin-contributed verbs (`VxPlugin.commands`).                         |
+| [`cli-format.md`](./cli-format.md)           | `src/cli/format.ts` — `formatBytes` and other shared formatters.                                       |
+| [`plan-format.md`](./plan-format.md)         | `src/cli/plan-format.ts` — plan → text / JSON / DOT.                                                   |
+| [`upgrade.md`](./upgrade.md)                 | `src/cli/upgrade.ts` — `vx upgrade` binary self-update.                                                |
 
 The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 `info.ts`, `cache.ts`) are user-facing commands documented in
