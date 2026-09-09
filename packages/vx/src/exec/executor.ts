@@ -32,7 +32,7 @@ export interface ExecuteSandbox {
 export interface InputFile {
   /** Workspace-relative POSIX path. */
   readonly path: string
-  /** Git blob OID of the WORKTREE bytes (the same digest the key folds). */
+  /** Git blob OID of the WORKTREE bytes — for a symlink, of its target string — the same digest the key folds. */
   readonly digest: string
 }
 

@@ -26,8 +26,8 @@ cacheable }` — what `accepts()` sees. Placement happens ONCE per task,
   `workspaceFiles` root-relative) — what an executor running elsewhere has
   to bring back.
 - `TaskInputs` — everything the cache key folds, WITH values: `files`
-  (workspace-relative path + git-blob digest of the worktree bytes, own
-  outputs excluded), `env` (declared names + resolved values), `runtime` /
+  (workspace-relative path + git-blob digest of the worktree bytes, or of
+  a symlink's target string, own outputs excluded), `env` (declared names + resolved values), `runtime` /
   `workspaceRuntime` (command + the output that was folded — a toolchain
   expectation a worker must reproduce), `upstream` (dependency task ids +
   cache keys + each one's declared `outputs`, workspace-relative — already
