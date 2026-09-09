@@ -1229,7 +1229,23 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    file's own evaluation). Grep for `loadProjectConfig(` before
    adding a fourth consumer of the staged load. (d) `logger.ts` (716)
    and `framed-output.ts` (528) are the last large files; split only
-   if a concern separates as cleanly as the three splits today did.
+   if a concern separates as cleanly as the three splits today did
+   (assessed 2026-09-09: neither does — one renderer, one formatter).
+   (e) Discovery is the largest fixed cost a warm run pays before any
+   task: `listProjects` reads 19–28 ms for 1000 packages (2026-09-09,
+   isolated). The manifest reads are 3–5 ms of it (async `Bun.file`
+   wins over `readFileSync` 3.4 vs 6.3 ms, re-measured — the comment
+   in workspace.ts stands); the rest is the member glob, the config
+   probe and the loops. A memo keyed on each member directory's stat
+   would skip the reads on a warm run, but a directory mtime does not
+   move when a file INSIDE it is rewritten in place, so the key would
+   have to be the manifest's own stat — one stat per package, which is
+   most of the cost already. Do it only with a measured design.
+   (f) `--cache-dir` is a `vx run` flag only: a run under it leaves
+   `vx last` / `vx why` / `vx cache prune` reading the default
+   directory. `defineWorkspace({ cacheDir })` is the durable way and
+   the docs call the flag per-run; add it to the reading verbs only if
+   someone hits it.
 
 ## Decisions (this arc)
 
