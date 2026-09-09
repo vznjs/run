@@ -17,7 +17,7 @@ export default defineWorkspace({
 That's the whole setup. On a GitHub Actions runner (`GITHUB_STEP_SUMMARY`
 set) every `vx run` appends a summary block: verdict headline, stats
 (tasks / executed / cache hits / duration), failures called out above the
-per-task table, and a `Verify` column when the run was a `--verify` proof.
+per-task table.
 Anywhere else — laptops, other CI — the plugin **declines** and costs
 nothing, so declaring it unconditionally is safe.
 

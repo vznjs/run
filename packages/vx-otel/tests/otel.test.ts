@@ -177,64 +177,6 @@ describe('OTLP builders', () => {
     expect(taskStatusCode({ ...t, status: 'cache-hit' })).toBe(0)
   })
 
-  it('surfaces the --verify verdict as span attributes + status', () => {
-    const base: TaskTelemetry = {
-      taskId: 'a#build',
-      project: 'a',
-      task: 'build',
-      status: 'success',
-      cacheSource: 'miss',
-      exitCode: 0,
-      durationMs: 50,
-    }
-    // A non-hermetic task: verdict attribute + changed paths + span ERROR
-    // (even though it exited 0 — its cache entry is unsound).
-    const bad: TaskTelemetry = {
-      ...base,
-      verify: { kind: 'nondeterministic', changed: ['dist/a.js', 'dist/a.js.map'] },
-    }
-    const mb = attrMap(taskSpanAttributes(bad, TASK_RUN))
-    expect(mb['vx.task.verify']).toBe('nondeterministic')
-    expect(mb['vx.task.verify.changed']).toBe('["dist/a.js","dist/a.js.map"]')
-    expect(taskStatusCode(bad)).toBe(2)
-    // A proven task: verdict attribute, no changed paths, span UNSET.
-    const good: TaskTelemetry = { ...base, verify: { kind: 'proven-deterministic' } }
-    const mg = attrMap(taskSpanAttributes(good, TASK_RUN))
-    expect(mg['vx.task.verify']).toBe('proven-deterministic')
-    expect(mg['vx.task.verify.changed']).toBeUndefined()
-    expect(taskStatusCode(good)).toBe(0)
-    // No --verify → no verdict attribute at all.
-    expect(attrMap(taskSpanAttributes(base, TASK_RUN))['vx.task.verify']).toBeUndefined()
-  })
-
-  it('surfaces the Phase-2 (inputs) verdicts: undeclared-inputs is ERROR with paths', () => {
-    const base: TaskTelemetry = {
-      taskId: 'a#build',
-      project: 'a',
-      task: 'build',
-      status: 'success',
-      cacheSource: 'miss',
-      exitCode: 0,
-      durationMs: 50,
-    }
-    // Incomplete declared inputs: verdict attr + the undeclared paths +
-    // span ERROR (the task exited 0 but its cache entry is unsound).
-    const leaky: TaskTelemetry = {
-      ...base,
-      verify: { kind: 'undeclared-inputs', paths: ['pkg/a/secret.txt', 'pkg/b/x.env'] },
-    }
-    const ml = attrMap(taskSpanAttributes(leaky, TASK_RUN))
-    expect(ml['vx.task.verify']).toBe('undeclared-inputs')
-    expect(ml['vx.task.verify.undeclared']).toBe('["pkg/a/secret.txt","pkg/b/x.env"]')
-    expect(taskStatusCode(leaky)).toBe(2)
-    // proven-complete: verdict attr, no path attrs, span UNSET.
-    const complete: TaskTelemetry = { ...base, verify: { kind: 'proven-complete' } }
-    const mc = attrMap(taskSpanAttributes(complete, TASK_RUN))
-    expect(mc['vx.task.verify']).toBe('proven-complete')
-    expect(mc['vx.task.verify.undeclared']).toBeUndefined()
-    expect(taskStatusCode(complete)).toBe(0)
-  })
-
   it('surfaces retry attempts on the task span', () => {
     const t: TaskTelemetry = {
       taskId: 'a#flaky',
@@ -497,7 +439,7 @@ describe('otel() plugin', () => {
 // the typed fixture, which fails the key pin, which forces someone to decide
 // how it maps — instead of the field quietly never arriving.
 
-const FULL_TASK: Required<Omit<TaskTelemetry, 'verify'>> & Pick<TaskTelemetry, 'verify'> = {
+const FULL_TASK: Required<TaskTelemetry> = {
   taskId: 'app#build',
   project: 'app',
   task: 'build',
@@ -511,16 +453,6 @@ const FULL_TASK: Required<Omit<TaskTelemetry, 'verify'>> & Pick<TaskTelemetry, '
   where: 'worker-7',
   outputs: 'deferred',
   attempts: 2,
-  verify: { kind: 'proven-deterministic' },
-  outputFp: {
-    tree: 'feedfacefeedface',
-    fileCount: 3,
-    files: [
-      ['dist/a.js', 'aaaa'],
-      ['dist/b.js', 'bbbb'],
-    ],
-    truncated: true,
-  },
   // Past Number.MAX_SAFE_INTEGER — routing this through a JS number rounds it.
   wallclockStartNs: '9007199254740993',
   wallclockEndNs: '9007199254742000',
@@ -625,7 +557,6 @@ describe('OTLP losslessness', () => {
     expect(a['vx.task.attempts']).toBe('2')
     expect(a['vx.task.where']).toBe('worker-7')
     expect(a['vx.task.outputs']).toBe('deferred')
-    expect(a['vx.task.verify']).toBe('proven-deterministic')
   })
 
   it('makes a task span readable without its root span', () => {
@@ -650,33 +581,6 @@ describe('OTLP losslessness', () => {
     expect(a['vx.task.wallclock_end_ns']).toBe('9007199254742000')
   })
 
-  it('carries the output fingerprint, file map included', () => {
-    const a = attrMap(taskSpanAttributes(FULL_TASK, TASK_RUN) as never)
-    expect(a['vx.task.output_fp.tree']).toBe('feedfacefeedface')
-    expect(a['vx.task.output_fp.file_count']).toBe('3')
-    expect(a['vx.task.output_fp.truncated']).toBe(true)
-    expect(JSON.parse(String(a['vx.task.output_fp.files']))).toEqual([
-      ['dist/a.js', 'aaaa'],
-      ['dist/b.js', 'bbbb'],
-    ])
-  })
-
-  it('emits a fingerprint with no file map as an empty array, not a hole', () => {
-    const a = attrMap(
-      taskSpanAttributes(
-        {
-          ...FULL_TASK,
-          outputFp: { tree: 'aaaa', fileCount: 0 },
-        },
-        TASK_RUN,
-      ) as never,
-    )
-    // Detection keys on `tree`; the map is allowed to be absent, but the
-    // attribute must still parse rather than reading as malformed.
-    expect(a['vx.task.output_fp.files']).toBe('[]')
-    expect(a['vx.task.output_fp.truncated']).toBe(false)
-  })
-
   it('omits every optional task attribute when the field is absent', () => {
     const a = attrMap(
       taskSpanAttributes(
@@ -697,9 +601,7 @@ describe('OTLP losslessness', () => {
       'vx.cpu_ms',
       'vx.peak_rss_bytes',
       'vx.task.attempts',
-      'vx.task.verify',
       'vx.task.wallclock_start_ns',
-      'vx.task.output_fp.tree',
     ]) {
       expect(a[key]).toBeUndefined()
     }

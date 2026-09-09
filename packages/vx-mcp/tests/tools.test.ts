@@ -32,7 +32,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { Cache, type RunRecord, VERSION } from '@vzn/vx'
+import { Cache, type RunRecord } from '@vzn/vx'
 import { handleToolCall, listTools } from '../src/tools.js'
 
 // ---------------------------------------------------------------------------

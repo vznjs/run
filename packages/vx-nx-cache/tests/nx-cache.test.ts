@@ -153,17 +153,14 @@ describe('vx run with nxCache() declared before the local cache', () => {
     Bun.spawnSync({ cmd: ['git', 'init', '-q'], cwd: root })
   })
   afterAll(async () => {
-    srv.stop()
+    await srv.stop()
     await rm(root, { recursive: true, force: true })
   })
 
   it('a miss uploads; with the local cache wiped the next run restores from the server', async () => {
-    const quiet = { enabled: false } as const
     const first = await run({
       cwd: root,
       tasks: ['build'],
-      all: true,
-      colors: quiet,
       handleSignals: false,
     })
     expect(first.ok).toBe(true)
@@ -174,8 +171,6 @@ describe('vx run with nxCache() declared before the local cache', () => {
     const second = await run({
       cwd: root,
       tasks: ['build'],
-      all: true,
-      colors: quiet,
       handleSignals: false,
     })
     expect(second.ok).toBe(true)

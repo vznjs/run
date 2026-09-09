@@ -105,7 +105,12 @@ export class NxRemoteCache implements RemoteCacheLayer {
     return true
   }
 
-  async put(hash: string, body: ArrayBuffer | Uint8Array): Promise<void> {
+  // Nx's record carries no duration; the seam's `meta` is accepted and unused.
+  async put(
+    hash: string,
+    body: ArrayBuffer | Uint8Array,
+    _meta: { durationMs: number },
+  ): Promise<void> {
     if (this.disabled) return
     const bytes = body instanceof Uint8Array ? body : new Uint8Array(body)
     const res = await this.request('PUT', hash, bytes)

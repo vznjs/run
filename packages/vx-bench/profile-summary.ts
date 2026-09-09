@@ -16,6 +16,8 @@ interface Profile {
   timeDeltas: number[]
 }
 
+export {}
+
 const file = process.argv[2]
 if (!file)
   throw new Error('usage: bun packages/vx-bench/profile-summary.ts <file.cpuprofile> [top]')
