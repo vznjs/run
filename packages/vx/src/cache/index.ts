@@ -18,6 +18,7 @@ export {
   WORKSPACE_OUTPUT_PREFIX,
   type OutputDirRow,
   OUTPUT_DIRS_CAP,
+  FILE_HASH_RACY_MS,
   OUTPUT_DIRS_RACY_MS,
 } from './cache.js'
 export { type CASBackend, FsCASBackend } from './cas-backend.js'

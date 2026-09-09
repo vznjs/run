@@ -259,9 +259,15 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   }
   const considerWithDeps = (name: string): void => {
     consider(name)
+    // Every config-bearing project already pending: the closure can add
+    // nothing, and asking for it would build the package graph's
+    // transitive bitsets — a cost the unscoped run (every project a seed)
+    // otherwise never pays.
+    if (pending.length === metaByName.size) return
     for (const dep of packageGraph.transitiveDeps(name)) consider(dep)
   }
-  for (const seed of seeds) considerWithDeps(seed)
+  for (const seed of seeds) consider(seed)
+  if (pending.length < metaByName.size) for (const seed of seeds) considerWithDeps(seed)
 
   // Frozen mode (--frozen, CI): configs load FROM vx-lock.json after a
   // content-hash tripwire — no evaluation; env-dependent configs keep

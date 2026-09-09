@@ -110,22 +110,24 @@ export function buildPackageGraph(projects: ProjectMeta[]): PackageGraph {
     return [...seen].sort()
   }
 
+  // The closures are built on the FIRST query, not here: an unscoped run
+  // seeds every project and never asks for a transitive set, and neither
+  // does a `^task` walk (it reads `directDeps`). Building both closures
+  // eagerly was 12 ms of a 240 ms warm run at 1000 projects × 30 deps
+  // (profiled 2026-09-09) for answers nobody read.
   function makeAccessor(edges: Map<string, string[]>): (name: string) => string[] {
-    const closures = bitsetClosures(edges)
     const memo = new Map<string, string[]>()
-    if (closures === null) {
-      return (name) => {
-        const cached = memo.get(name)
-        if (cached) return cached
-        const result = reachableFrom(name, edges)
-        memo.set(name, result)
-        return result
-      }
-    }
+    let closures: Uint32Array | null | undefined
     const words = (names.length + 31) >>> 5
     return (name) => {
       const cached = memo.get(name)
       if (cached) return cached
+      if (closures === undefined) closures = bitsetClosures(edges)
+      if (closures === null) {
+        const result = reachableFrom(name, edges)
+        memo.set(name, result)
+        return result
+      }
       const i = index.get(name)
       if (i === undefined) return []
       const base = i * words

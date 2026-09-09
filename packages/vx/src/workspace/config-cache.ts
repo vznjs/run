@@ -52,6 +52,12 @@ export interface ConfigEvalStore {
    * shadow, is never indexed.
    */
   hashFile?(file: string): Promise<string>
+  /**
+   * `hashFile` over many paths with one memo query; a path that cannot be
+   * stat'ed is absent. The warm load identifies every indexed closure's
+   * files through this in a single call when the store offers it.
+   */
+  hashFiles?(files: readonly string[]): Promise<Map<string, string>>
   getConfigClosures?(configPaths: readonly string[]): Map<string, string[]>
   putConfigClosure?(configPath: string, files: readonly string[]): void
   getConfigEval(key: string): string | null
