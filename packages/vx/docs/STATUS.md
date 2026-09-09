@@ -1314,9 +1314,13 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    (`plugin tool/node-major a2d9… → e893…`), because `entry_inputs`
    rows reduce every value to a digest — right for env values, which
    can be secrets, but a plugin's own material (`node-major: 22`) is
-   what its author wants to read. Storing the value for `plugin` rows
-   only is a column and a SCHEMA_VERSION bump; do it with the schema
-   doc and the `why` renderer in one commit.
+   what its author wants to read. Assessed 2026-09-09: a new column
+   means a SCHEMA_VERSION bump, and a bump DROPS every table — every
+   user's cache and history — for a nicety; storing the raw value in
+   the `hash` column for `plugin` rows needs no bump but persists
+   whatever a plugin returned (a secret, if a plugin ever folds one).
+   Neither is worth it today; revisit when a plugin's part is the
+   thing people debug.
 
 ## Decisions (this arc)
 
