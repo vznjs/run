@@ -31,7 +31,7 @@
 
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { mkdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { relPosix, xxh3, xxh3hex, span } from '../util/index.js'
 import {
@@ -126,6 +126,15 @@ import { RunHistory } from './run-history.js'
 // rather than one developer's disk. Pre-alpha, so one cold rebuild is the
 // cheap side of that trade.
 const CACHE_VERSION = 'vx-cache-v27'
+
+/**
+ * An artifact or temp file without an `entries` row is reaped by
+ * `prune()` only once it is this old. A save renames the artifact into
+ * place and commits its row in the same tick; a crashed save's temp is
+ * stale long before this. Generous on purpose — a false orphan costs a
+ * re-run, a leaked temp costs disk.
+ */
+const ORPHAN_GRACE_MS = 60 * 60 * 1000
 // SCHEMA history (drop+recreate on mismatch; pre-alpha, no migrations):
 //   v20: file_hashes.content_hash (git blob OIDs).
 //   v21: dropped the unused outputs_hash column (pure-input hashing).
@@ -301,8 +310,10 @@ export class Cache implements CacheLayer {
     // Schema-version gate runs BEFORE the rest of the schema lands so
     // a column rename (e.g. v15's `sha256` → `content_hash`) actually
     // takes effect on stale DBs. Pre-alpha: no migrations, just drop
-    // and recreate. Outputs on disk become orphans; they'll be ignored
-    // on next miss and reaped by `vx cache prune`.
+    // and recreate. Artifacts on disk become orphans: a lookup never
+    // sees them (rows first, then the file), the next save of the same
+    // key renames over them, and `prune()`'s orphan sweep unlinks the
+    // rest.
     const meta = this.db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get() as
       | { value: string }
       | undefined
@@ -1284,7 +1295,59 @@ export class Cache implements CacheLayer {
       await Promise.all(hashes.map((h) => rm(this.tarPath(h), { force: true })))
     }
 
-    return { evicted: victims.size, bytesFreed }
+    const orphans = await this.reapOrphans()
+    return { evicted: victims.size, bytesFreed, ...orphans }
+  }
+
+  /**
+   * Unlink artifacts the index does not know: a `<hash>.tar.zst` with no
+   * `entries` row (a `SCHEMA_VERSION` drop, a `cache.db` deleted by hand)
+   * and a `<hash>.tar.zst.tmp-*` a crashed save never renamed. Nothing
+   * else reaps them — a lookup starts at the row, and a save of the same
+   * key renames over the file, so a key that never recurs leaks its bytes
+   * forever. Files younger than the grace window are left alone: a save
+   * renames the artifact into place BEFORE its row commits, and its temp
+   * exists while the bytes are still being written, so a fresh file
+   * without a row is a save in flight, not an orphan.
+   */
+  private async reapOrphans(): Promise<{ orphans: number; orphanBytes: number }> {
+    let names: string[]
+    try {
+      names = await readdir(this.cacheDir)
+    } catch {
+      return { orphans: 0, orphanBytes: 0 }
+    }
+    const indexed = new Set(
+      (this.db.prepare('SELECT hash FROM entries').all() as Array<{ hash: string }>).map(
+        (r) => r.hash,
+      ),
+    )
+    const cutoff = Date.now() - ORPHAN_GRACE_MS
+    const candidates: string[] = []
+    for (const name of names) {
+      if (name.indexOf('.tar.zst.tmp-') > 0) {
+        candidates.push(name)
+      } else if (name.endsWith('.tar.zst') && !indexed.has(name.slice(0, -'.tar.zst'.length))) {
+        candidates.push(name)
+      }
+    }
+    let orphans = 0
+    let orphanBytes = 0
+    await Promise.all(
+      candidates.map(async (name) => {
+        const file = path.join(this.cacheDir, name)
+        try {
+          const st = await stat(file)
+          if (!st.isFile() || st.mtimeMs > cutoff) return
+          await rm(file, { force: true })
+          orphans += 1
+          orphanBytes += st.size
+        } catch {
+          // Gone under us (a concurrent prune, a save's own cleanup): not ours.
+        }
+      }),
+    )
+    return { orphans, orphanBytes }
   }
 
   close(): void {

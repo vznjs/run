@@ -358,12 +358,11 @@ Surfaced by `vx info` (and its `vx stats` alias).
 
 ## What this does NOT do
 
-- Doesn't compress entries. `dist/` of typical projects is ~1–10MB
-  per entry; uncompressed is fine for local cache. Remote cache should
-  add tar+zstd at the wire.
 - Doesn't garbage-collect old entries automatically. Eviction is
   user-driven via `vx cache prune --older-than <d>` / `--max-size <s>`
-  (calls into `Cache.prune`).
+  (calls into `Cache.prune`), which also sweeps artifacts and temps the
+  index has no row for, once they are an hour old (`docs/caching.md`
+  § Storage layout).
 - Doesn't verify entries are intact byte-for-byte. The file existence
   check is the integrity gate for the artifact as a whole; `restore
 Outputs` additionally refuses when the archive cannot produce an output
@@ -376,7 +375,7 @@ Outputs` additionally refuses when the archive cannot produce an output
 ## `CACHE_VERSION` / `SCHEMA_VERSION`
 
 `CACHE_VERSION` is currently `'vx-cache-v27'`; `SCHEMA_VERSION` is
-`'v22'`. Bump `CACHE_VERSION` when:
+`'v25'`. Bump `CACHE_VERSION` when:
 
 - A new field is added to the cache KEY derivation (folded inside
   `key()`).

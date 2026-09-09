@@ -943,6 +943,17 @@ At least one of `--older-than` / `--max-size` is required. Both may
 be combined: age-based eviction runs first, then LRU eviction if the
 total is still over the size cap.
 
+After eviction, prune sweeps the cache directory for **orphans**: a
+`<hash>.tar.zst` the index has no row for (a `SCHEMA_VERSION` bump
+drops every table and leaves the artifacts behind; a deleted
+`cache.db` does the same) and a `<hash>.tar.zst.tmp-*` a save that
+crashed never renamed. Nothing else reclaims them — a lookup starts at
+the row, so an orphan is never a hit, and only a save of the same key
+overwrites it. Files younger than one hour are left alone: a save
+renames its artifact into place before the row commits, so a fresh
+row-less file is a save in flight. The sweep runs on every prune, under
+either flag, and reports separately from the policy's evictions.
+
 Both flags take either form: `--older-than 30d` or `--older-than=30d`.
 
 **Duration units**: `s`, `m`, `h`, `d`, case-insensitive. Examples:
@@ -965,6 +976,9 @@ Pruned 42 entries (1.3 GB freed)
 
 $ vx cache prune --older-than 7d --max-size 500M
 Pruned 18 entries (320.1 MB freed)
+
+$ vx cache prune --older-than 30d      # after a SCHEMA_VERSION bump
+Pruned 0 entries (0 B freed), reaped 42 orphaned artifacts (1.3 GB)
 ```
 
 Exit codes:

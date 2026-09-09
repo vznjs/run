@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
@@ -837,6 +837,51 @@ describe('Cache storage (v10)', () => {
     expect(await cache.get('h-bulk-999')).toBeNull()
   })
 
+  it('prune() reaps an aged artifact or temp the index does not know, and nothing younger', async () => {
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(projectDir, { recursive: true })
+    const f = path.join(projectDir, 'keep.txt')
+    await writeFile(f, 'keep')
+    await cache.save({
+      hash: 'h-indexed',
+      projectDir,
+      outputFiles: [f],
+      entry: { taskId: 'pkg#build', command: 'noop', durationMs: 0, stdout: '' },
+    })
+    const twoHoursAgo = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+    const aged = async (name: string, bytes: string) => {
+      const file = path.join(cacheDir, name)
+      await writeFile(file, bytes)
+      await utimes(file, twoHoursAgo, twoHoursAgo)
+      return file
+    }
+    // Orphans: an artifact with no row and a temp a crashed save left.
+    const orphanTar = await aged('h-orphan.tar.zst', 'x'.repeat(10))
+    const orphanTmp = await aged('h-inflight.tar.zst.tmp-123-456-abc', 'y'.repeat(5))
+    // Controls: the indexed artifact (aged too — age alone is not the
+    // rule), a fresh row-less artifact (a save between rename and
+    // commit), a fresh temp (a save mid-write), and the index itself.
+    await utimes(cache.outputsPath('h-indexed'), twoHoursAgo, twoHoursAgo)
+    const freshTar = path.join(cacheDir, 'h-fresh.tar.zst')
+    await writeFile(freshTar, 'z')
+    const freshTmp = path.join(cacheDir, 'h-fresh.tar.zst.tmp-1-2-3')
+    await writeFile(freshTmp, 'z')
+
+    const result = await cache.prune({ olderThanMs: 1 })
+    expect(result.evicted).toBe(0)
+    expect({ orphans: result.orphans, orphanBytes: result.orphanBytes }).toEqual({
+      orphans: 2,
+      orphanBytes: 15,
+    })
+    expect(existsSync(orphanTar)).toBe(false)
+    expect(existsSync(orphanTmp)).toBe(false)
+    expect(existsSync(cache.outputsPath('h-indexed'))).toBe(true)
+    expect(await cache.get('h-indexed')).not.toBeNull()
+    expect(existsSync(freshTar)).toBe(true)
+    expect(existsSync(freshTmp)).toBe(true)
+    expect(existsSync(path.join(cacheDir, 'cache.db'))).toBe(true)
+  })
+
   it('stats() counts remote cache hits in hitCountLast24h', () => {
     const now = Date.now()
     cache.recordRun({
@@ -1276,7 +1321,16 @@ describe('Cache schema/version recovery', () => {
   it('SCHEMA_VERSION mismatch wipes entries + runs and recreates cleanly', async () => {
     // Round 1: write a real entry to a fresh cache.
     const c1 = new Cache(cacheDir)
+    const projectDir = path.join(workspaceRoot, 'pkg')
+    await mkdir(projectDir, { recursive: true })
     try {
+      await writeFile(path.join(projectDir, 'out.txt'), 'built')
+      await c1.save({
+        hash: 'h-artifact',
+        projectDir,
+        outputFiles: [path.join(projectDir, 'out.txt')],
+        entry: { taskId: 'pkg#build', command: 'noop', durationMs: 0, stdout: '' },
+      })
       c1.recordRun({
         hash: 'h-old',
         project: 'pkg',
@@ -1332,6 +1386,17 @@ describe('Cache schema/version recovery', () => {
         endedAt: Date.now() + 1,
       })
       expect(c2.stats().runCountLast24h).toBe(1)
+      // The drop orphaned round 1's artifact: no row knows it, so a
+      // lookup misses, and prune's sweep is what reclaims the bytes
+      // once the file is past the in-flight grace window.
+      const orphan = c2.outputsPath('h-artifact')
+      expect(await c2.get('h-artifact')).toBeNull()
+      expect(existsSync(orphan)).toBe(true)
+      const aged = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+      await utimes(orphan, aged, aged)
+      const pruned = await c2.prune({ olderThanMs: 1 })
+      expect(pruned.orphans).toBe(1)
+      expect(existsSync(orphan)).toBe(false)
     } finally {
       c2.close()
     }

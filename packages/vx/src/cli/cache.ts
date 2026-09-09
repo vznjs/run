@@ -96,8 +96,12 @@ async function pruneCmd(args: readonly string[]): Promise<number> {
     if (parsed.olderThanMs !== undefined) opts.olderThanMs = parsed.olderThanMs
     if (parsed.maxBytes !== undefined) opts.maxBytes = parsed.maxBytes
     const result = await cache.prune(opts)
+    const orphans =
+      result.orphans > 0
+        ? `, reaped ${result.orphans} orphaned artifact${result.orphans === 1 ? '' : 's'} (${formatBytes(result.orphanBytes)})`
+        : ''
     process.stdout.write(
-      `Pruned ${result.evicted} entr${result.evicted === 1 ? 'y' : 'ies'} (${formatBytes(result.bytesFreed)} freed)\n`,
+      `Pruned ${result.evicted} entr${result.evicted === 1 ? 'y' : 'ies'} (${formatBytes(result.bytesFreed)} freed)${orphans}\n`,
     )
   } finally {
     cache.close()

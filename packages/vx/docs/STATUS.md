@@ -1023,6 +1023,26 @@ function`); the seam now checks the returned shape once and refuses
     are last-resort paths where the logger may be the thing that
     failed, or have no logger in scope; left as they are.
 
+35. DONE (a comment that claimed what the code lacked): the schema
+    gate in `cache.ts` said artifacts orphaned by a `SCHEMA_VERSION`
+    drop are "reaped by `vx cache prune`". `Cache.prune` evicted only
+    hashes with an `entries` row — an orphan had none, so nothing ever
+    reclaimed it, nor the `.tar.zst.tmp-*` a crashed save leaves. Prune
+    now sweeps the cache directory after eviction: a row-less artifact
+    or a temp older than an hour is unlinked and reported separately
+    (`PruneResult.orphans` / `orphanBytes`; the CLI appends "reaped N
+    orphaned artifacts"). The hour is the in-flight guard — a save
+    renames before its row commits, and a temp exists while its bytes
+    are written — so the pins keep a fresh row-less artifact, a fresh
+    temp, and an aged INDEXED artifact as controls, and the
+    schema-mismatch test now ends with the orphan it creates being
+    reaped. Both pins failed before the sweep (`orphans` undefined).
+    Cost: one `readdir` plus one `SELECT hash` per prune, and a `stat`
+    only per candidate; the run path is untouched. Found by the same
+    grep that caught item 34's class: `modules/cache.md` also still
+    said entries are stored uncompressed and `SCHEMA_VERSION` is v22;
+    both corrected.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

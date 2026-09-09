@@ -267,8 +267,19 @@ export interface PruneOptions {
 }
 
 export interface PruneResult {
+  /** Index entries evicted by the age / size policy (each with its artifact). */
   evicted: number
+  /** Bytes the evicted entries occupied, per the index. */
   bytesFreed: number
+  /**
+   * Artifacts and temp files with no index row, unlinked by the orphan
+   * sweep that runs after eviction (a `SCHEMA_VERSION` drop, a deleted
+   * `cache.db`, a save that crashed before its rename). Files younger
+   * than one hour are never counted: they may be a save in flight.
+   */
+  orphans: number
+  /** Bytes the reaped orphans occupied on disk. */
+  orphanBytes: number
 }
 
 /**
