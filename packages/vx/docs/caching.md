@@ -650,7 +650,7 @@ hit replays it with pure SQL, never decompressing the artifact).
 ### SQLite tables
 
 ```sql
--- src/cache/cache.ts schema (SCHEMA_VERSION = 'v22')
+-- src/cache/cache.ts schema (SCHEMA_VERSION = 'v25')
 
 CREATE TABLE schema_meta (
   key   TEXT PRIMARY KEY,  -- 'version'
