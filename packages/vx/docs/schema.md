@@ -843,8 +843,11 @@ outputs: {
 capture (and on restore, overwrite; on clean, wipe) files anywhere in
 the workspace, including inside other projects' dirs. Prefer
 project-relative `files` whenever the task can write inside its own
-dir. Two tasks declaring overlapping workspace outputs is user
-responsibility — vx does not police it; last restore wins.
+dir. Two tasks whose workspace outputs provably overlap (equal
+literals, or a literal a glob matches) are refused at graph build, like
+overlapping `files`: vx cleans declared outputs before a run and before
+a restore, so the second would delete the first's. Globs that only
+_might_ overlap are let through; there, last restore wins.
 
 ### `exec.sandbox` (optional)
 
