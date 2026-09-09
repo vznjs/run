@@ -956,6 +956,18 @@ function`); the seam now checks the returned shape once and refuses
     `util/verbs.ts` (the workspace module cannot import cli); the two
     messages joined the schema-doc drift table, and the pin now
     asserts `vx run` refuses too.
+31. DONE: the scaffolded `vx.workspace.ts` no longer imports core at
+    runtime. `import { defineWorkspace } from '@vzn/vx'` — an identity
+    function — loaded a SECOND copy of core into every run: on the
+    two-package walkthrough workspace the `workspace config` stage
+    read 27–33 ms with it and 10–13 ms without, the whole run 81–100 →
+    65–74 ms (6 runs each). The 1000-project bench never saw it: its
+    workspace file exports a plain object. `vx init` / `vx migrate`
+    now write `import type { WorkspaceConfig }` + `satisfies`, the form
+    the project configs already used; schema.md, the config module doc
+    and the quickstart say what the helpers cost. Next-list item 4
+    (the binary's second core) is thereby paid by no default scaffold;
+    a workspace that declares plugins still loads their packages.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;

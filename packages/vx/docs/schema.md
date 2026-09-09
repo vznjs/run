@@ -1080,6 +1080,18 @@ autocomplete for task names in `dependsOn` against your declared
 tasks, strict validation against the schema, errors at edit time
 rather than at `vx run` time.
 
+They cost one runtime import of `@vzn/vx` per config file — a second
+copy of core loaded into every run (~17 ms on a two-package workspace,
+measured 2026-09-09; the `vx` process already holds the first). The
+type-only form gives the same editor checking for free, and is what
+`vx init` / `vx migrate` write:
+
+```ts
+import type { ProjectConfig, WorkspaceConfig } from '@vzn/vx'
+export default { tasks: { … } } satisfies ProjectConfig
+export default { plugins: [] } satisfies WorkspaceConfig
+```
+
 You _can_ skip the helpers and write
 `export default { tasks: { … } }`, but the IDE experience is
 strictly worse.

@@ -1062,8 +1062,12 @@ generated config is typed for the editor through
 `import type { ProjectConfig } from '@vzn/vx'` and `satisfies
 ProjectConfig` — a type-only import Bun erases, so the file loads in a
 workspace that runs the `vx` binary without the package installed. The
-workspace file DOES import `@vzn/vx` at runtime; a run in a workspace
-without it says so and names the install command.
+workspace file takes the same form (`satisfies WorkspaceConfig`): a
+runtime `import { defineWorkspace } from '@vzn/vx'` loads a second copy
+of core into every run — ~17 ms on a two-package workspace, measured
+2026-09-09, for an identity function — so the scaffold never pays it. A
+workspace that does import `@vzn/vx` (or a plugin package) at runtime
+without having installed it is told so, with the install command.
 
 Each script becomes a task with its command verbatim. `build` gets
 `dependsOn: ['^build']` and **no cache block** — under a

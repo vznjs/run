@@ -276,13 +276,17 @@ export default {
 
 // ─── TS emission ──────────────────────────────────────────────────────
 
-const WORKSPACE_FILE = `import { defineWorkspace } from '@vzn/vx'
+// Type-only import + `satisfies`, like the project configs: a runtime
+// `import { defineWorkspace } from '@vzn/vx'` loads a SECOND copy of core
+// into every run — measured 2026-09-09 at ~17 ms on a two-package
+// workspace, a fifth of the whole run — for an identity function.
+const WORKSPACE_FILE = `import type { WorkspaceConfig } from '@vzn/vx'
 
 // Plugins are consulted in this order; running here and caching in
 // .vx/cache are the floor under all of them, so an empty list is a
 // complete workspace. Add a remote cache, a remote executor or telemetry
-// as one entry each.
-export default defineWorkspace({ plugins: [] })
+// as one entry each — those imports are the runtime ones.
+export default { plugins: [] } satisfies WorkspaceConfig
 `
 
 const IDENT = /^[A-Za-z_$][\w$]*$/

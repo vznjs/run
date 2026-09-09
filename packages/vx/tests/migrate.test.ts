@@ -212,8 +212,11 @@ describe('vx migrate (turbo)', () => {
   it('emits vx.workspace.ts declaring the local plugins when none exists', async () => {
     expect(result.out).toContain('vx.workspace.ts')
     const ws = await Bun.file(path.join(root, 'vx.workspace.ts')).text()
-    expect(ws).toContain("import { defineWorkspace } from '@vzn/vx'")
-    expect(ws).toContain('plugins: []')
+    // Type-only: the runtime `defineWorkspace` import loaded a second copy
+    // of core into every run (~17 ms on a two-package workspace).
+    expect(ws).toContain("import type { WorkspaceConfig } from '@vzn/vx'")
+    expect(ws).not.toContain('defineWorkspace')
+    expect(ws).toContain('export default { plugins: [] } satisfies WorkspaceConfig')
   })
 
   it('does not emit vx.workspace.ts when one already exists', async () => {
