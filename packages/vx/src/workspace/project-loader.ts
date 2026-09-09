@@ -1,6 +1,6 @@
 import path from 'node:path'
 import type { ProjectConfig, WorkspaceConfig } from '../config.js'
-import { MAX_TIMEOUT_MS, UserError, xxh3hex } from '../util/index.js'
+import { MAX_TIMEOUT_MS, nearest, UserError, xxh3hex } from '../util/index.js'
 import { evaluateConfigFresh } from './config-eval.js'
 import { configEvalKey, configEvalKeyFromClosure, type ConfigEvalStore } from './config-cache.js'
 
@@ -279,7 +279,14 @@ export async function loadWorkspaceConfig(root: string): Promise<WorkspaceConfig
   return mod
 }
 
+// Mirrors `WorkspaceConfig` in src/config.ts. Unknown keys are REJECTED for
+// the same reason the task levels reject them: `plugin: [...]` (singular)
+// declared no plugins and ran the workspace bare, `cacheDirectory` left the
+// cache where it was — a config that loads and quietly does nothing it says.
+const WORKSPACE_FIELDS = new Set(['concurrency', 'cacheDir', 'timeout', 'plugins'])
+
 function validateWorkspace(config: WorkspaceConfig, configPath: string): void {
+  assertKnownFields(config, WORKSPACE_FIELDS, configPath)
   if (config.concurrency !== undefined) {
     if (
       typeof config.concurrency !== 'number' ||
@@ -720,8 +727,12 @@ const CACHE_OUTPUT_FIELDS = new Set(['files', 'workspaceFiles'])
 function assertKnownFields(value: object, allowed: ReadonlySet<string>, where: string): void {
   for (const key of Object.keys(value)) {
     if (!allowed.has(key)) {
+      // The nearest accepted spelling first: the list says what the level
+      // takes, the hint says which one was meant.
+      const near = nearest(key, allowed)
       throw new UserError(
-        `${where} has unknown field "${key}". Allowed: ${[...allowed].sort().join(', ')}`,
+        `${where} has unknown field "${key}"${near === null ? '' : ` — did you mean ${near}?`}. ` +
+          `Allowed: ${[...allowed].sort().join(', ')}`,
       )
     }
   }

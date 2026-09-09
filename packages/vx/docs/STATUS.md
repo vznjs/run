@@ -855,6 +855,15 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     resolution and the spawn: 844 lines. The sandbox suite cannot run
     here (no bwrap: 20 pass, 25 skip locally), so CI's
     `VX_REQUIRE_SANDBOX=1` job is the arbiter for this one.
+20. DONE: `vx.workspace.ts` refuses an unknown top-level field. The
+    project levels have rejected unknown keys since the review pass;
+    the workspace validator checked its four fields and let anything
+    else through, so `plugin: [...]` (singular) declared no plugins and
+    ran the workspace bare, and `cacheDirectory` left the cache where
+    it was — a file that loads and quietly does nothing it says. Same
+    `assertKnownFields`, which now also names the nearest accepted
+    spelling at every level (`did you mean plugins?`); pinned in the
+    schema-doc drift table.
 
 ## In flight
 

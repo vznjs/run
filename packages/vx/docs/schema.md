@@ -1300,7 +1300,9 @@ and surfaces `UserError` (clean output, no stack):
 
 **Unknown fields are rejected**, not ignored, at every level that feeds
 the cache key — the task itself, `exec`, `exec.resources`, `exec.sandbox`, `cache`,
-`cache.inputs`, and `cache.outputs`. A silently-dropped
+`cache.inputs`, and `cache.outputs` — and at the top of `vx.workspace.ts`,
+where `plugin:` (singular) would otherwise declare no plugins and run
+the workspace bare. A silently-dropped
 `workspaceFile` (singular) or `timeoutMs` would make the task hash as
 though the field had never been written, so vx would replay an artifact
 built from different inputs. The error names the offending key and lists
@@ -1317,13 +1319,14 @@ Workspace-discovery errors (`src/workspace/workspace.ts`):
 
 Workspace-config errors:
 
-| Symptom                                                                                                                           | Cause                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `concurrency must be a positive integer`                                                                                          | `concurrency` is negative, zero, NaN, ...                |
-| `timeout must be a positive integer (milliseconds)`                                                                               | Workspace `timeout` is ≤ 0, NaN, or not an int.          |
-| `cacheDir must be a string`                                                                                                       | Wrong shape.                                             |
-| `plugins must be an array of plugin objects`                                                                                      | Wrong shape.                                             |
-| `plugins[<i>] must be an object`                                                                                                  | A non-object entry in `plugins`.                         |
-| `plugins[<i>].name must be a non-empty string`                                                                                    | Missing / empty plugin name.                             |
-| `plugins[<i>].<capability> must be a function`                                                                                    | A capability key holding something that is not callable. |
-| `plugins[<i>] must contribute at least one of config/project/graph/key/schedule/setup/cache/executor/telemetry/teardown/commands` | A plugin object with no capability.                      |
+| Symptom                                                                                                                           | Cause                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `concurrency must be a positive integer`                                                                                          | `concurrency` is negative, zero, NaN, ...                                                             |
+| `timeout must be a positive integer (milliseconds)`                                                                               | Workspace `timeout` is ≤ 0, NaN, or not an int.                                                       |
+| `cacheDir must be a string`                                                                                                       | Wrong shape.                                                                                          |
+| `plugins must be an array of plugin objects`                                                                                      | Wrong shape.                                                                                          |
+| `plugins[<i>] must be an object`                                                                                                  | A non-object entry in `plugins`.                                                                      |
+| `plugins[<i>].name must be a non-empty string`                                                                                    | Missing / empty plugin name.                                                                          |
+| `plugins[<i>].<capability> must be a function`                                                                                    | A capability key holding something that is not callable.                                              |
+| `plugins[<i>] must contribute at least one of config/project/graph/key/schedule/setup/cache/executor/telemetry/teardown/commands` | A plugin object with no capability.                                                                   |
+| `<file> has unknown field "<key>"`                                                                                                | Typo'd / unsupported top-level key (`plugin`, `cacheDirectory`); the hint names the nearest spelling. |
