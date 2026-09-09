@@ -189,7 +189,7 @@ the plugin consult).
 
 This isn't a convention you have to trust — it's checked in CI. Core
 **never** imports a sibling package; that direction is asserted by
-`tests/package-boundaries.test.ts` and the public API surface is
+`tests/package-boundaries.unsafe.test.ts` and the public API surface is
 snapshot-pinned. Concretely, vx core:
 
 - has **no** dependency on any `@vzn/vx-*` package;

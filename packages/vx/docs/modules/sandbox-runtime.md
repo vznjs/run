@@ -230,7 +230,7 @@ macOS matches paths rather than mounting, so the grant stays exact there.
 `sandbox_apply` is refused inside a sandboxed process, at any permission
 level — an inner `sandbox-exec` with a `(allow default)` profile still
 dies with `sandbox_apply: Operation not permitted` (exit 71, measured
-2026-09-05, pinned by `tests/sandbox-runtime.test.ts`). A task that
+2026-09-05, pinned by `tests/sandbox-runtime.unsafe.test.ts`). A task that
 itself sandboxes something therefore cannot be sandboxed on macOS, which
 is why `@vzn/vx#test.bun.shard-*` is the one task in this repo with no
 `sandbox` block. `weakerWhenNested` covers the Linux case; SRT offers no
@@ -251,7 +251,7 @@ machine goes through that proxy, which reports it WITH host and port.
 
 ## Integration points
 
-- `src/orchestrator.ts` calls `probeSandbox` + `initSandbox` at the
+- `src/orchestrator/run.ts` calls `probeSandbox` + `initSandbox` at the
   top of `run()` IFF any node in the graph has `node.config.exec.sandbox`.
   `resetSandbox` runs at the end.
 - `src/orchestrator/execute-task.ts:executeCachedTask` calls

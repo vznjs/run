@@ -3,8 +3,8 @@
 // This is the stable cross-package contract — any plugin or integration
 // package imports everything it needs from here via the bare
 // `'@vzn/vx'` specifier (never a deep `src/...` path). The surface is pinned
-// by tests/package-boundaries.test.ts; a widening updates that snapshot
-// deliberately. See docs/design/core-cloud-split-2026-06.md §3.5.
+// by tests/package-boundaries.unsafe.test.ts; a widening updates that snapshot
+// deliberately. The boundary law: docs/architecture.md § Repository shape.
 
 export { VERSION } from './version.js'
 

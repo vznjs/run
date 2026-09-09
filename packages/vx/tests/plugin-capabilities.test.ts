@@ -1,6 +1,6 @@
-// The run-level plugin capabilities (cache / executor / telemetry),
-// inverted from core's hardcoded hooks in Phase 1 of
-// docs/design/core-cloud-split-2026-06.md. Each test declares a VxPlugin
+// The run-level plugin capabilities (cache / executor / telemetry), the
+// seams a plugin fills where core once hardcoded its own hooks
+// (docs/design/pipeline-2026-09.md). Each test declares a VxPlugin
 // in vx.workspace.mjs and asserts the seam is consulted. Nothing is applied
 // by default: every e2e fixture declares the local executor + cache plugins
 // AFTER its own, and the NO DEFAULTS pin below is what a bare workspace sees.

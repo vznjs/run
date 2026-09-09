@@ -71,7 +71,7 @@ packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, 
 
 Module boundaries: each `src/<module>/index.ts` is the contract; cross-module
 imports go through it only (`tests/module-boundaries.test.ts`). Plugin
-packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
+packages import core only via `@vzn/vx` (`tests/package-boundaries.unsafe.test.ts`).
 
 ## Workflow
 

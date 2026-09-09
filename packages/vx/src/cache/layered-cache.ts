@@ -42,8 +42,9 @@ import { FULL_CACHE_POLICY, type OutputDirRow } from './cache.js'
  * policy gating, in-flight dedup, remote provenance, and the never-fail
  * contract (implementations THROW on failure; LayeredCache degrades every
  * throw to a cache miss via `onRemoteError`). The artifact bytes are the
- * local `<hash>.tar.zst` verbatim. See
- * docs/design/native-cache-wire-2026-07.md.
+ * local `<hash>.tar.zst` verbatim. The wires live in plugin packages
+ * (`@vzn/vx-turbo-cache`, `@vzn/vx-nx-cache`, `@vzn/vx-reapi`); see
+ * docs/modules/layered-cache.md.
  */
 export interface RemoteCacheLayer {
   /** Existence probe (drives the plan path's `--dry` remote prediction). */

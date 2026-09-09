@@ -9,7 +9,7 @@ The repo is a Bun workspace. The root package is `@vzn/vx` — the core
 task runner, and the only thing a plain `vx run` ever needs. Sibling
 packages integrate with core exclusively through its public API
 (`src/index.ts`, imported as the bare `@vzn/vx` specifier — enforced
-by `tests/package-boundaries.test.ts`):
+by `tests/package-boundaries.unsafe.test.ts`):
 
 | Package                   | What                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -118,7 +118,7 @@ scans every import specifier under `src/` and fails the suite when
 cross-module import of a contracted module targets anything but its
 `index.ts`. Every directory module is contracted. Tests under
 `tests/` are exempt — they may exercise internals. A second guard,
-`tests/package-boundaries.test.ts`, pins the cross-PACKAGE law: core
+`tests/package-boundaries.unsafe.test.ts`, pins the cross-PACKAGE law: core
 never imports `@vzn/vx-*`; sibling packages import core only via the
 bare `@vzn/vx` specifier, and the public-API symbol set is a
 deliberate snapshot.

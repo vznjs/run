@@ -1060,6 +1060,28 @@ function`); the seam now checks the returned shape once and refuses
     integration test would go with it for no run-path gain, and the
     seam is the shape a blob store built on top would need.
 
+37. DONE (a mechanical probe, then the rot it found): a script pulled
+    every `tests/…`, `src/…`, `docs/…` path out of docs, comments and
+    guides and checked it exists. Thirty-five misses; most were test
+    fixtures (`src/a.ts`), the rest were real: seven pointers at
+    `tests/package-boundaries.test.ts` (the file is `.unsafe.test.ts`,
+    CLAUDE.md included), two at `tests/sandbox-runtime.test.ts`, one at
+    `src/orchestrator.ts`, three at `apps/docs/vx.config.ts` importing
+    core by relative path (the docs package moved and imports the bare
+    `@vzn/vx` now), and eight at two design docs that no longer exist
+    (`core-cloud-split-2026-06`, `native-cache-wire-2026-07`) — one of
+    them from the retired `remote-cache.md`, which pointed at the other
+    deleted doc as its successor. Each now points at the file that
+    exists: the boundary law at `architecture.md`, the remote-cache
+    seam at `modules/layered-cache.md` with the three wire packages
+    named, the seams at `pipeline-2026-09.md`. `sandbox-gate.ts` also
+    claimed two consumers; the `--verify` suite it named is gone.
+    Refuted along the way: a `.vx-tmp-*` restore temp leaked by a kill
+    mid-restore cannot reach the next artifact — the miss path wipes
+    the declared outputs before it spawns and a hit wipes them before
+    it restores, so a temp under an output glob is gone before anything
+    packs; the extractor's own `abort()` covers the error path.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams
