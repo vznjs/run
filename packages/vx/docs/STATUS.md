@@ -569,29 +569,22 @@ place with pins:
 green, 36/36, no violations. CI is not, and every remaining item is
 either a one-line decision or a known constraint, not a mystery:
 
-1. **`@vzn/vx-docs#build` fails on Linux CI.** Astro's telemetry does
-   `mkdir ~/.config` before anything else, and a sandboxed task may read
-   HOME but not write it, so astro throws at startup — exit 1 in 165 ms
-   with no output. Reproduced in isolation — the throw is an `EROFS` on
-   `mkdir` of that directory, from
-   `@astrojs/telemetry/dist/config.js:56`. macOS does not hit it (SRT's
-   default write paths cover it), and this is the FIRST run in which the
-   docs build reached `astro build` on Linux at all — it previously died
-   at the cross-compile download. Fix is one line in that project's
-   config, owner's pick: `env.define.ASTRO_TELEMETRY_DISABLED = '1'`, or
-   `XDG_CONFIG_HOME="$TMPDIR/astro"` in front of the command. Rejected: a
-   core-wide HOME/XDG redirect for sandboxed tasks — it would break the
-   tools that legitimately READ home, including the
-   `~/.bun/install/cache` the cross-compiles now depend on.
-2. **Four perf baselines fail on the Linux job.** `Cache.key` at 100 and
-   1000 files, `hashFile` warm path at 1 KB and 1 MB, and the ~2000
-   project pipeline. They passed at `--shard=i/4` and fail at
-   `--shard=i/8`; the overshoot is 1.2× on a budget already tripled for
-   CI (median 18089µs against 15000µs), and the fixtures are synthetic,
-   so this is contention, not a regression. A measurement taken under
-   eight-way contention is not a measurement: they want a task that runs
-   alone, or fewer shards. Retuning the budgets would only paint it
-   green.
+1. DONE 2026-09-09: `@vzn/vx-docs#build` on Linux CI — astro's
+   telemetry did `mkdir ~/.config`, which a sandboxed task may read but
+   not write, and threw at startup. The project's three astro tasks
+   define `ASTRO_TELEMETRY_DISABLED=1`; the core-wide HOME/XDG redirect
+   stays rejected for the reason recorded before (tools that legitimately
+   READ home, the cross-compile cache among them).
+2. DONE 2026-09-09, and the diagnosis was wrong: the four perf baselines
+   did not fail from eight-way contention but from ptrace. The Linux
+   sandbox wraps every task in `strace -f -e trace=openat`, and without
+   `--seccomp-bpf` strace stops the tracee on EVERY syscall and filters
+   in userspace, so a stat-heavy micro-benchmark ran 2.5–7× over
+   budget. Reproduced outside the sandbox: plain `bun test` 24/24, the
+   same four fail under strace, 24/24 again under `--seccomp-bpf`. The
+   flag is on (strace ≥ 5.3; older gets the slow form), which also
+   takes that tax off every other sandboxed task on Linux — the gate's
+   `time 138s · max 89s` on the last run is the number to compare.
 3. **A sandboxed task cannot expose a port on Linux.** macOS works and is
    properly gated — measured, a sandboxed consumer reaches a sandboxed
    server (200) and is refused without `localBinding`. On Linux every
