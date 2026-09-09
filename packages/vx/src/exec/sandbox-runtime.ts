@@ -1174,16 +1174,9 @@ function bindableWrites(paths: readonly string[]): string[] {
   )
 }
 
-/**
- * Merge the orchestrator-provided baseline (declared inputs / outputs /
- * workspace-root anchor) with the user's resolved sandbox block to
- * produce the SRT customConfig. Path arrays are unioned and deduped.
- *
- * Network coercion:
- *   - missing / undefined / false  → block all (allowedDomains: [])
- *   - true                          → allow all (allowedDomains: ['*'])
- *   - object                        → use as-is (no merge with shortcuts)
- */
+/** Directories already warned about below — once per process, not per spawn. */
+const warnedSymlinkPunch = new Set<string>()
+
 /**
  * Expand a read grant so it is never an ANCESTOR of a write grant.
  *
@@ -1244,7 +1237,8 @@ export function punchWritePaths(readPath: string, writePaths: readonly string[])
     }
     out.push(...punchWritePaths(child, under))
   }
-  if (linked.length > 0) {
+  if (linked.length > 0 && !warnedSymlinkPunch.has(readPath)) {
+    warnedSymlinkPunch.add(readPath)
     process.stderr.write(
       `[vx] sandbox: a write grant under ${readPath} makes its ${linked.length} symlinked ` +
         `entr${linked.length === 1 ? 'y' : 'ies'} (${linked
@@ -1259,6 +1253,16 @@ export function punchWritePaths(readPath: string, writePaths: readonly string[])
   return out
 }
 
+/**
+ * Merge the orchestrator-provided baseline (declared inputs / outputs /
+ * workspace-root anchor) with the user's resolved sandbox block to
+ * produce the SRT customConfig. Path arrays are unioned and deduped; every
+ * read grant is punched around the write grants (`punchWritePaths`).
+ *
+ * Network: `allow.network` missing → block all (allowedDomains: []);
+ * `true` → allow all (['*']); a domain list → exactly that list.
+ * `deny.network` is always passed as deniedDomains.
+ */
 function buildCustomConfig(
   args: Pick<SandboxedRunArgs, 'config'>,
   baselines: {

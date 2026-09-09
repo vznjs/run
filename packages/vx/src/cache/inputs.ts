@@ -414,9 +414,12 @@ export async function cleanWorkspaceOutputs(args: {
  * returning undefined forces the caller down the re-spawn path so
  * gitignore semantics stay byte-identical.
  *
- * The cache-miss save path still uses plain `delete` — an executed
- * task may write files outside its declared outputs, and only git can
- * see those.
+ * The cache-miss save path marks the exact declared-output paths the
+ * same way (execute-task.ts, after `cache.save`) instead of dropping the
+ * snapshot — one fewer git spawn per project on a cold run. The contract
+ * that makes it sound is that outputs are declared: a file an executed
+ * task writes OUTSIDE `cache.outputs.files` is invisible to a same-project
+ * downstream task's snapshot until the next run's enumeration.
  */
 export class GitFilesCache extends Map<string, readonly string[]> {
   private changed = new Map<string, string[]>()
