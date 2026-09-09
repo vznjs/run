@@ -790,6 +790,14 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     and derives the directory from the result; every verb goes
     through it. Pinned end to end with a plugin that moves the cache:
     `last`, `why`, `info` and `prune` all find the run.
+13. DONE: CI red on d295a90 was `tests/cache-hash-files.test.ts`, not
+    the diff: the racy-window pin wrote a file and asserted no memo row,
+    which holds only if both hash calls finish inside the 50 ms window —
+    and the first miss in a store spawns `git rev-parse` for the object
+    format. 417 ms on the loaded ubuntu job, row memoised. The pin now
+    warms that spawn on an aged file and asserts only on an attempt the
+    clock proves stayed inside the window, retrying with a fresh file
+    otherwise; a runner that never manages it fails loudly.
 
 ## In flight
 
