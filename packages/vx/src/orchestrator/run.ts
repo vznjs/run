@@ -196,8 +196,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
   // Install user plugins as additional bus subscribers BEFORE the run
   // starts emitting events. `installPlugins` runs each plugin's optional
   // `setup` hook and fails fast on a throw with a clean UserError naming
-  // the plugin. A plugin without `setup` (the local executor and cache)
-  // subscribes nothing.
+  // the plugin. A plugin without `setup` subscribes nothing.
   let disposePlugins: (() => void) | undefined
   let telemetry: TelemetryHandle | undefined
   try {
@@ -230,9 +229,8 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     workspaceConfig?.concurrency ??
     Math.max(1, navigator.hardwareConcurrency)
 
-  // Resolved ONCE per run, in declaration order. A broken factory — or a
-  // workspace that declared no executor — aborts here, before any task
-  // starts.
+  // Resolved ONCE per run, in declaration order, the local executor last.
+  // A broken factory aborts here, before any task starts.
   let executors: readonly TaskExecutor[]
   try {
     executors = await resolveExecutors(prepared.plugins, {

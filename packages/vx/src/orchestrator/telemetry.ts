@@ -160,7 +160,7 @@ export interface TaskTelemetry {
   cpuMs?: number
   peakRssBytes?: number
   /** Executor-reported placement (a worker id) — absent for local runs.
-   *  Additive-optional, no schema bump (the `attempts`/`verify` precedent). */
+   *  Additive-optional, no schema bump (the `attempts` precedent). */
   where?: string
   /** `'deferred'` when the outputs stayed remote (`--download=none`).
    *  Additive-optional, same no-bump precedent as `where`. */
@@ -242,7 +242,7 @@ export interface RunSummaryRecord {
  * distributed run and a local run produce byte-identical summaries and land in
  * the same ingest. The per-task tallies (taskCount / failedCount /
  * hitLocal|Remote|Count) derive from `tasks`; `totalDurationMs` (wall time) and
- * `exitOk` (the run's overall verdict — which counts skipped/verify beyond the
+ * `exitOk` (the run's overall verdict — which counts skipped tasks beyond the
  * recorded task list) are run-level facts and are passed in.
  */
 export function assembleRunSummary(

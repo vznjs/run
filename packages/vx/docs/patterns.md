@@ -109,8 +109,7 @@ Turbo/Nx vocabulary: `src/workspace/project-loader.ts:142`.
 
 ### Remote cache wire
 
-The remote cache is **plugin-driven** (owner directive 2026-07-10;
-`design/native-cache-wire-2026-07.md`): core keeps the seams
+The remote cache is **plugin-driven** (owner directive 2026-07-10): core keeps the seams
 (`LayeredCache` + the `RemoteCacheLayer` interface + the `cache`
 plugin capability), and a plugin ships the wire — `@vzn/vx-reapi` speaks
 Bazel's ActionCache + CAS, so any REAPI server works as a remote cache.

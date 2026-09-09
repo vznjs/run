@@ -93,8 +93,8 @@ jobs:
       # VX_REQUIRE_SANDBOX turns an unavailable OS sandbox into a test FAILURE
       # instead of a skip. The step above installs bwrap + socat + strace, so
       # unavailable here means the install broke — and `describe.skipIf` would
-      # otherwise delete 21 tests covering the isolation boundary and the
-      # `--verify=inputs` proof under a green check. The diagnose step is not a
+      # otherwise delete the tests covering the isolation boundary under a
+      # green check. The diagnose step is not a
       # substitute: it hard-fails on the raw bwrap exec, one of probeSandbox's
       # four failure paths. `vx run` isolates the child env, so this is
       # forwarded via the test task's exec.env.passThrough.

@@ -341,7 +341,7 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // (RunOptions.remoteCache — a distribution agent or serve that already
   // holds a wire client) wins outright; else a plugin's `cache` capability;
   // else the local cache alone. Core ships no wire client — the remote
-  // cache is a plugin concern (native-cache-wire-2026-07). Injection
+  // cache is a plugin concern (docs/patterns.md § Remote cache wire). Injection
   // winning prevents double-wrapping when the workspace also declares a
   // cache plugin.
   const cache = options.remoteCache

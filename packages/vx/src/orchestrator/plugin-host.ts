@@ -5,7 +5,7 @@
 // goes in front — it takes what it accepts, and what it declines lands on
 // the floor. No plugin is required for a plain local run.
 //
-// See docs/design/core-cloud-split-2026-06.md §5.1.
+// See docs/design/pipeline-2026-09.md.
 
 import { ChainedCache, type CacheLayer } from '../cache/index.js'
 import { localExecutor, type TaskExecutor } from '../exec/index.js'
@@ -25,10 +25,10 @@ import type {
 
 /**
  * Run a capability factory with crash isolation. A throw becomes a clean
- * `UserError` naming the plugin + hook for the load-bearing capabilities
- * (`cache`/`executor`/`setup`) — a broken cache or executor must abort with
- * a clear message, never silently degrade. For `eventSink` the caller
- * logs-and-skips instead (observability must never break a run).
+ * `UserError` naming the plugin + hook: every stage and capability resolved
+ * here is load-bearing, so a broken one must abort with a clear message,
+ * never silently degrade. (Telemetry sinks are the observe-only exception,
+ * and telemetry-host.ts logs-and-skips them instead.)
  */
 async function safe<T>(plugin: VxPlugin, hook: string, fn: () => T | Promise<T>): Promise<T> {
   try {

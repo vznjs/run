@@ -497,8 +497,7 @@ functions; those are the seam. Internal helpers can change.
 
 ## Remote-cache subsystem (detail)
 
-The remote cache is **plugin-driven** — core keeps the seams only
-(`design/native-cache-wire-2026-07.md`):
+The remote cache is **plugin-driven** — core keeps the seams only:
 
 1. A plugin's `cache` capability returns a `LayeredCache` composing the
    local cache with a `RemoteCacheLayer` wire client; OR an embedder
