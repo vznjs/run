@@ -968,6 +968,9 @@ function`); the seam now checks the returned shape once and refuses
     and the quickstart say what the helpers cost. Next-list item 4
     (the binary's second core) is thereby paid by no default scaffold;
     a workspace that declares plugins still loads their packages.
+    Refuted on the way: the stage's remaining 11–12 ms is not the
+    config — `loadWorkspace` + `loadWorkspaceConfig` measure 1.8 ms in
+    isolation; the stage also holds the early `git ls-files` spawn.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;
