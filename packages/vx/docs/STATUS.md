@@ -949,6 +949,13 @@ function`); the seam now checks the returned shape once and refuses
     (schema.md § resources, scheduler.ts). The run.ts comment on
     resource costs still named the percent form removed 2026-08-30;
     it now points at resources.ts instead.
+30. DONE: the plugin-verb refusal (item 23) moved from the CLI loader
+    into `validateWorkspace`: `vx run` never went through the CLI
+    loader, so a shadowing verb was refused by `vx show` and not by
+    the run — half a rule. The core verb list moved to
+    `util/verbs.ts` (the workspace module cannot import cli); the two
+    messages joined the schema-doc drift table, and the pin now
+    asserts `vx run` refuses too.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;

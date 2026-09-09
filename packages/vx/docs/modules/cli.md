@@ -65,10 +65,11 @@ workspace through `cli/workspace-config.ts:loadCliWorkspace`: the
 workspace config with the plugin `config` stage applied, the plugin
 list, and the cache dir derived from the staged config. The stage
 shapes `cacheDir`, so a verb reading the file raw would open a
-directory the run never used. Plugin warnings go to stderr. The same
-load refuses a plugin verb the dispatcher could never reach: one that
-names a core verb (core verbs are matched first), or one two plugins
-both declare (the first would win and hide the second).
+directory the run never used. Plugin warnings go to stderr. A plugin
+verb the dispatcher could never reach — one naming a core verb, or one
+two plugins both declare — is refused by the workspace VALIDATOR
+(`validateWorkspace`, against `util/verbs.ts`), so a run refuses it
+exactly as a reading verb or the plugin-verb lookup does.
 
 ## What this does NOT do
 

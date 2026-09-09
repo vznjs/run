@@ -1,6 +1,6 @@
 import path from 'node:path'
 import type { ProjectConfig, WorkspaceConfig } from '../config.js'
-import { MAX_TIMEOUT_MS, nearest, UserError, xxh3hex } from '../util/index.js'
+import { DISPATCHED_VERBS, MAX_TIMEOUT_MS, nearest, UserError, xxh3hex } from '../util/index.js'
 import { evaluateConfigFresh } from './config-eval.js'
 import { configEvalKey, configEvalKeyFromClosure, type ConfigEvalStore } from './config-cache.js'
 
@@ -314,6 +314,7 @@ function validateWorkspace(config: WorkspaceConfig, configPath: string): void {
     if (!Array.isArray(config.plugins)) {
       throw new UserError(`${configPath}: \`plugins\` must be an array of plugin objects`)
     }
+    const verbOwners = new Map<string, string>()
     for (const [i, p] of config.plugins.entries()) {
       if (p === null || typeof p !== 'object') {
         throw new UserError(`${configPath}: \`plugins[${i}]\` must be an object`)
@@ -384,6 +385,23 @@ function validateWorkspace(config: WorkspaceConfig, configPath: string): void {
               `${configPath}: \`plugins[${i}].commands.${verb}\` must be { description: string, run: function }`,
             )
           }
+          // A verb the dispatcher would never reach is refused, not left
+          // dead: core verbs are matched first, and two plugins on one verb
+          // would run the first declared and hide the second. Here, in the
+          // schema, so every loader of the file — a run, a reading verb, the
+          // plugin-verb lookup — refuses it the same way.
+          if (DISPATCHED_VERBS.includes(verb)) {
+            throw new UserError(
+              `${configPath}: plugin '${plug.name}' declares command '${verb}', a core verb — core verbs cannot be shadowed`,
+            )
+          }
+          const owner = verbOwners.get(verb)
+          if (owner !== undefined) {
+            throw new UserError(
+              `${configPath}: plugins '${owner}' and '${plug.name}' both declare command '${verb}' — a verb has one owner`,
+            )
+          }
+          verbOwners.set(verb, plug.name)
         }
       }
       // A plugin must contribute at least one capability or lifecycle hook

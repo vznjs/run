@@ -168,20 +168,4 @@ export function documentedFlags(verb: string): string[] {
   return [...flags]
 }
 
-/** The verbs the dispatcher in index.ts owns; `stats` is a deprecated alias and stays out. */
-export const CORE_VERBS = [
-  'run',
-  'watch',
-  'cache',
-  'lock',
-  'migrate',
-  'init',
-  'upgrade',
-  'show',
-  'info',
-  'why',
-  'last',
-  'prune',
-  'help',
-  'version',
-] as const
+export { CORE_VERBS } from '../util/index.js'

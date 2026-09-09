@@ -111,8 +111,10 @@ describe('plugin commands', () => {
     expect(await cli(['hello'])).toBe(1)
     expect(err.join('')).toContain(refusal)
     expect((globalThis as { __vxCmd?: unknown }).__vxCmd).toBeUndefined()
-    // A core verb that loads the workspace: refused outright.
+    // A core verb that loads the workspace: refused outright — `run`
+    // included, which never goes through the CLI's own loader.
     await expect(cli(['show'])).rejects.toThrow(refusal)
+    await expect(cli(['run', 'build', '--all'])).rejects.toThrow(refusal)
   })
 
   it('two plugins naming the same verb are refused, naming both', async () => {
