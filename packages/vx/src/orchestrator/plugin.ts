@@ -54,7 +54,10 @@ export interface VxPlugin {
    * One project's validated config, right after it loaded and before the
    * graph is built. Add, remove or edit tasks. Runs for every loaded project
    * on every run — a config's cached evaluation is the user's file, and the
-   * hook is applied on top of it live.
+   * hook is applied on top of it live. A package with NO config file is
+   * loaded too, as `{ tasks: {} }`, so a plugin can give tasks to packages
+   * that never wrote one (`ctx.packageJson` carries their scripts); with no
+   * `project` plugin such a package is never visited.
    */
   project?(config: ProjectConfig, ctx: ProjectHookContext): void | Promise<void>
 

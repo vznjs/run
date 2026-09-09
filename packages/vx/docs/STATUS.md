@@ -630,6 +630,20 @@ place with pins:
   plugin host's graph-stage comment blamed the last plugin as the one
   whose edit broke the graph; the check runs once after all of them.
 
+## Improvement loop (2026-09-09, after the review pass merged)
+
+Open-ended, owner-delegated: find flaws, widen seams, sharpen DX,
+refactor toward cleaner layers. One coherent commit per step, gated,
+recorded here as it lands. Layer map measured first (imports between
+`src/<module>` directories): util ← workspace ← cache, exec ← graph ←
+orchestrator ← cli, `config.ts` a leaf, no back edges — the boundaries
+test is telling the truth.
+
+1. DONE: the `project` stage reaches config-less packages (Next 3's
+   seam gap). Zero cost without a `project` plugin: the `configPath`
+   filter is unchanged there, so nothing new is loaded, fenced or
+   seeded.
+
 ## In flight
 
 **Open after the sandbox arc (2026-09-05).** Local `vx run ci --all` is
@@ -746,16 +760,16 @@ from …/node_modules/astro/dist/cli/index.js` — astro's OWN
    - `package.json` scripts with no generated files — a trial that
      commits nothing. The `project` stage is the right seam, and the
      mapping already exists in `migrate-turbo.ts` / `migrate-nx.ts`, but
-     ONE seam gap blocks it: `prepareRun` loads only packages that have a
-     config file (`prepare.ts`, the `configPath` filter), so the stage
-     never visits a config-less package. Widening: when any plugin
-     declares `project`, a package without a config is loaded as
-     `{ tasks: {} }` for the stage to fill (zero cost otherwise — the
-     filter stays when no plugin declares it). Then a `@vzn/vx-turbo`
-     package reusing the mapper's IR without the preset splices, ~150
-     lines, with the migrate suite's fixtures as its tests. Not built:
-     `vx migrate` is one command and a second source of task truth is a
-     maintenance surface; decide with the owner.
+     the seam gap that blocked it is CLOSED (2026-09-09): when any
+     plugin declares `project`, a package without a config file is
+     loaded as `{ tasks: {} }` for the stage to fill (pinned: a
+     scripts-to-tasks plugin gives a config-less package a task that
+     plans and runs; with no `project` plugin the package stays
+     invisible, as before). What remains is the plugin itself: a
+     `@vzn/vx-turbo` package reusing the mapper's IR without the preset
+     splices, ~150 lines, with the migrate suite's fixtures as its
+     tests. Not built: `vx migrate` is one command and a second source
+     of task truth is a maintenance surface; decide with the owner.
 4. **The shipped binary's second core.** A compiled `vx` loading a
    `vx.workspace.ts` that imports `@vzn/vx` pulls a second copy of core
    from `node_modules` (~12 ms) on every run — and makes a binary user

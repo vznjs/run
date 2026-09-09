@@ -117,6 +117,53 @@ describe('project stage', () => {
   )
 
   it(
+    'visits a package with NO config file, so a plugin can give it tasks; without the stage it stays invisible',
+    async () => {
+      // The zero-migration shape: `b` has a package.json and scripts but never
+      // wrote a vx.config — a `project` plugin maps them onto tasks.
+      await pkg('a', build)
+      const bDir = path.join(root, 'packages', 'b')
+      await mkdir(bDir, { recursive: true })
+      await writeFile(
+        path.join(bDir, 'package.json'),
+        JSON.stringify({ name: 'b', version: '1.0.0', scripts: { build: 'echo from-scripts' } }),
+      )
+      await workspace([
+        `{
+          name: 'org/scripts',
+          project(config, ctx) {
+            const scripts = ctx.packageJson.scripts ?? {}
+            config.tasks ??= {}
+            for (const [name, command] of Object.entries(scripts)) {
+              config.tasks[name] ??= { exec: { command } }
+            }
+          },
+        }`,
+      ])
+      const plan = await planRun({ cwd: root, tasks: ['build'], log: silent() })
+      expect(plan.tasks.map((t) => t.node.id).sort()).toEqual(['a#build', 'b#build'])
+      expect(plan.tasks.find((t) => t.node.id === 'b#build')!.node.config.exec?.command).toBe(
+        'echo from-scripts',
+      )
+      const summary = await run({
+        cwd: root,
+        tasks: ['build'],
+        log: silent(),
+        handleSignals: false,
+      })
+      expect(summary.ok).toBe(true)
+      expect(summary.outcomes.map((o) => o.node.id).sort()).toEqual(['a#build', 'b#build'])
+
+      // Control: no `project` plugin → a config-less package declares nothing
+      // and is never loaded, exactly as before the stage could reach it.
+      await workspace([])
+      const plain = await planRun({ cwd: root, tasks: ['build'], log: silent() })
+      expect(plain.tasks.map((t) => t.node.id)).toEqual(['a#build'])
+    },
+    TIMEOUT,
+  )
+
+  it(
     'runs in declaration order — the second plugin sees the first one’s edit',
     async () => {
       await pkg('a', build)

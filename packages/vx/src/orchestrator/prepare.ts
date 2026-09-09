@@ -206,9 +206,17 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // Turbo-like: a broken config in an unrelated package no longer
   // fails a scoped run — it surfaces when that package enters scope.
   const packageGraph = buildPackageGraph(projectMetas)
+  // A package with no config file declares no tasks — unless a plugin fills
+  // the `project` stage, in which case it is a project the stage may give
+  // tasks to (the zero-migration shape: `turbo.json` or `package.json`
+  // scripts mapped onto packages that never wrote a `vx.config.ts`). It then
+  // loads as `{ tasks: {} }` — nothing to evaluate, nothing to freeze — and
+  // the stage runs on that like on any loaded config. With no `project`
+  // plugin the filter is what it always was, so a plain run never visits
+  // (or fences, or seeds) a config-less package.
+  const projectStage = hasHook(plugins, 'project')
   const projectsWithConfigs = projectMetas.filter(
-    (m): m is typeof m & { configPath: string } =>
-      typeof m.configPath === 'string' && m.configPath.length > 0,
+    (m) => projectStage || (typeof m.configPath === 'string' && m.configPath.length > 0),
   )
   const haveConfig = new Set(projectsWithConfigs.map((m) => m.name))
 
@@ -289,19 +297,29 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // may declare cross edges of its own. The common case (no cross deps)
   // is a single round, identical to loading the closure in one batch.
   const projects = new Map<string, ProjectEntry>()
-  const projectStage = hasHook(plugins, 'project')
   try {
     while (pending.length > 0) {
       const round = pending.splice(0, pending.length)
-      const configs = lock
-        ? await Promise.all(round.map((m) => frozenProjectConfig(lock, m, workspaceRoot)))
+      // Only a config FILE is evaluated (or read from the lock); a
+      // config-less project in the round (a `project` stage is declared,
+      // see `projectsWithConfigs`) starts from an empty task table.
+      const withFile = round.filter(
+        (m): m is typeof m & { configPath: string } => typeof m.configPath === 'string',
+      )
+      const loaded = lock
+        ? await Promise.all(withFile.map((m) => frozenProjectConfig(lock, m, workspaceRoot)))
         : await loadProjectConfigs(
-            round.map((m) => m.configPath),
+            withFile.map((m) => m.configPath),
             { evalCache: { store: localCache, workspaceFingerprint } },
           )
+      const configs: ProjectConfig[] = []
+      let next = 0
+      for (const meta of round) {
+        configs.push(meta.configPath === null ? { tasks: {} } : (loaded[next++] as ProjectConfig))
+      }
       for (let i = 0; i < round.length; i++) {
         const meta = round[i]!
-        const config = configs[i] as ProjectConfig
+        const config = configs[i]!
         if (projectStage) {
           // The `project` stage edits the validated object in place; core
           // then re-validates so a plugin can only produce what the loader
@@ -315,7 +333,10 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
             dir: meta.dir,
             packageJson: meta.packageJson as unknown as Readonly<Record<string, unknown>>,
           })
-          validateProjectConfig(config, `${meta.configPath} (after plugins)`)
+          validateProjectConfig(
+            config,
+            `${meta.configPath ?? `${meta.name} (no config file)`} (after plugins)`,
+          )
         }
         projects.set(meta.name, { name: meta.name, dir: meta.dir, config })
         for (const name of crossDepProjects(config)) considerWithDeps(name)
