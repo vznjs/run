@@ -125,9 +125,11 @@ Three commands, three jobs:
   current environment and compares against the committed lock, catching
   drift a file-hash can't see (e.g. a config that reads `process.env`).
   Great as a CI step or a pre-commit hook.
-- **`vx run --frozen`** — load configs straight from `vx-lock.json` (after
-  a hash tripwire) and run. A stale or missing lock is a hard error, never
-  a silent fall back to live evaluation.
+- **`vx run --frozen`** — load configs straight from `vx-lock.json` and
+  run, with no staleness check of its own: a config edited since
+  `vx lock` runs as locked, which is why `vx lock --check` comes first in
+  the recipe. A missing lock or entry is a hard error, never a silent
+  fall back to live evaluation.
 
 ### When should you use it?
 
