@@ -43,8 +43,13 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/index.ts          public façade (snapshot-pinned by tests/package-boundaries.unsafe.test.ts)
   src/config.ts         user schema: defineProject / defineWorkspace
   src/cli/              verbs: run watch cache lock init migrate show info why last prune upgrade;
-                        plugin-commands.ts resolves plugin verbs (`commands` seam)
-  src/orchestrator/     run() pipeline, execute-task, task-hash, plugin stages + seams, events, logger
+                        plugin-commands.ts resolves plugin verbs (`commands` seam);
+                        workspace-config.ts is the workspace as every verb sees it (config
+                        stage applied, cache dir, staged projects); select.ts is what a run
+                        is asked to run (filters, --affected owners, cwd project, picker)
+  src/orchestrator/     run() pipeline, execute-task (+ miss-save, sandbox-request), task-hash,
+                        projects.ts (the staged config load every reader shares), plugin
+                        stages + seams, events, logger
   src/workspace/        discovery, config eval (+ config-cache.ts), package graph, --filter/--affected, lockfile
   src/graph/            task graph + two-tier scheduler
   src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (git enumeration)
@@ -143,7 +148,7 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
 
 ## Live invariants (verify in source before quoting)
 
-- `CACHE_VERSION` `vx-cache-v27`, core `SCHEMA_VERSION` `v24`,
+- `CACHE_VERSION` `vx-cache-v27`, core `SCHEMA_VERSION` `v25`,
   `TELEMETRY_SCHEMA_VERSION` 2. Bump `CACHE_VERSION` when stored bytes are
   wrong under an unchanged key or the container changes; a key-derivation
   fix whose old key was already wrong is self-healing and does not bump.
