@@ -86,12 +86,6 @@ describe('renderJobSummary', () => {
     const md = renderJobSummary(summary([task({ taskId: 'a#e|vil' })]))
     expect(md).toContain('a#e\\|vil')
   })
-
-  it('adds the Verify column only when a verdict exists', () => {
-    const md = renderJobSummary(summary([task({ verify: { kind: 'proven-complete' } })]))
-    expect(md).toContain('| Verify |')
-    expect(md).toContain('proven-complete')
-  })
 })
 
 describe('github() activation', () => {

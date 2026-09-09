@@ -130,7 +130,7 @@ describe('vx mcp over stdio (the real entry point)', () => {
       stdout: 'pipe',
       stderr: 'pipe',
     })
-    p.stdin.write(
+    void p.stdin.write(
       [
         req(1, 'initialize', {
           protocolVersion: PROTOCOL_VERSION,
@@ -142,7 +142,7 @@ describe('vx mcp over stdio (the real entry point)', () => {
         req(3, 'tools/call', { name: 'getRunHistory', arguments: { project: 'a' } }),
       ].join('\n') + '\n',
     )
-    p.stdin.end()
+    void p.stdin.end()
     const [code, out, err] = await Promise.all([
       p.exited,
       new Response(p.stdout).text(),
@@ -208,8 +208,8 @@ describe('the command context carries the workspace’s declared cacheDir', () =
         stdout: 'pipe',
         stderr: 'pipe',
       })
-      p.stdin.write(req(1, 'tools/call', { name: 'getCacheStats', arguments: {} }) + '\n')
-      p.stdin.end()
+      void p.stdin.write(req(1, 'tools/call', { name: 'getCacheStats', arguments: {} }) + '\n')
+      void p.stdin.end()
       const [code, out] = await Promise.all([p.exited, new Response(p.stdout).text()])
       expect(code).toBe(0)
       const reply = JSON.parse(out.trim()) as { result: { content: Array<{ text: string }> } }

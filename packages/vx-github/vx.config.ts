@@ -15,9 +15,9 @@ export default defineProject({
     },
 
     'lint.oxlint': {
-      description: 'oxlint',
+      description: 'oxlint with tsgolint-backed type-aware checks',
       exec: {
-        command: 'oxlint',
+        command: 'oxlint --type-aware --type-check',
         sandbox: { allow: { read: ['**/*'], systemInfo: ['vfs.disk-space'] } },
       },
       dependsOn: ['install'],

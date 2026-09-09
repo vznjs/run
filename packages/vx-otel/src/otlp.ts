@@ -13,13 +13,7 @@
 // protobuf-JSON mapping (int64 fields are decimal STRINGS).
 
 import { TELEMETRY_SCHEMA_VERSION } from '@vzn/vx'
-import type {
-  OutputFingerprint,
-  RunContextRecord,
-  RunSummaryRecord,
-  TaskLogEntry,
-  TaskTelemetry,
-} from '@vzn/vx'
+import type { RunContextRecord, RunSummaryRecord, TaskLogEntry, TaskTelemetry } from '@vzn/vx'
 
 // --- OTLP value + attribute primitives ---------------------------------
 
@@ -119,16 +113,8 @@ export const VX_ATTR = {
   taskOutputs: 'vx.task.outputs',
   peakRssBytes: 'vx.peak_rss_bytes',
   taskAttempts: 'vx.task.attempts',
-  taskVerify: 'vx.task.verify',
-  taskVerifyChanged: 'vx.task.verify.changed',
-  taskVerifyUndeclared: 'vx.task.verify.undeclared',
-  taskVerifyExitCode: 'vx.task.verify.exit_code',
   wallclockStartNs: 'vx.task.wallclock_start_ns',
   wallclockEndNs: 'vx.task.wallclock_end_ns',
-  fpTree: 'vx.task.output_fp.tree',
-  fpFileCount: 'vx.task.output_fp.file_count',
-  fpFiles: 'vx.task.output_fp.files',
-  fpTruncated: 'vx.task.output_fp.truncated',
   // task log records (the OTel Logs signal)
   logCharsFull: 'vx.log.chars_full',
   logTruncatedHead: 'vx.log.truncated_head',
@@ -215,24 +201,16 @@ export function runSpanAttributes(run: RunContextRecord, summary?: RunSummaryRec
 }
 
 /**
- * Encode a list of output/input PATHS as JSON, not a joined string.
+ * Encode a list of output PATHS as JSON, not a joined string.
  *
- * A comma is a legal byte in a filename, and these lists are the actionable
- * half of a verify verdict — a path silently split in two names a file that
- * does not exist. `vx.requested_tasks` stays comma-joined by contrast: those
+ * A comma is a legal byte in a filename, and a path silently split in two
+ * names a file that does not exist. `vx.requested_tasks` stays comma-joined by contrast: those
  * are config keys read by humans in a trace viewer far more often than they
  * are parsed, and a comma in one is pathological rather than merely rare.
  * That is a stated limit, not a guarantee.
  */
 export function encodePathList(paths: readonly string[]): string {
   return JSON.stringify(paths)
-}
-
-/** Encode an output fingerprint's per-file map. JSON rather than a flat string
- *  because the keys are arbitrary output paths — a separator would need
- *  escaping, and this half is already allowed to be dropped (see below). */
-export function encodeFingerprintFiles(files: OutputFingerprint['files']): string {
-  return JSON.stringify(files ?? [])
 }
 
 /** What a task span needs to identify its run without its root span. */
@@ -288,52 +266,12 @@ export function taskSpanAttributes(t: TaskTelemetry, run: TaskSpanRunContext): K
     attrs.push(int64Attr(VX_ATTR.wallclockStartNs, t.wallclockStartNs))
   if (t.wallclockEndNs !== undefined)
     attrs.push(int64Attr(VX_ATTR.wallclockEndNs, t.wallclockEndNs))
-  // Cache-correctness verdict from `--verify` — the hermeticity signal. A
-  // `nondeterministic` verdict means the task's cache entry is unsound; it
-  // maps to span status ERROR (see taskStatusCode) so it surfaces as a failed
-  // span in the tracing backend even though the task itself exited 0.
-  if (t.verify !== undefined) {
-    attrs.push(strAttr(VX_ATTR.taskVerify, t.verify.kind))
-    if (t.verify.kind === 'nondeterministic' || t.verify.kind === 'allowed-nondeterministic') {
-      attrs.push(strAttr(VX_ATTR.taskVerifyChanged, encodePathList(t.verify.changed)))
-    }
-    // Phase 2 (--verify=inputs): the undeclared workspace reads, same shape
-    // as .changed — the actionable list a trace viewer needs.
-    if (t.verify.kind === 'undeclared-inputs') {
-      attrs.push(strAttr(VX_ATTR.taskVerifyUndeclared, encodePathList(t.verify.paths)))
-    }
-    // The verdict's own payload — without it a receiver knows the re-run
-    // failed but not with what, which is the only actionable part.
-    if (t.verify.kind === 'rerun-failed') {
-      attrs.push(intAttr(VX_ATTR.taskVerifyExitCode, t.verify.exitCode))
-    }
-  }
-  // Output fingerprint (--verify=fingerprint and friends): the cross-machine
-  // hermeticity signal. A receiver pairs these by (hash, os, arch) and names
-  // the outputs that diverged between two platforms.
-  if (t.outputFp !== undefined) {
-    attrs.push(
-      strAttr(VX_ATTR.fpTree, t.outputFp.tree),
-      intAttr(VX_ATTR.fpFileCount, t.outputFp.fileCount),
-      strAttr(VX_ATTR.fpFiles, encodeFingerprintFiles(t.outputFp.files)),
-      boolAttr(VX_ATTR.fpTruncated, t.outputFp.truncated === true),
-    )
-  }
   return attrs
 }
 
-/** A failed task maps to span status ERROR; so does a task whose `--verify`
- *  verdict proved its cache entry unsound (nondeterministic / rerun-failed /
- *  undeclared-inputs) — even though it exited 0. Everything else stays UNSET. */
+/** A failed task maps to span status ERROR. Everything else stays UNSET. */
 export function taskStatusCode(t: TaskTelemetry): number {
   if (t.status === 'failed') return STATUS_ERROR
-  if (
-    t.verify?.kind === 'nondeterministic' ||
-    t.verify?.kind === 'rerun-failed' ||
-    t.verify?.kind === 'undeclared-inputs'
-  ) {
-    return STATUS_ERROR
-  }
   return STATUS_UNSET
 }
 

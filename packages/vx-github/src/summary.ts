@@ -63,20 +63,14 @@ export function renderJobSummary(summary: RunSummaryRecord, title = 'vx run'): s
     lines.push('')
   }
 
-  const anyVerify = summary.tasks.some((t) => t.verify !== undefined)
-  const header = ['Task', 'Status', 'Duration', ...(anyVerify ? ['Verify'] : [])]
+  const header = ['Task', 'Status', 'Duration']
   lines.push(`| ${header.join(' | ')} |`)
   lines.push(`|${header.map(() => ' --- ').join('|')}|`)
   // Failures first (the eye lands on the table's top rows), then execution
   // order as delivered.
   const ordered = [...failed, ...summary.tasks.filter((t) => t.status !== 'failed')]
   for (const t of ordered) {
-    const cells = [
-      escapeMarkdownCell(t.taskId),
-      statusLabel(t),
-      fmtMs(t.durationMs),
-      ...(anyVerify ? [t.verify === undefined ? '' : escapeMarkdownCell(verifyLabel(t))] : []),
-    ]
+    const cells = [escapeMarkdownCell(t.taskId), statusLabel(t), fmtMs(t.durationMs)]
     lines.push(`| ${cells.join(' | ')} |`)
   }
   lines.push('')
@@ -89,8 +83,4 @@ export function renderJobSummary(summary: RunSummaryRecord, title = 'vx run'): s
   )
   lines.push('')
   return lines.join('\n')
-}
-
-function verifyLabel(t: TaskTelemetry): string {
-  return t.verify?.kind ?? ''
 }

@@ -15,7 +15,6 @@ export {
   buildLogsRequest,
   buildMetricsRequest,
   buildTraceRequest,
-  encodeFingerprintFiles,
   resourceAttributes,
   runSpanAttributes,
   SEMCONV,
