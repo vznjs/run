@@ -99,10 +99,11 @@ export type { CacheLayer, RemoteCacheLayer, RunRecord, InvocationRecord } from '
 // Workspace discovery + the project/config catalog surface — an
 // out-of-process service/CLI needs these. `readLockfile` is THE one reader
 // of vx-lock.json (the format carries its own version sentinel; a second
-// parser in a sibling package would drift), and the loader chain
-// (`loadWorkspace` → `listProjectMetas` → `loadProjectConfig`) is the same
-// one `vx show` uses. Workspace's `listProjects` re-exports as
-// `listProjectMetas` (the bare name once belonged to a metrics query).
+// parser in a sibling package would drift). `loadProjectConfig` is the RAW
+// per-file load (`vx lock` freezes exactly that); the resolved view a run
+// or `vx show` sees — plugin stages applied — is `loadResolvedProjects`
+// below. Workspace's `listProjects` re-exports as `listProjectMetas` (the
+// bare name once belonged to a metrics query).
 export { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from './workspace/index.js'
 export { readLockfile, LOCKFILE_NAME } from './workspace/index.js'
 export type { Lockfile, LockfileEntry } from './workspace/index.js'
