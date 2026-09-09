@@ -869,6 +869,15 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     `vx run build` said "no projects declare" — and the loader's
     `assertKnownFields` had covered every level below it. Now
     `has unknown field "task" — did you mean tasks?`.
+22. DONE: two flag probes. `--continue never` read `never` as a second
+    TASK and failed with "No projects declare task(s): never" — true
+    and useless; the space form is now refused naming the `=` form.
+    `--retries` got no hint because `--retry` is three edits away (the
+    `i`/`y`), one past the usual budget; a third edit is now allowed
+    between flags sharing their first five characters. Two probes
+    refuted on the way: `--retries` is NOT a prefix of `--retry` (a
+    prefix rule was written and thrown out), and a plain three-edit
+    budget hinted `--all` for `--zzz` (the existing pin caught it).
 
 ## In flight
 

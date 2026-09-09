@@ -27,9 +27,13 @@ export function editDistance(a: string, b: string): number {
  * names, `pkg#task` halves, project names, flags and verbs all go through
  * here so a typo is hinted the same way wherever it is typed.
  */
-export function nearest(name: string, candidates: Iterable<string>): string | undefined {
+export function nearest(
+  name: string,
+  candidates: Iterable<string>,
+  maxEdits = 2,
+): string | undefined {
   let best: string | undefined
-  let bestD = 3
+  let bestD = maxEdits + 1
   for (const c of candidates) {
     const d = editDistance(name, c)
     if (d < bestD) {

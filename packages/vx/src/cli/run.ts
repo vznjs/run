@@ -258,7 +258,14 @@ export function parseRunArgs(args: readonly string[]): RunArgs {
     } else if (a === '--force') {
       forceFlag = true
     } else if (a === '--continue') {
-      // Bare --continue = 'always' (the Turbo convention).
+      // Bare --continue = 'always' (the Turbo convention). Its mode comes
+      // with '=' only: `--continue never` would read `never` as a TASK, and
+      // the run would then say "No projects declare task(s): never" — true,
+      // and no help at all.
+      const next = before[i + 1]
+      if (next === 'never' || next === 'deps-ok' || next === 'always') {
+        return { ...out, error: `--continue takes its mode with '=': --continue=${next}` }
+      }
       out.continueMode = 'always'
     } else if (a?.startsWith('--continue=')) {
       const v = a.slice('--continue='.length)
@@ -829,6 +836,17 @@ function didYouMeanProject(
 
 /** `(did you mean --concurrency?)` for a flag within two edits of a documented one. */
 function didYouMeanFlag(flag: string): string {
-  const best = nearest(flag.replace(/=.*$/, ''), documentedFlags('run'))
+  const name = flag.replace(/=.*$/, '')
+  const flags = documentedFlags('run')
+  // The usual two edits; a third only between flags that share their
+  // first five characters, so `--retries` reaches `--retry` (the i/y)
+  // while `--zzz` does not reach `--all` — a plain three-edit budget did.
+  const best =
+    nearest(name, flags) ??
+    nearest(
+      name,
+      flags.filter((f) => f.slice(0, 5) === name.slice(0, 5)),
+      3,
+    )
   return best === undefined ? '' : ` (did you mean ${best}?)`
 }
