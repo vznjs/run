@@ -46,7 +46,18 @@ export default defineProject({
         // dependency on whichever Node a CI image ships — astro 6 refuses
         // anything below 22.12, and the Linux gate's docs build had been
         // exiting 1 in 61 ms with no output at all.
-        command: 'bun --bun astro build',
+        // TEMPORARY CI DIAGNOSTIC (reverted in the next commit): the build
+        // exits 1 with no output on the Linux gate and nowhere else.
+        command: [
+          'echo "cwd=$PWD home=$HOME"; bun --version',
+          'bun --bun -e \'console.error("child-stderr-ok"); console.log("child-stdout-ok", process.versions.node)\'',
+          'for d in .astro node_modules/.astro node_modules/.vite dist; do (touch "$d/.probe" && echo "write-ok $d" || echo "write-FAIL $d"); done',
+          'touch /tmp/.vx-probe && echo write-ok /tmp',
+          'ls -la node_modules/.bin/astro; readlink -f node_modules/.bin/astro',
+          'bun --bun astro --version; echo "astro-version-exit=$?"',
+          'bun --bun astro build --verbose; echo "astro-build-exit=$?"',
+          'exit 1',
+        ].join('; '),
         // astro's telemetry does `mkdir ~/.config` before anything else; a
         // sandboxed task may read HOME but not write it, so it is told to
         // stay home.
