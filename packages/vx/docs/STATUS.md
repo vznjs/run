@@ -899,7 +899,8 @@ function`); the seam now checks the returned shape once and refuses
     valid sink that heard nothing. Non-record and non-Map returns are
     refused by plugin and stage; a sink with no handler is disabled
     with the same warning a throwing hook gets. `graph` was already
-    right: a missing edge target and a cycle both name the plugin.
+    right: a missing edge target and a cycle both name the plugin. The
+    plugins guide gained a "What core refuses" list for items 23–24.
 
 ## In flight
 

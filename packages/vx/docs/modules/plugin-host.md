@@ -42,5 +42,12 @@ it), so a workspace that declares nothing runs and caches here.
 
 ## Invariants
 
-- Sink init failures are isolated per plugin (warn + skip).
+- What a hook hands back is checked once, at the seam, and refused by
+  plugin and hook: a `cache` / `executor` return missing the
+  contract's methods, a `key` return that is not a record of strings,
+  a `schedule` return that is not a `Map`. A stage's edit is
+  re-validated after EACH plugin (`applyProjectHooks`' `afterEach`), so
+  the refusal names the plugin whose edit broke the task.
+- Sink init failures are isolated per plugin (warn + skip); a sink with
+  no handler at all is one of them.
 - Dispose only unsubscribes; teardown is the flush point.
