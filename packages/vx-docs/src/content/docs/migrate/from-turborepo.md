@@ -104,7 +104,7 @@ explains why.
   don't declare the task to the nearest one that does — no more no-op
   tasks scattered across the repo. Turborepo stops at direct deps.
 - **Faster.** vx's warm, fully-cached runs lead Turborepo in the repo's
-  head-to-head benchmark (`bun bench/compare.ts`, results in
+  head-to-head benchmark (`bun packages/vx-bench/compare.ts`, results in
   [Benchmarks](../../benchmarks/)).
 
 ## Commands you already know

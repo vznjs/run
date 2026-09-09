@@ -6,7 +6,7 @@ Updated as the runners evolve.
 ## Warm-run overhead (2026-09-02)
 
 The number that matters most to a developer is the warm no-op run: every
-task a cache hit, nothing to restore. `bench/generate.ts` workspaces,
+task a cache hit, nothing to restore. `packages/vx-bench/generate.ts` workspaces,
 `vx run build --all`, this machine (macOS arm64, Bun 1.4.0), best of 5:
 
 | Projects | Before (2026-09-02 morning) | Wave 1 | Wave 2 | Wave 5 | Wave 6 | Wave 7 | What changed                                                                                               |
@@ -40,7 +40,7 @@ check), history recording 12 ms, cache open 9 ms, and ~50 ms of process
 start + module load + exit outside the table. The 1.7 s cold run is the
 1000 `cp` commands.
 
-Reproduce: `bun bench/run.ts 1000 5`.
+Reproduce: `bun packages/vx-bench/run.ts 1000 5`.
 
 ### Profiling a run
 
@@ -56,14 +56,14 @@ Two tools, and they answer different questions:
   time yielded to other tasks); compare them to each other, not to the
   stage total.
 - **`bun --cpu-prof --cpu-prof-dir=/tmp/prof packages/vx/src/bin.ts run …`**
-  then `bun bench/profile-summary.ts /tmp/prof/*.cpuprofile` gives self
+  then `bun packages/vx-bench/profile-summary.ts /tmp/prof/*.cpuprofile` gives self
   time by function and by file. Good for finding a hot loop; unreliable
   about where an `await` waited (it attributes the wait to whatever frame
   was on the stack).
 
 Three measurement lessons from this wave, recorded so they are not
 re-learned. A compiled Bun 1.4.0 binary resolves on-disk packages by
-`<pkg>/index.ts` only and ignores `exports`, so `bench/compare.ts`
+`<pkg>/index.ts` only and ignores `exports`, so `packages/vx-bench/compare.ts`
 measured nothing ("vx skipped") until the packages gained root shims —
 if the vx row ever reads `n/a` again, read the skip line first. a micro-benchmark of a sync call in isolation (`statSync`
 2 µs vs `stat` 13 µs) does not predict the run — the async forms run in
@@ -73,7 +73,7 @@ switching the warm-hit path to sync calls made the 1000-project run
 macOS rejects (SIGKILL on launch); an ad-hoc `codesign -s - --force`
 repairs it, which the release workflow now does on a macOS runner.
 
-## Head-to-head, 2026-09-03 (46 packages, `bench/compare.ts 10 5 1`)
+## Head-to-head, 2026-09-03 (46 packages, `packages/vx-bench/compare.ts 10 5 1`)
 
 Same workspace, identical commands, every runner pinned to concurrency
 10, daemons on for Turbo/Nx, vx as its compiled binary. Median of 1,
@@ -93,8 +93,8 @@ the restore case and ties the cold one; Nx is 7× off. The remaining
 fixed cost at this size is process start + git, not the pipeline.
 
 The same harness at **476 packages / 1,428 graph nodes**
-(`bench/compare.ts 20 25 1`, 2026-09-02, same machine; a mid-size data
-point — the committed `bench/RESULTS.md` is the 3,270-task run below):
+(`packages/vx-bench/compare.ts 20 25 1`, 2026-09-02, same machine; a mid-size data
+point — the committed `packages/vx-bench/RESULTS.md` is the 3,270-task run below):
 
 | Runner      | Fresh (cold) | Warm (no restore) | Warm (restore) |
 | ----------- | ------------ | ----------------- | -------------- |
@@ -114,9 +114,9 @@ The shape that actually stresses a task runner: **100 dependency layers**,
 ~11 packages per layer, ~30 deps per package, three tasks each
 (`build` + `installDeps` + `test`, `sleep 1` for build and test) — **3,270
 task nodes**, 1,090 packages. Same repo, same hardware, same task commands;
-every runner pinned to concurrency 10. `bun bench/compare.ts 100 11 1`,
+every runner pinned to concurrency 10. `bun packages/vx-bench/compare.ts 100 11 1`,
 this machine (macOS arm64, 10 cores), Turbo 2.10.12, Nx 23.2.0.
-The committed `bench/RESULTS.md` / `bench/results.json` are this run.
+The committed `packages/vx-bench/RESULTS.md` / `packages/vx-bench/results.json` are this run.
 
 |                                 | vx                                                         | Turborepo     | Nx                |
 | ------------------------------- | ---------------------------------------------------------- | ------------- | ----------------- |
@@ -158,7 +158,7 @@ their CPU is a floor.
 
 ## Reproducible head-to-head (vx vs Turborepo vs Nx)
 
-`bench/compare.ts` scaffolds **one** shared monorepo matching the shape
+`packages/vx-bench/compare.ts` scaffolds **one** shared monorepo matching the shape
 above — `layers` × `perLayer` packages, ~30 deps each, three tasks
 (`build` + `installDeps` + `test`) with the **identical** shell command,
 `src/**` inputs, and `dist/**` outputs for every runner — then runs vx,
@@ -171,14 +171,14 @@ never fight for CPU. `build`/`test` `sleep 1 s` so a warm hit visibly
 skips the work.
 
 ```bash
-bun bench/compare.ts                 # 100 layers × 11 (3,270 nodes) — the full shape (slow)
-bun bench/compare.ts 10 5 1          # 46 packages, 10 layers — quick
-BASELINE_ONLY=1 bun bench/compare.ts # recompute only the baseline floors against the committed rows (~9 min)
-bun bench/update-site.ts             # rewrite the landing page and this doc's stress section from results.json (--check to verify)
-BUILD_SLEEP=0 bun bench/compare.ts 20 11 2   # deep graph, pure framework overhead
+bun packages/vx-bench/compare.ts                 # 100 layers × 11 (3,270 nodes) — the full shape (slow)
+bun packages/vx-bench/compare.ts 10 5 1          # 46 packages, 10 layers — quick
+BASELINE_ONLY=1 bun packages/vx-bench/compare.ts # recompute only the baseline floors against the committed rows (~9 min)
+bun packages/vx-bench/update-site.ts             # rewrite the landing page and this doc's stress section from results.json (--check to verify)
+BUILD_SLEEP=0 bun packages/vx-bench/compare.ts 20 11 2   # deep graph, pure framework overhead
 ```
 
-It writes [`bench/RESULTS.md`](https://github.com/vznjs/vx/blob/main/bench/RESULTS.md)
+It writes [`packages/vx-bench/RESULTS.md`](https://github.com/vznjs/vx/blob/main/packages/vx-bench/RESULTS.md)
 (committed, so the numbers can be referenced from a commit). A quick run —
 46 packages, 10 layers, 1 s tasks, concurrency 10 for all:
 
@@ -186,7 +186,7 @@ Since 2026-09-03 the table also carries **CPU** columns and a **baseline**
 row — the theoretical best case (an ideal schedule of the tasks, one git
 walk, a raw copy of the outputs, the commands under `xargs`), so each
 runner's row reads as overhead above it. The definitions live in the
-generated `bench/RESULTS.md`. The quick 46-package run below predates both.
+generated `packages/vx-bench/RESULTS.md`. The quick 46-package run below predates both.
 
 | Runner      | Fresh (cold)      | Warm (no restore) | Warm (restore)   |
 | ----------- | ----------------- | ----------------- | ---------------- |

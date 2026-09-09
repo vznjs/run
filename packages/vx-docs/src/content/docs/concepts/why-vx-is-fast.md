@@ -12,12 +12,12 @@ the raw numbers in [Benchmarks](../../benchmarks/).
 
 These are reproducible on your own machine, not marketing figures:
 
-- **vx alone** — `bun bench/run.ts [projects]` measures vx across
+- **vx alone** — `bun packages/vx-bench/run.ts [projects]` measures vx across
   fresh / warm-no-restore / warm-restore. A 100-project workspace
   replays fully-cached in **~75 ms** whole-process (1,000 projects in
   ~170 ms), and a restore costs about the same as an untouched tree;
   the current floors are in [Benchmarks](../../benchmarks/).
-- **Head-to-head vs Turborepo and Nx** — `bun bench/compare.ts` scaffolds
+- **Head-to-head vs Turborepo and Nx** — `bun packages/vx-bench/compare.ts` scaffolds
   one repo (1,090 packages, 100 dependency layers, a `build` + `test` task
   each) and runs all three runners across the same three cache states.
   vx leads on the warm paths; the committed results live in
