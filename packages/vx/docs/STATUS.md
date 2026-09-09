@@ -808,6 +808,17 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     the sweep's repeat loads of pure configs hit instead of paying a
     worker each; a load that fails drops to the raw per-file sweep it
     had before.
+15. DONE: the last two raw config reads in the CLI went through the
+    staged load too — `--affected`'s orphan-path owners (a
+    `workspaceFiles` glob a `project` plugin gave a config-less
+    package now selects it; before, an edit under that glob selected
+    nothing) and the interactive picker's menu. The four copies of
+    "open the cache, load the staged projects, close" collapsed into
+    `cli/workspace-config.ts:loadCliProjects`; `lock.ts` stays raw on
+    purpose — it freezes the file's own evaluation, and the stage runs
+    on top of the frozen config at run time. The owners read live now
+    (they preferred the lock when present, which a default run never
+    consults); the eval cache makes live as cheap.
 
 ## In flight
 

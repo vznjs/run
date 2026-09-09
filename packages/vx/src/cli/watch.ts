@@ -16,10 +16,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { xxh3 } from '../util/index.js'
 import { parseRunArgs, resolveRunOptions } from './run.js'
-import { loadProjects, run as runOrchestrator, type RunOptions } from '../orchestrator/index.js'
+import { run as runOrchestrator, type RunOptions } from '../orchestrator/index.js'
 import {
-  buildPackageGraph,
-  computeWorkspaceFingerprint,
   findWorkspaceRoot,
   listProjects,
   loadProjectConfig,
@@ -29,8 +27,7 @@ import {
   type ProjectMeta,
 } from '../workspace/index.js'
 import type { ProjectConfig } from '../config.js'
-import { Cache } from '../cache/index.js'
-import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
+import { loadCliProjects, loadCliWorkspace } from './workspace-config.js'
 
 /** Wait this long after the last filesystem event before re-running. */
 const DEBOUNCE_MS = 150
@@ -381,29 +378,7 @@ export async function sweepConfigs(
   }
   let staged: Map<string, ProjectEntry> | null = null
   try {
-    const { plugins, cacheDir } = await loadCliWorkspace(workspaceRoot)
-    const cache = new Cache(cacheDir)
-    try {
-      staged = (
-        await loadProjects({
-          workspaceRoot,
-          cacheDir,
-          plugins,
-          projectMetas: projects,
-          packageGraph: buildPackageGraph([...projects]),
-          seeds: 'all',
-          closure: false,
-          lock: null,
-          evalCache: {
-            store: cache,
-            workspaceFingerprint: await computeWorkspaceFingerprint(workspaceRoot),
-          },
-          warn: warnToStderr,
-        })
-      ).projects
-    } finally {
-      cache.close()
-    }
+    staged = await loadCliProjects(workspaceRoot, projects)
   } catch {
     staged = null
   }

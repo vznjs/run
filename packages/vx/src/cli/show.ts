@@ -7,14 +7,10 @@
 // Deliberately NOT the lock — vx-lock.json is already the frozen JSON.
 
 import type { ProjectConfig, TaskConfig } from '../config.js'
-import { Cache } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { nearMatches, relPosix, UserError } from '../util/index.js'
-import { loadProjects } from '../orchestrator/index.js'
-import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
+import { loadCliProjects } from './workspace-config.js'
 import {
-  buildPackageGraph,
-  computeWorkspaceFingerprint,
   findWorkspaceRoot,
   listProjects,
   loadWorkspace,
@@ -80,7 +76,7 @@ export async function showCmd(args: readonly string[]): Promise<number> {
   const bareTask = projectName !== undefined && taskName === undefined && !byName.has(projectName)
   const scope = projectName === undefined || bareTask ? 'all' : [projectName]
 
-  const projects = await resolveProjects(root, metas, scope)
+  const projects = await loadCliProjects(root, metas, scope)
 
   if (parsed.target === undefined) {
     process.stdout.write(renderList(root, metas, projects, parsed.format))
@@ -121,37 +117,6 @@ export async function showCmd(args: readonly string[]): Promise<number> {
   }
   process.stdout.write(renderTask(meta.name, dir, taskName, task, parsed.format))
   return 0
-}
-
-/**
- * The run path's config load — the plugin stages included — over `scope`.
- * The local cache opens only to serve cached evaluations; nothing is
- * written but the evaluations themselves.
- */
-async function resolveProjects(
-  root: string,
-  metas: readonly ProjectMeta[],
-  scope: 'all' | string[],
-): Promise<Map<string, ProjectEntry>> {
-  const { plugins, cacheDir } = await loadCliWorkspace(root)
-  const cache = new Cache(cacheDir)
-  try {
-    const loaded = await loadProjects({
-      workspaceRoot: root,
-      cacheDir,
-      plugins,
-      projectMetas: metas,
-      packageGraph: buildPackageGraph([...metas]),
-      seeds: scope,
-      closure: false,
-      lock: null,
-      evalCache: { store: cache, workspaceFingerprint: await computeWorkspaceFingerprint(root) },
-      warn: warnToStderr,
-    })
-    return loaded.projects
-  } finally {
-    cache.close()
-  }
 }
 
 /** Near misses by edit distance, plus partial names in either direction. */

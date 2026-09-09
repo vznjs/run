@@ -12,7 +12,6 @@ import {
   loadProjectConfig,
   loadWorkspace,
   parseFilter,
-  readLockfile,
   workspaceGlobsMatch,
   type ProjectMeta,
 } from '../workspace/index.js'
@@ -28,6 +27,7 @@ import {
 import type { ProjectConfig } from '../config.js'
 import type { ContinueMode } from '../graph/index.js'
 import { type CachePolicy, FULL_CACHE_POLICY, parseCachePolicy } from '../cache/index.js'
+import { loadCliProjects } from './workspace-config.js'
 import { MAX_TIMEOUT_MS, parseDecimalInt, parseSize, nearest } from '../util/index.js'
 import { formatGraphDot, formatPlanJson, formatPlanText } from './plan-format.js'
 
@@ -582,28 +582,20 @@ export async function runCmd(args: readonly string[]): Promise<number> {
 }
 
 /**
- * Which projects declare a `cache.inputs.workspaceFiles` glob matching one of
- * `orphans` (workspace-relative paths belonging to no project).
- *
- * Reached ONLY when a changed path belongs to no project, so a run whose every
- * change is inside a project never gets here — the scoped-config-loading win
- * is untouched for the common case.
- *
- * `vx-lock.json` FIRST when present: it holds the resolved configs, so CI —
- * where `--affected` matters most and the lock is committed — answers with
- * zero evaluation. Without a lock this evaluates configs, which is the honest
- * cost of the question: nothing cheaper can know which globs a program
- * declares. A config that fails to load is skipped rather than failing the
- * run, matching the deliberate Turbo-like rule that a broken out-of-scope
- * config does not fail a scoped run.
+ * The projects whose tasks declare a `cache.inputs.workspaceFiles` glob
+ * matching an ORPHAN changed path (one no project owns): `--affected`
+ * selects them, since the glob is that task's input. Through the run
+ * path's staged load, so a glob a `project` plugin gave a config-less
+ * package counts; live, as a default run evaluates (the lock is a
+ * `--frozen` concern). A load that fails drops to the config files that
+ * do load, one by one — a broken out-of-scope config does not fail a
+ * scoped run, and must not fail its selection either.
  */
-async function workspaceGlobOwners(
+export async function workspaceGlobOwners(
   root: string,
   projects: readonly ProjectMeta[],
   orphans: readonly string[],
 ): Promise<string[]> {
-  const lock = await readLockfile(root)
-  const owners: string[] = []
   const declaresMatch = (config: ProjectConfig): boolean => {
     for (const task of Object.values(config.tasks ?? {})) {
       const globs = task.cache?.inputs?.workspaceFiles
@@ -612,13 +604,15 @@ async function workspaceGlobOwners(
     }
     return false
   }
+  try {
+    const staged = await loadCliProjects(root, projects)
+    return [...staged.values()].filter((p) => declaresMatch(p.config)).map((p) => p.name)
+  } catch {
+    // Fall through to the per-file sweep.
+  }
+  const owners: string[] = []
   await Promise.all(
     projects.map(async (meta) => {
-      const locked = lock?.projects[meta.name]
-      if (locked !== undefined) {
-        if (declaresMatch(locked.config)) owners.push(meta.name)
-        return
-      }
       if (meta.configPath === null || meta.configPath === '') return
       try {
         if (declaresMatch(await loadProjectConfig(meta.configPath))) owners.push(meta.name)
@@ -723,10 +717,13 @@ export async function pickTask(
   io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {},
 ): Promise<PickedTask | null> {
   const projects = await loadWorkspaceProjects(cwd)
+  // The staged load: a task a `project` plugin gave a config-less package
+  // is on the menu, as it is in a run.
+  const staged = await loadCliProjects(await findWorkspaceRoot(cwd), projects)
   const entries: PickedTask[] = []
   for (const meta of projects) {
-    if (!meta.configPath) continue
-    const config = await loadProjectConfig(meta.configPath)
+    const config = staged.get(meta.name)?.config
+    if (config === undefined) continue
     const taskNames = Object.keys(config.tasks ?? {}).sort()
     for (const t of taskNames) {
       const desc = config.tasks?.[t]?.description

@@ -5,11 +5,8 @@
 import { Cache } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
-import { loadProjects } from '../orchestrator/index.js'
-import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
+import { loadCliProjects, loadCliWorkspace } from './workspace-config.js'
 import {
-  buildPackageGraph,
-  computeWorkspaceFingerprint,
   findWorkspaceRoot,
   listProjects,
   loadProjectConfig,
@@ -26,7 +23,7 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   }
   const root = await findWorkspaceRoot(process.cwd())
   const metas = await listProjects(await loadWorkspace(root))
-  const { plugins, cacheDir } = await loadCliWorkspace(root)
+  const { cacheDir } = await loadCliWorkspace(root)
   const cache = new Cache(cacheDir)
   let stats
   let taskCount = 0
@@ -37,20 +34,8 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
     // must not take the doctor down with it: the count then falls back to
     // the configs that do load, one by one, the broken ones as zero.
     try {
-      const loaded = await loadProjects({
-        workspaceRoot: root,
-        cacheDir,
-        plugins,
-        projectMetas: metas,
-        packageGraph: buildPackageGraph([...metas]),
-        seeds: 'all',
-        closure: false,
-        lock: null,
-        evalCache: { store: cache, workspaceFingerprint: await computeWorkspaceFingerprint(root) },
-        warn: warnToStderr,
-      })
-      for (const p of loaded.projects.values())
-        taskCount += Object.keys(p.config.tasks ?? {}).length
+      const loaded = await loadCliProjects(root, metas)
+      for (const p of loaded.values()) taskCount += Object.keys(p.config.tasks ?? {}).length
     } catch {
       taskCount = await countLoadableTasks(metas)
     }
