@@ -96,12 +96,13 @@ export async function writeLockfile(root: string, lock: Lockfile): Promise<void>
 }
 
 /**
- * Run-time config load from the lock: verify the config file's content
- * hash against the lock entry, then return the FROZEN resolved config.
- * No evaluation happens — this is the fast, eval-free trust path. A
- * changed file or an unlocked project is a hard error: the lock's
- * contract is "what runs is what was locked", and silently falling
- * back to evaluation would break frozen-env semantics.
+ * Run-time config load from the lock: return the FROZEN resolved config
+ * for a project the lock has an entry for. No evaluation happens — this
+ * is the fast, eval-free trust path — and no staleness check either (see
+ * below): the lock's contract is "what runs is what was locked", so a
+ * config file edited since `vx lock` still runs as locked until
+ * `vx lock --check` says otherwise. An unlocked project is a hard error;
+ * silently falling back to evaluation would break frozen-env semantics.
  */
 export async function frozenProjectConfig(
   lock: Lockfile,

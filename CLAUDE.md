@@ -110,7 +110,8 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
    "before" arm from an immutable `git worktree`. A change to the warm path
    without a number is not done.
 2. **Explicit over magical.** Caching is opt-in; `cache.inputs.files` is
-   required; no inferred inputs (`--verify=inputs` proves the declared set).
+   required; no inferred inputs (the sandbox, `exec.sandbox`, is how a
+   task proves what it touches; `--verify` was removed 2026-09-04).
 3. **One command per task; shell is the API.** A plugin changes WHERE a
    command runs, never what it is.
 4. **Resolved-config hashing.** The key sees the evaluated config object.

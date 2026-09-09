@@ -827,6 +827,16 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     remaining body is the cached path, whose save block is the next
     candidate — it is stale-hit-critical, so it moves only with the
     execute suites and the unsafe suite green on CI.
+17. DONE: two claims the code lacked, de-claimed. `frozenProjectConfig`'s
+    doc comment promised a content-hash tripwire and a hard error on a
+    changed file; its body skips both on purpose (owner, 2026-06-13),
+    and `docs/modules/lockfile.md` repeated the promise ("hash
+    tripwire", "stale file is a hard UserError"). A DX probe ran an
+    edited config as locked under `--frozen` with no word — which IS
+    the contract (`lock --check` is the audit; pinned in lock.test.ts),
+    so the words moved, not the code. CLAUDE.md still named
+    `--verify=inputs`, removed 2026-09-04; it now names the sandbox as
+    the way a task proves what it touches.
 
 ## In flight
 
