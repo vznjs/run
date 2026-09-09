@@ -702,6 +702,12 @@ Cache`, the handle a layer may wrap) is a type import. Next candidate
    and the mapping outlives a run, so each fill is a copy; and a
    fixture without a `.gitignore` folds `dist/` into a sibling task's
    default inputs, the same finding as the walkthrough's.
+   NOT its Nx twin, decided the same day: the Nx mapper reads a
+   generated project-graph snapshot (`.nx/workspace-data/`), so it is
+   not zero-setup, and every executor-backed target maps to a
+   placeholder command that exits 1 — under a live plugin that is a
+   run that fails by design, not a repo that runs. `vx migrate --from
+nx` stays the Nx path.
 
 ## In flight
 

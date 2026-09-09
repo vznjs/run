@@ -1224,11 +1224,14 @@ async function scanUnion(
   const matches = new Set<string>()
   for (const pattern of positive) {
     const glob = globFor(pattern)
-    // Async scan, deliberately: the sync walk is faster in isolation (37 µs
-    // vs 56 µs on a one-file `dist/**`) but SERIALISES on the main thread,
-    // and this runs under the scheduler's concurrency — measured 2026-09-02,
-    // switching it to scanSync made a 1000-hit warm run 40 ms SLOWER.
-    for await (const rel of glob.scan({ cwd, onlyFiles: true, dot: true })) {
+    // Sync scan. The async walk was chosen on 2026-09-02, when a warm HIT
+    // globbed its outputs and the thread pool overlapped a thousand of
+    // them; the directory short-circuit took the glob off the hit path, and
+    // what is left runs on the MISS path twice per task (clean, then
+    // resolve), where the walk is CPU-bound and each async chunk costs a
+    // main-thread round trip. Measured 2026-09-09 on a 1,000-task cold run
+    // (see STATUS).
+    for (const rel of glob.scanSync({ cwd, onlyFiles: true, dot: true })) {
       if (excludeGlobs.some((g) => g.match(rel))) continue
       matches.add(path.resolve(cwd, rel))
     }
