@@ -234,10 +234,10 @@ async function executePersistentTask(args: ExecuteArgs): Promise<TaskOutcome> {
     await spawn.ready
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    // Surface readiness failure on stderr so the user sees what went
-    // wrong; the buffered stdout/stderr already streamed live via the
-    // logger callbacks during spawn.ready.
-    process.stderr.write(`\n[vx] ${node.id}: persistent task failed to become ready: ${message}\n`)
+    // The task's OWN stream, not the process's: the frame is where a
+    // reader looks for why a task failed, and a run with a custom logger
+    // (an embedder, the MCP server) never saw a bare stderr write at all.
+    log.taskStderr(node, `\n[vx] ${node.id}: persistent task failed to become ready: ${message}\n`)
     return {
       node,
       status: 'failed',

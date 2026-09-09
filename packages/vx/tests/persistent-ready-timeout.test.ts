@@ -183,7 +183,11 @@ describe('exec.timeout — persistent task (readiness bound)', () => {
       expect(r.outcomes[0]!.status).toBe('failed')
       // Fast failure, not a 30s hang on the sleep.
       expect(Date.now() - started).toBeLessThan(5000)
-      expect(stderrText).toContain('not ready within 300ms')
+      // The reason reaches the TASK's stderr stream — the frame, and an
+      // embedder's logger — not the process's stderr, which a custom
+      // logger never sees (this pin used to assert the bare write).
+      expect(fixture.err.join('\n')).toContain('not ready within 300ms')
+      expect(stderrText).not.toContain('not ready within 300ms')
       // The child must be dead once the run returns. `exec` in the fixture is
       // what gives this assertion teeth: `$$` is the shell's pid and exec keeps
       // that pid while replacing the image, so pid.txt names the SLEEPER. As a

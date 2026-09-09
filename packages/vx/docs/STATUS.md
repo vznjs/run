@@ -1012,6 +1012,16 @@ function`); the seam now checks the returned shape once and refuses
     walker meets the mask only sometimes (a race in the sandbox's
     mount setup is the likeliest shape). The ignore makes the check
     independent of it either way.
+34. DONE: a persistent task that failed to become ready explained itself
+    on the PROCESS's stderr — a bare write that a run with a custom
+    logger (an embedder, the MCP server) never saw, and that the task's
+    frame did not carry. It now goes through the task's own stderr
+    stream; the pin that asserted the bare write asserts the stream,
+    with the process stream as the control. The other direct stderr
+    writes below the CLI (an observer that threw, an internal error,
+    the bwrap symlink-punch warning, a nameless package at discovery)
+    are last-resort paths where the logger may be the thing that
+    failed, or have no logger in scope; left as they are.
 
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
