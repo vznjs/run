@@ -108,20 +108,22 @@ export async function resolveInputs(args: ResolveInputsArgs): Promise<ResolvedIn
     // it must contribute to the key exactly once.
     if (wsFiles.length > 0) files = [...new Set([...projectFiles, ...wsFiles])].sort()
   }
-  const [runtimeValues, workspaceRuntimeValues] = await Promise.all([
-    resolveRuntimeValues(
-      args.inputs?.runtime ?? [],
-      args.projectDir,
-      args.runtimeCache,
-      `${args.projectDir}\0`,
-    ),
-    resolveRuntimeValues(
-      args.inputs?.workspaceRuntime ?? [],
-      args.workspaceRoot,
-      args.workspaceRuntimeCache,
-      '',
-    ),
-  ])
+  // Two awaited empty resolutions per task were ~3 ms of a 1000-task warm
+  // run (profiled 2026-09-09); a task declaring neither skips the fan-out.
+  const runtimeDecl = args.inputs?.runtime ?? []
+  const wsRuntimeDecl = args.inputs?.workspaceRuntime ?? []
+  const [runtimeValues, workspaceRuntimeValues] =
+    runtimeDecl.length === 0 && wsRuntimeDecl.length === 0
+      ? [[], []]
+      : await Promise.all([
+          resolveRuntimeValues(
+            runtimeDecl,
+            args.projectDir,
+            args.runtimeCache,
+            `${args.projectDir}\0`,
+          ),
+          resolveRuntimeValues(wsRuntimeDecl, args.workspaceRoot, args.workspaceRuntimeCache, ''),
+        ])
   return {
     files,
     envValues: resolveEnvValues(args.inputs?.env ?? [], args.envSource),

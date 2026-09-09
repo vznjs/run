@@ -103,13 +103,29 @@ export async function loadProjectConfigs(
     hashFile !== undefined && store?.getConfigClosures !== undefined
       ? store.getConfigClosures(configPaths)
       : new Map<string, string[]>()
+  // Every indexed closure's files identified in ONE batch, then keyed from
+  // the map; a file the batch could not stat has no identity, which makes
+  // that config's fast key miss and sends it down the slow path exactly as
+  // a throwing per-file `hashFile` did.
+  let fastHashFile = hashFile
+  if (closures.size > 0 && store?.hashFiles !== undefined) {
+    const files = new Set<string>()
+    for (const closure of closures.values()) for (const f of closure) files.add(f)
+    const identities = await store.hashFiles([...files])
+    fastHashFile = (file: string): Promise<string> => {
+      const id = identities.get(file)
+      return id === undefined
+        ? Promise.reject(new Error(`no identity for ${file}`))
+        : Promise.resolve(id)
+    }
+  }
   const prepared = await Promise.all(
     configPaths.map(async (configPath) => {
       const closure = closures.get(configPath)
-      if (closure !== undefined && evalCache !== undefined && hashFile !== undefined) {
+      if (closure !== undefined && evalCache !== undefined && fastHashFile !== undefined) {
         const fastKey = await configEvalKeyFromClosure({
           closure,
-          hashFile,
+          hashFile: fastHashFile,
           workspaceFingerprint: evalCache.workspaceFingerprint,
         })
         if (fastKey !== null) return { configPath, bytes: null, cacheKey: fastKey, indexed: true }

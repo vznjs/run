@@ -1472,6 +1472,95 @@ export class Cache implements CacheLayer {
   }
 
   /**
+   * `hashFile` for many paths at once, with ONE memo query. The per-file
+   * form costs a SQLite point lookup each; a warm config load keys 1,000
+   * closures that way (7.7 ms of `get` in a 2026-09-09 profile), where one
+   * `IN` query over all of them costs well under a millisecond. Same stat
+   * fields, same racy-clean rule, same digest. A path that cannot be
+   * stat'ed is absent from the result (the caller decides what a missing
+   * identity means) rather than thrown, so one vanished preset does not
+   * fail the batch for every other config.
+   */
+  async hashFiles(paths: readonly string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>()
+    if (paths.length === 0) return out
+    interface Stat {
+      mtimeMs: number
+      size: number
+      ctimeMs: number
+      ino: number
+    }
+    const stats = new Map<string, Stat>()
+    for (const p of paths) {
+      if (stats.has(p)) continue
+      try {
+        const st = statSync(p)
+        stats.set(p, {
+          mtimeMs: Math.floor(st.mtimeMs),
+          size: st.size,
+          ctimeMs: Math.floor(st.ctimeMs),
+          ino: Number(st.ino),
+        })
+      } catch {
+        // absent from the result
+      }
+    }
+    const wanted = [...stats.keys()]
+    const misses: string[] = []
+    // SQLite's bound-variable ceiling is 32,766 (999 on old builds); 500
+    // keeps a closure list of any size inside either.
+    for (let i = 0; i < wanted.length; i += 500) {
+      const chunk = wanted.slice(i, i + 500)
+      const rows = this.db
+        .query(
+          `SELECT path, mtime_ms, size_bytes, ctime_ms, ino, content_hash FROM file_hashes WHERE path IN (${chunk.map(() => '?').join(',')})`,
+        )
+        .all(...chunk) as Array<{
+        path: string
+        mtime_ms: number
+        size_bytes: number
+        ctime_ms: number
+        ino: number
+        content_hash: string
+      }>
+      const byPath = new Map(rows.map((r) => [r.path, r]))
+      for (const p of chunk) {
+        const st = stats.get(p)!
+        const row = byPath.get(p)
+        if (
+          row &&
+          row.mtime_ms === st.mtimeMs &&
+          row.size_bytes === st.size &&
+          row.ctime_ms === st.ctimeMs &&
+          row.ino === st.ino
+        ) {
+          out.set(p, row.content_hash)
+        } else misses.push(p)
+      }
+    }
+    if (misses.length === 0) return out
+    const digests = await Promise.all(
+      misses.map((p) => this.hashFileFromDisk(p).catch(() => undefined)),
+    )
+    const now = Date.now()
+    this.db.transaction(() => {
+      for (let i = 0; i < misses.length; i++) {
+        const digest = digests[i]
+        if (digest === undefined) continue
+        const p = misses[i]!
+        const st = stats.get(p)!
+        out.set(p, digest)
+        // The same racy-clean rule as `hashFile`: a stat taken within the
+        // window of the file's last change is not memoised.
+        if (now - st.ctimeMs >= FILE_HASH_RACY_MS) {
+          this.upsertFileHash.run(p, st.mtimeMs, st.size, st.ctimeMs, st.ino, digest, now)
+        }
+      }
+    })()
+    return out
+  }
+
+  /**
    * Git blob OID of the file's bytes:
    * `hex(HASH("blob " + byteLength + "\0" + content))`, where HASH is
    * the repo's object format. Same value `git hash-object` prints and
