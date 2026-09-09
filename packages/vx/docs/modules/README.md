@@ -111,12 +111,15 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 
 ## Exec (process primitives)
 
-| File                                         | Topic                                                                                                    |
-| -------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| [`runner.md`](./runner.md)                   | `src/exec/runner.ts` — `runCommand`, `runPersistent`, `shellQuote`.                                      |
-| [`env.md`](./env.md)                         | `src/exec/env.ts` — child env composition + essential allowlist.                                         |
-| [`sandbox-runtime.md`](./sandbox-runtime.md) | `src/exec/sandbox-runtime.ts` — `runSandboxed` + violation tracking via `@anthropic-ai/sandbox-runtime`. |
-| [`executor.md`](./executor.md)               | `src/exec/executor.ts` — `TaskExecutor` contract + `selectExecutor`.                                     |
+| File                                         | Topic                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [`runner.md`](./runner.md)                   | `src/exec/runner.ts` — `runCommand`, `runPersistent`, `shellQuote`.                                                   |
+| [`env.md`](./env.md)                         | `src/exec/env.ts` — child env composition + essential allowlist.                                                      |
+| [`sandbox-runtime.md`](./sandbox-runtime.md) | `src/exec/sandbox-runtime.ts` — `runSandboxed` + violation tracking via `@anthropic-ai/sandbox-runtime`.              |
+|                                              | `src/exec/sandbox-violations.ts` — strace pass, seatbelt record description, report filters (see sandbox-runtime.md). |
+|                                              | `src/exec/sandbox-binds.ts` — bwrap-honourable write grants, read-grant punching, the SRT custom config.              |
+|                                              | `src/exec/sandbox-paths.ts` — `toRealPath`, `absolutize`, `isUnderAny`, `unique`.                                     |
+| [`executor.md`](./executor.md)               | `src/exec/executor.ts` — `TaskExecutor` contract + `selectExecutor`.                                                  |
 
 ## Plugins (`src/plugins/`)
 

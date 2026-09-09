@@ -14,6 +14,23 @@ or is detected via the macOS violation store and forced to exit
 non-zero. `cache.save` only fires when the task succeeded AND the
 violation store is empty.
 
+## Files
+
+`sandbox-runtime.ts` keeps the lifecycle (`probeSandbox`, `initSandbox`,
+`resetSandbox`), the config resolution (`resolveSandboxConfig`) and the
+spawn (`runSandboxed`, `wrapSandboxedCommand`, the macOS profile rules).
+Three companions hold the rest, split 2026-09-09 as pure code motion:
+
+- `sandbox-violations.ts` — the Linux strace pass (`deniedCalls`,
+  `parseStraceViolations`), the seatbelt record description, and the
+  report filters (`reportableViolations`: inside the project, minus
+  loopback noise, minus the task's `ignore`).
+- `sandbox-binds.ts` — write grants as bwrap can honour them
+  (`bindableWrites`), read grants punched around the write grants
+  inside them (`punchWritePaths`), and the SRT custom config.
+- `sandbox-paths.ts` — `toRealPath`, `absolutize`, `isUnderAny`,
+  `unique`.
+
 ## User-facing config
 
 The task declares its sandbox policy under `exec.sandbox` in

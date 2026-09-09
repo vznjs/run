@@ -14,16 +14,15 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { writeLocalWorkspace } from './helpers/local-workspace.js'
 import {
-  deniedCalls,
   initSandbox,
   probeSandbox,
-  punchWritePaths,
-  reportableViolations,
   resetSandbox,
   type SandboxViolation,
   resolveSandboxConfig,
   runSandboxed,
 } from '../src/exec/sandbox-runtime.js'
+import { punchWritePaths } from '../src/exec/sandbox-binds.js'
+import { deniedCalls, reportableViolations } from '../src/exec/sandbox-violations.js'
 import { run, type Logger, type RunOptions, type RunSummary } from '../src/orchestrator/index.js'
 import { sandboxAvailable } from './helpers/sandbox-gate.js'
 

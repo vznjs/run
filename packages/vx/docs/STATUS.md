@@ -846,6 +846,15 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     naming the task and the globs; a hit says nothing, `outputs: []`
     (the deliberate cached no-op) says nothing, and the warm path is
     untouched — the miss path already held both resolved lists.
+19. DONE: sandbox-runtime.ts (1,318 lines, the largest file) split by
+    concern, pure code motion: `sandbox-violations.ts` (the strace
+    pass, the seatbelt record description, the report filters),
+    `sandbox-binds.ts` (bwrap-honourable write grants, read-grant
+    punching, the SRT custom config) and `sandbox-paths.ts` (the four
+    path helpers all three share). runtime keeps probe, init, config
+    resolution and the spawn: 844 lines. The sandbox suite cannot run
+    here (no bwrap: 20 pass, 25 skip locally), so CI's
+    `VX_REQUIRE_SANDBOX=1` job is the arbiter for this one.
 
 ## In flight
 
