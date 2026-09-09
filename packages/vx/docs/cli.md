@@ -25,7 +25,7 @@ vx cache prune [--older-than <duration>] [--max-size <bytes>]
 vx lock [--check]
 vx init [--dry] [--force]
 vx migrate [--from turbo|nx|scripts] [--dry] [--force]
-vx show [PROJECT[#TASK]] [--format pretty|json]
+vx show [PROJECT[#TASK] | TASK] [--format pretty|json]
 vx info
 vx stats              # deprecated alias of vx info
 vx upgrade [tag]      # self-update a compiled binary
