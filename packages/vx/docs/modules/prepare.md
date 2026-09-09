@@ -47,10 +47,12 @@ export function prepareRun(options: RunOptions, log: Logger): Promise<PreparedRu
 
 1. **Workspace discovery** — `findWorkspaceRoot`, `loadWorkspace`,
    `loadWorkspaceConfig`, `listProjects`.
-2. **Project config load** — `loadProjectConfig` per project that has
-   a `vx.config.*` sibling. Projects without configs are kept in the
+2. **Project config load** — `loadProjects` ([`projects.md`](./projects.md)),
+   the load `vx show` shares: scoped to the seeds and their package
+   closure, from the lock under `--frozen`, through the plugin
+   `project` stage. Projects without configs are kept in the
    workspace graph (for cross-package dep edges) but contribute no
-   tasks.
+   tasks — unless a plugin fills the `project` stage.
 3. **Package + task structure** — `buildPackageGraph`,
    `computeNestedProjectDirs`, `expandRequested` (plus
    `unresolvedRequests`, the same predicate run in reverse to name the

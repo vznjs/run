@@ -3,6 +3,12 @@
 
 export { run, planRun } from './run.js'
 export { prepareRun, type PreparedRun } from './prepare.js'
+export {
+  loadProjects,
+  loadWorkspacePlugins,
+  type LoadedProjects,
+  type LoadProjectsArgs,
+} from './projects.js'
 export { computeTaskHash, createHashCache, type HashCache } from './task-hash.js'
 export type { RunOptions, RunSummary } from './options.js'
 // Re-surface the cache policy contract (defined in the cache module) so

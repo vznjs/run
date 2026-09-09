@@ -761,6 +761,21 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     1,303 → 1,167 lines; the record and persistent suites pass
     unchanged. Warm path ties in both orders (min 296/296, 286/286;
     med 321/328, 294/299 ms on the 1000-project workspace).
+11. DONE: `vx show` sees what a run sees. The verb documented itself
+    as "what a live run would see", then read config files raw: under
+    `@vzn/vx-turbo` it printed `(no vx config)` for a package `vx run`
+    runs, and it hid `retries`, `env`, `remote`, `resources`,
+    `sandbox`, workspace inputs and runtime probes. The staged load
+    (config-less packages under a `project` plugin, seeds + closure,
+    rounds to a fixpoint, lock or live, eval cache, the `project`
+    stage + re-validation) moved out of `prepareRun` into
+    `orchestrator/projects.ts:loadProjects`; `prepareRun`, `show` and
+    `info`'s task count all call it, and `loadWorkspacePlugins` owns
+    the `config` stage the same way. `show` gained the bare `<task>` form (every project
+    declaring it), prints every field the run reads, and suggests by
+    edit distance as well as partial name. Found on the way, fixed
+    next: the Turbo mapper lists a workspace file twice when both
+    `globalDependencies` and a task's `$TURBO_ROOT$/` input name it.
 
 ## In flight
 

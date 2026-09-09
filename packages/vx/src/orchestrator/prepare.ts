@@ -8,7 +8,7 @@
 // try/finally around its plan() call.
 
 import path from 'node:path'
-import type { ProjectConfig, WorkspaceConfig } from '../config.js'
+import type { WorkspaceConfig } from '../config.js'
 import { mark, UserError } from '../util/index.js'
 import {
   Cache,
@@ -27,32 +27,26 @@ import {
   computeNestedProjectDirs,
   computeWorkspaceFingerprint,
   findWorkspaceRoot,
-  frozenProjectConfig,
   listProjects,
-  loadProjectConfigs,
   loadWorkspace,
-  loadWorkspaceConfig,
   readLockfile,
   resolveCacheDir,
-  validateProjectConfig,
   type ProjectEntry,
 } from '../workspace/index.js'
 import {
   buildTaskGraph,
   expandRequested,
-  parseDependencySpec,
   type TaskNode,
   unresolvedRequests,
 } from '../graph/index.js'
 import {
-  applyConfigHooks,
   applyGraphHooks,
   applyKeyHooks,
-  applyProjectHooks,
   applyScheduleHooks,
   hasHook,
   resolveCache,
 } from './plugin-host.js'
+import { loadProjects, loadWorkspacePlugins, type LoadedProjects } from './projects.js'
 import type { VxPlugin } from './plugin.js'
 import { createHashCache, type HashCache } from './task-hash.js'
 import type { Logger } from './logger.js'
@@ -134,25 +128,6 @@ export interface PreparedRun {
   empty: null | 'no-tasks-declared' | 'empty-graph'
 }
 
-/** Project names named by a `pkg#task` dependsOn entry anywhere in `config`. */
-function crossDepProjects(config: ProjectConfig): string[] {
-  const out: string[] = []
-  for (const task of Object.values(config.tasks ?? {})) {
-    for (const raw of task.dependsOn ?? []) {
-      // A malformed spec is the graph builder's error to report — it names
-      // the offending task. Here it just contributes no project.
-      if (!raw.includes('#')) continue
-      try {
-        const spec = parseDependencySpec(raw)
-        if (spec.kind === 'cross') out.push(spec.project)
-      } catch {
-        continue
-      }
-    }
-  }
-  return out
-}
-
 /**
  * Build the prepared-run context: workspace discovery, project-config
  * load, package + task graph, cache handle (local, optionally wrapped
@@ -183,16 +158,9 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // await further down still sees the error).
   earlyGit?.catch(() => {})
   const workspace = await loadWorkspace(workspaceRoot)
-  const workspaceConfig = await loadWorkspaceConfig(workspaceRoot)
-  // The `config` stage runs before anything is derived from the workspace
-  // config; the plugin list itself is already fixed.
-  const plugins = (workspaceConfig?.plugins ?? []) as readonly VxPlugin[]
-  if (workspaceConfig !== null && hasHook(plugins, 'config')) {
-    await applyConfigHooks(plugins, workspaceConfig, {
-      workspaceRoot,
-      warn: (m) => log.status(m),
-    })
-  }
+  const { workspaceConfig, plugins } = await loadWorkspacePlugins(workspaceRoot, (m) =>
+    log.status(m),
+  )
   mark('workspace config')
   const projectMetas = await listProjects(workspace)
   mark('discover projects')
@@ -206,25 +174,11 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // Turbo-like: a broken config in an unrelated package no longer
   // fails a scoped run — it surfaces when that package enters scope.
   const packageGraph = buildPackageGraph(projectMetas)
-  // A package with no config file declares no tasks — unless a plugin fills
-  // the `project` stage, in which case it is a project the stage may give
-  // tasks to (the zero-migration shape: `turbo.json` or `package.json`
-  // scripts mapped onto packages that never wrote a `vx.config.ts`). It then
-  // loads as `{ tasks: {} }` — nothing to evaluate, nothing to freeze — and
-  // the stage runs on that like on any loaded config. With no `project`
-  // plugin the filter is what it always was, so a plain run never visits
-  // (or fences, or seeds) a config-less package.
-  const projectStage = hasHook(plugins, 'project')
-  const projectsWithConfigs = projectMetas.filter(
-    (m) => projectStage || (typeof m.configPath === 'string' && m.configPath.length > 0),
-  )
-  const haveConfig = new Set(projectsWithConfigs.map((m) => m.name))
-
-  // Seeds: explicit scope, plus anchored pkg#task targets (which
-  // bypass scope by design). With no explicit scope, bare task names
-  // fan out across the whole workspace — but when EVERY spec is
-  // anchored, the anchors alone are the scope and nothing else needs
-  // its config evaluated.
+  // Seeds: explicit scope, plus anchored pkg#task targets (which bypass
+  // scope by design). With no explicit scope, bare task names fan out
+  // across the whole workspace — but when EVERY spec is anchored, the
+  // anchors alone are the scope and nothing else needs its config
+  // evaluated.
   const anchored: string[] = []
   let hasBare = false
   for (const spec of options.tasks) {
@@ -232,16 +186,8 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
     if (hashIdx > 0) anchored.push(spec.slice(0, hashIdx))
     else hasBare = true
   }
-  const seeds = new Set<string>(
-    options.projects
-      ? options.projects.filter((p) => haveConfig.has(p))
-      : hasBare
-        ? haveConfig
-        : [],
-  )
-  for (const project of anchored) {
-    if (haveConfig.has(project)) seeds.add(project)
-  }
+  const seeds: 'all' | string[] =
+    options.projects !== undefined ? [...options.projects, ...anchored] : hasBare ? 'all' : anchored
 
   // The local cache opens BEFORE the configs load: it is also where their
   // cached evaluations live. `--cache-dir <path>` (RunOptions.cacheDir)
@@ -254,28 +200,6 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   const localCache = new Cache(cacheDir, { read: policy.localRead, write: policy.localWrite })
   const workspaceFingerprint = await computeWorkspaceFingerprint(workspaceRoot)
   mark('open cache')
-
-  type ConfigMeta = (typeof projectsWithConfigs)[number]
-  const metaByName = new Map<string, ConfigMeta>(projectsWithConfigs.map((m) => [m.name, m]))
-  const needed = new Set<string>()
-  const pending: ConfigMeta[] = []
-  const consider = (name: string): void => {
-    if (needed.has(name)) return
-    needed.add(name)
-    const meta = metaByName.get(name)
-    if (meta) pending.push(meta)
-  }
-  const considerWithDeps = (name: string): void => {
-    consider(name)
-    // Every config-bearing project already pending: the closure can add
-    // nothing, and asking for it would build the package graph's
-    // transitive bitsets — a cost the unscoped run (every project a seed)
-    // otherwise never pays.
-    if (pending.length === metaByName.size) return
-    for (const dep of packageGraph.transitiveDeps(name)) consider(dep)
-  }
-  for (const seed of seeds) consider(seed)
-  if (pending.length < metaByName.size) for (const seed of seeds) considerWithDeps(seed)
 
   // Frozen mode (--frozen, CI): configs load FROM vx-lock.json after a
   // content-hash tripwire — no evaluation; env-dependent configs keep
@@ -291,63 +215,27 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
     )
   }
 
-  // Load in rounds to a fixpoint. A `pkg#task` dependsOn entry names a
-  // project the PACKAGE graph cannot reach (the cross form ignores npm
-  // deps by design), so its config has to be pulled in — and that config
-  // may declare cross edges of its own. The common case (no cross deps)
-  // is a single round, identical to loading the closure in one batch.
-  const projects = new Map<string, ProjectEntry>()
+  let loaded: LoadedProjects
   try {
-    while (pending.length > 0) {
-      const round = pending.splice(0, pending.length)
-      // Only a config FILE is evaluated (or read from the lock); a
-      // config-less project in the round (a `project` stage is declared,
-      // see `projectsWithConfigs`) starts from an empty task table.
-      const withFile = round.filter(
-        (m): m is typeof m & { configPath: string } => typeof m.configPath === 'string',
-      )
-      const loaded = lock
-        ? await Promise.all(withFile.map((m) => frozenProjectConfig(lock, m, workspaceRoot)))
-        : await loadProjectConfigs(
-            withFile.map((m) => m.configPath),
-            { evalCache: { store: localCache, workspaceFingerprint } },
-          )
-      const configs: ProjectConfig[] = []
-      let next = 0
-      for (const meta of round) {
-        configs.push(meta.configPath === null ? { tasks: {} } : (loaded[next++] as ProjectConfig))
-      }
-      for (let i = 0; i < round.length; i++) {
-        const meta = round[i]!
-        const config = configs[i]!
-        if (projectStage) {
-          // The `project` stage edits the validated object in place; core
-          // then re-validates so a plugin can only produce what the loader
-          // accepts from a user. The message names the config file — the
-          // plugin's edit is a defect in THAT project's tasks.
-          await applyProjectHooks(plugins, config, {
-            workspaceRoot,
-            cacheDir,
-            warn: (m) => log.status(m),
-            name: meta.name,
-            dir: meta.dir,
-            packageJson: meta.packageJson as unknown as Readonly<Record<string, unknown>>,
-          })
-          validateProjectConfig(
-            config,
-            `${meta.configPath ?? `${meta.name} (no config file)`} (after plugins)`,
-          )
-        }
-        projects.set(meta.name, { name: meta.name, dir: meta.dir, config })
-        for (const name of crossDepProjects(config)) considerWithDeps(name)
-      }
-    }
+    loaded = await loadProjects({
+      workspaceRoot,
+      cacheDir,
+      plugins,
+      projectMetas,
+      packageGraph,
+      seeds,
+      closure: true,
+      lock,
+      evalCache: { store: localCache, workspaceFingerprint },
+      warn: (m) => log.status(m),
+    })
   } catch (err) {
     // The cache opened before the configs loaded (it holds their cached
     // evaluations); a config error must not leak the handle.
     localCache.close()
     throw err
   }
+  const { projects, configured: projectsWithConfigs } = loaded
   mark('load configs')
 
   // Boundary geometry considers every config-bearing project in the
@@ -429,7 +317,7 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
       nodes: new Map(),
       unresolvedTasks,
       projects,
-      anyProjectConfig: haveConfig.size > 0,
+      anyProjectConfig: projectsWithConfigs.length > 0,
       workspaceFingerprint,
       nestedDirsByProject,
       gitFilesCache,
@@ -480,7 +368,7 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
     nodes,
     unresolvedTasks,
     projects,
-    anyProjectConfig: haveConfig.size > 0,
+    anyProjectConfig: projectsWithConfigs.length > 0,
     workspaceFingerprint,
     nestedDirsByProject,
     gitFilesCache,

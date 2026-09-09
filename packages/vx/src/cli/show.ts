@@ -1,18 +1,24 @@
-// `vx show [target]` — introspect the workspace's LIVE resolved configs.
-// No target: one line per project. `<project>`: every task's resolved
-// config, evaluated with the same loader the run path uses (scoped to
-// that single project). `<pkg>#<task>`: one task. This is deliberately
-// NOT the lock — vx-lock.json is already the frozen JSON; `show` answers
-// "what would a live run see here, now".
+// `vx show [target]` — introspect the workspace's LIVE resolved configs:
+// what a run would see here, now. Configs load through the same path a
+// run uses (`loadProjects`): the plugin `config` and `project` stages
+// apply, so a package a plugin gives tasks to shows them. No target: one
+// line per project. `<project>`: every task's resolved config. `<pkg>#
+// <task>`: one task. `<task>`: that task in every project declaring it.
+// Deliberately NOT the lock — vx-lock.json is already the frozen JSON.
 
 import type { ProjectConfig, TaskConfig } from '../config.js'
+import { Cache } from '../cache/index.js'
 import { seeHelp } from './help.js'
-import { relPosix, UserError } from '../util/index.js'
+import { nearMatches, relPosix, UserError } from '../util/index.js'
+import { loadProjects, loadWorkspacePlugins } from '../orchestrator/index.js'
 import {
+  buildPackageGraph,
+  computeWorkspaceFingerprint,
   findWorkspaceRoot,
   listProjects,
-  loadProjectConfig,
   loadWorkspace,
+  resolveCacheDir,
+  type ProjectEntry,
   type ProjectMeta,
 } from '../workspace/index.js'
 
@@ -51,55 +57,116 @@ export async function showCmd(args: readonly string[]): Promise<number> {
   }
   const root = await findWorkspaceRoot(process.cwd())
   const metas = await listProjects(await loadWorkspace(root))
+  const byName = new Map(metas.map((m) => [m.name, m]))
+
+  const hashAt = parsed.target?.indexOf('#') ?? -1
+  const projectName =
+    parsed.target === undefined
+      ? undefined
+      : hashAt === -1
+        ? parsed.target
+        : parsed.target.slice(0, hashAt)
+  const taskName = hashAt === -1 ? undefined : parsed.target!.slice(hashAt + 1)
+  if (taskName === '') throw new UserError(`missing task name after '#' in "${parsed.target}"`)
+  if (projectName !== undefined && (taskName !== undefined || byName.has(projectName))) {
+    if (!byName.has(projectName)) {
+      throw new UserError(
+        `unknown project: "${projectName}"${suggest(projectName, [...byName.keys()])}`,
+      )
+    }
+  }
+  // A bare name that is no project is a TASK: shown in every project that
+  // declares it, so the whole workspace loads.
+  const bareTask = projectName !== undefined && taskName === undefined && !byName.has(projectName)
+  const scope = projectName === undefined || bareTask ? 'all' : [projectName]
+
+  const projects = await resolveProjects(root, metas, scope)
 
   if (parsed.target === undefined) {
-    process.stdout.write(await renderList(root, metas, parsed.format))
+    process.stdout.write(renderList(root, metas, projects, parsed.format))
     return 0
   }
 
-  const hashAt = parsed.target.indexOf('#')
-  const projectName = hashAt === -1 ? parsed.target : parsed.target.slice(0, hashAt)
-  const taskName = hashAt === -1 ? undefined : parsed.target.slice(hashAt + 1)
-  if (taskName === '') throw new UserError(`missing task name after '#' in "${parsed.target}"`)
-
-  const meta = metas.find((m) => m.name === projectName)
-  if (!meta) {
-    throw new UserError(
-      `unknown project: "${projectName}"${suggest(
-        projectName,
-        metas.map((m) => m.name),
-      )}`,
-    )
+  if (bareTask) {
+    const declaring = [...projects.values()].filter((p) => p.config.tasks?.[projectName!])
+    if (declaring.length === 0) {
+      const names = new Set<string>()
+      for (const p of projects.values())
+        for (const t of Object.keys(p.config.tasks ?? {})) names.add(t)
+      throw new UserError(
+        `unknown project or task: "${projectName}"${suggest(projectName!, [...byName.keys(), ...names])}`,
+      )
+    }
+    process.stdout.write(renderTaskAcross(root, declaring, projectName!, parsed.format))
+    return 0
   }
-  const config = meta.configPath === null ? null : await loadProjectConfig(meta.configPath)
+
+  const meta = byName.get(projectName!)!
+  const entry = projects.get(meta.name)
+  const config = entry?.config ?? null
   const dir = projectDir(root, meta)
 
   if (taskName === undefined) {
-    process.stdout.write(renderProject(meta.name, dir, config, parsed.format))
+    process.stdout.write(
+      renderProject(meta.name, dir, config, meta.configPath !== null, parsed.format),
+    )
     return 0
   }
 
   const task = config?.tasks?.[taskName]
   if (task === undefined) {
     throw new UserError(
-      `unknown task: "${meta.name}#${taskName}"${suggest(
-        taskName,
-        Object.keys(config?.tasks ?? {}),
-      )}`,
+      `unknown task: "${meta.name}#${taskName}"${suggest(taskName, Object.keys(config?.tasks ?? {}))}`,
     )
   }
   process.stdout.write(renderTask(meta.name, dir, taskName, task, parsed.format))
   return 0
 }
 
-/** Simple includes-match in both directions, case-insensitive. */
+/**
+ * The run path's config load — the plugin stages included — over `scope`.
+ * The local cache opens only to serve cached evaluations; nothing is
+ * written but the evaluations themselves.
+ */
+async function resolveProjects(
+  root: string,
+  metas: readonly ProjectMeta[],
+  scope: 'all' | string[],
+): Promise<Map<string, ProjectEntry>> {
+  const warn = (m: string): void => {
+    process.stderr.write(`${m}\n`)
+  }
+  const { workspaceConfig, plugins } = await loadWorkspacePlugins(root, warn)
+  const cacheDir = resolveCacheDir(root, workspaceConfig)
+  const cache = new Cache(cacheDir)
+  try {
+    const loaded = await loadProjects({
+      workspaceRoot: root,
+      cacheDir,
+      plugins,
+      projectMetas: metas,
+      packageGraph: buildPackageGraph([...metas]),
+      seeds: scope,
+      closure: false,
+      lock: null,
+      evalCache: { store: cache, workspaceFingerprint: await computeWorkspaceFingerprint(root) },
+      warn,
+    })
+    return loaded.projects
+  } finally {
+    cache.close()
+  }
+}
+
+/** Near misses by edit distance, plus partial names in either direction. */
 function suggest(query: string, candidates: readonly string[]): string {
   const q = query.toLowerCase()
-  const near = candidates.filter((c) => {
+  const near = new Set(nearMatches(query, candidates))
+  for (const c of candidates) {
     const n = c.toLowerCase()
-    return n.includes(q) || q.includes(n)
-  })
-  return near.length > 0 ? ` — did you mean ${near.join(', ')}?` : ''
+    if (n.includes(q) || q.includes(n)) near.add(c)
+  }
+  return near.size > 0 ? ` — did you mean ${[...near].join(', ')}?` : ''
 }
 
 function projectDir(root: string, meta: ProjectMeta): string {
@@ -107,22 +174,18 @@ function projectDir(root: string, meta: ProjectMeta): string {
   return rel === '' ? '.' : rel
 }
 
-async function renderList(
+function renderList(
   root: string,
   metas: readonly ProjectMeta[],
+  projects: ReadonlyMap<string, ProjectEntry>,
   format: 'pretty' | 'json',
-): Promise<string> {
-  const rows = await Promise.all(
-    metas.map(async (meta) => {
-      const config = meta.configPath === null ? null : await loadProjectConfig(meta.configPath)
-      return {
-        name: meta.name,
-        dir: projectDir(root, meta),
-        tasks: Object.keys(config?.tasks ?? {}),
-        configured: meta.configPath !== null,
-      }
-    }),
-  )
+): string {
+  const rows = metas.map((meta) => ({
+    name: meta.name,
+    dir: projectDir(root, meta),
+    tasks: Object.keys(projects.get(meta.name)?.config.tasks ?? {}),
+    configured: meta.configPath !== null,
+  }))
   if (format === 'json') {
     return `${JSON.stringify(
       rows.map(({ name, dir, tasks }) => ({ name, dir, tasks })),
@@ -133,9 +196,14 @@ async function renderList(
   const nameW = Math.max(...rows.map((r) => r.name.length))
   const dirW = Math.max(...rows.map((r) => r.dir.length))
   const lines = rows.map((r) => {
+    const n = r.tasks.length
+    const count = `${n} task${n === 1 ? '' : 's'}`
+    // A package with no config file only has tasks a plugin gave it.
     const tasks = r.configured
-      ? `${r.tasks.length} task${r.tasks.length === 1 ? '' : 's'}`
-      : '(no vx config)'
+      ? count
+      : n > 0
+        ? `${count} (no vx config; from plugins)`
+        : '(no vx config)'
     return `${r.name.padEnd(nameW)}  ${r.dir.padEnd(dirW)}  ${tasks}`
   })
   return `${lines.join('\n')}\n`
@@ -145,6 +213,7 @@ function renderProject(
   name: string,
   dir: string,
   config: ProjectConfig | null,
+  hasConfigFile: boolean,
   format: 'pretty' | 'json',
 ): string {
   if (format === 'json') {
@@ -153,9 +222,9 @@ function renderProject(
     return `${JSON.stringify(JSON.parse(JSON.stringify({ name, dir, config })), null, 2)}\n`
   }
   const head = `${name} — ${dir}`
-  if (config === null) return `${head}\n  (no vx config)\n`
-  const tasks = Object.entries(config.tasks ?? {})
-  if (tasks.length === 0) return `${head}\n  (no tasks declared)\n`
+  const tasks = Object.entries(config?.tasks ?? {})
+  if (tasks.length === 0)
+    return `${head}\n  ${hasConfigFile ? '(no tasks declared)' : '(no vx config)'}\n`
   const blocks = tasks.map(([taskName, task]) => taskBlock(taskName, task))
   return `${head}\n\n${blocks.join('\n')}`
 }
@@ -174,27 +243,72 @@ function renderTask(
   return `${name} — ${dir}\n\n${taskBlock(taskName, task)}`
 }
 
+function renderTaskAcross(
+  root: string,
+  declaring: readonly ProjectEntry[],
+  taskName: string,
+  format: 'pretty' | 'json',
+): string {
+  if (format === 'json') {
+    const list = declaring.map((p) => ({
+      name: p.name,
+      dir: relPosix(root, p.dir) || '.',
+      task: taskName,
+      config: p.config.tasks![taskName],
+    }))
+    return `${JSON.stringify(JSON.parse(JSON.stringify(list)), null, 2)}\n`
+  }
+  return declaring
+    .map(
+      (p) =>
+        `${p.name} — ${relPosix(root, p.dir) || '.'}\n\n${taskBlock(taskName, p.config.tasks![taskName]!)}`,
+    )
+    .join('\n')
+}
+
+/** Every field the run reads, in the order the schema declares them. */
 function taskBlock(taskName: string, task: TaskConfig): string {
   const rows: [string, string][] = []
-  if (task.description !== undefined) rows.push(['description', task.description])
-  rows.push(['command', task.exec?.command ?? '(group)'])
-  if (task.dependsOn !== undefined) rows.push(['dependsOn', task.dependsOn.join(', ')])
-  if (task.cache !== undefined) {
-    rows.push(['inputs.files', task.cache.inputs.files.join(', ')])
-    if (task.cache.inputs.env !== undefined) {
-      rows.push(['inputs.env', task.cache.inputs.env.join(', ')])
-    }
-    if (task.cache.inputs.tasks !== undefined) {
-      rows.push(['inputs.tasks', task.cache.inputs.tasks.join(', ')])
-    }
-    rows.push(['outputs.files', task.cache.outputs.files.join(', ')])
+  const list = (xs: readonly string[] | undefined): string | undefined =>
+    xs === undefined ? undefined : xs.join(', ')
+  const add = (label: string, value: string | number | boolean | undefined): void => {
+    if (value !== undefined) rows.push([label, String(value)])
   }
-  if (task.exec?.timeout !== undefined) rows.push(['timeout', `${task.exec.timeout}ms`])
-  const persistent = task.exec?.persistent
+  add('description', task.description)
+  const exec = task.exec
+  rows.push(['command', exec?.command ?? '(group)'])
+  add('dependsOn', list(task.dependsOn))
+  add('timeout', exec?.timeout === undefined ? undefined : `${exec.timeout}ms`)
+  add('retries', exec?.retries)
+  add('env.passThrough', list(exec?.env?.passThrough))
+  add(
+    'env.define',
+    exec?.env?.define === undefined
+      ? undefined
+      : Object.entries(exec.env.define)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(', '),
+  )
+  add('remote', exec?.remote === undefined ? undefined : String(exec.remote))
+  add('resources', exec?.resources === undefined ? undefined : JSON.stringify(exec.resources))
+  add('sandbox', exec?.sandbox === undefined ? undefined : JSON.stringify(exec.sandbox))
+  const persistent = exec?.persistent
   if (persistent !== undefined) {
-    const fields: string[] = []
-    if (persistent.readyWhen !== undefined) fields.push(`readyWhen: ${persistent.readyWhen}`)
-    rows.push(['persistent', fields.length > 0 ? fields.join(', ') : 'yes'])
+    add(
+      'persistent',
+      persistent.readyWhen === undefined ? 'yes' : `readyWhen: ${persistent.readyWhen}`,
+    )
+  }
+  const cache = task.cache
+  if (cache !== undefined) {
+    add('inputs.files', list(cache.inputs.files))
+    add('inputs.workspaceFiles', list(cache.inputs.workspaceFiles))
+    add('inputs.env', list(cache.inputs.env))
+    add('inputs.tasks', list(cache.inputs.tasks))
+    add('inputs.runtime', list(cache.inputs.runtime))
+    add('inputs.workspaceRuntime', list(cache.inputs.workspaceRuntime))
+    add('outputs.files', list(cache.outputs.files))
+    add('outputs.workspaceFiles', list(cache.outputs.workspaceFiles))
   }
   const labelW = Math.max(...rows.map(([label]) => label.length))
   const body = rows.map(([label, value]) => `  ${`${label}:`.padEnd(labelW + 1)} ${value}`)

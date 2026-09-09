@@ -1192,21 +1192,26 @@ detection error, or overwrite conflict without `--force`.
 ## `vx show`
 
 Introspect the workspace's **live resolved configs** — what a run
-would see right now. Configs are evaluated with the same loader the
-run path uses; `vx show` never reads `vx-lock.json` (the lock is
-already the frozen JSON — open it directly if you want the frozen
-view).
+would see right now. Configs load through the same path a run uses,
+plugin `config` and `project` stages included, so a package a plugin
+gives tasks to (the zero-migration Turbo shape) shows them; cached
+evaluations are served from the local cache like a run's. `vx show`
+never reads `vx-lock.json` (the lock is already the frozen JSON — open
+it directly if you want the frozen view).
 
 ```
 vx show                          # list every project
 vx show <project>                # one project's resolved config
 vx show <pkg>#<task>             # a single task
+vx show <task>                   # that task in every project declaring it
 vx show ... --format json        # machine-readable (default: pretty)
 ```
 
-No target: one line per project — name, root-relative dir, declared
-task count, and a `(no vx config)` marker for config-less packages.
-With `--format json` it's an array of `{ name, dir, tasks: string[] }`.
+No target: one line per project — name, root-relative dir, task count,
+and a `(no vx config)` marker for config-less packages; one whose
+tasks all come from plugins reads `N tasks (no vx config; from
+plugins)`. With `--format json` it's an array of `{ name, dir, tasks:
+string[] }`.
 
 ```
 $ vx show
@@ -1214,12 +1219,18 @@ app   packages/app   3 tasks
 bare  packages/bare  (no vx config)
 ```
 
-`vx show <project>` prints a block per task: description, command
-(`(group)` for group tasks), `dependsOn`, `cache.inputs.files` /
-`.env` / `.tasks`, `cache.outputs.files`, and persistent fields.
-`--format json` emits `{ name, dir, config }` with the config exactly
-as resolved. `vx show <pkg>#<task>` narrows to one task
-(`{ name, dir, task, config }` in JSON).
+`vx show <project>` prints a block per task with every field the run
+reads: description, command (`(group)` for group tasks), `dependsOn`,
+`timeout`, `retries`, `env.passThrough` / `env.define`, `remote`,
+`resources`, `sandbox`, `persistent`, and the cache block
+(`inputs.files` / `.workspaceFiles` / `.env` / `.tasks` / `.runtime` /
+`.workspaceRuntime`, `outputs.files` / `.workspaceFiles`). Fields the
+task does not set are not printed. `--format json` emits `{ name, dir,
+config }` with the config exactly as resolved. `vx show <pkg>#<task>`
+narrows to one task (`{ name, dir, task, config }` in JSON). A bare
+name that is no project is a task: `vx show build` prints the block
+from every project declaring `build` (an array of the one-task shape
+in JSON).
 
 ```
 $ vx show app#build
@@ -1234,15 +1245,18 @@ build
   outputs.files: dist/**
 ```
 
-Unknown project / task names exit `1` with the same near-miss hint every verb gives (two edits, or a partial name)
-(`vx prune: no project named "ap" — did you mean app?`).
+Unknown project / task names exit `1` with the same near-miss hint
+every verb gives (two edits, or a partial name); a bare name that is
+neither reads `unknown project or task: "buidl" — did you mean build?`.
 
 Exit codes: `0` success; `1` parse error or unknown target.
 
 ## `vx info`
 
 Workspace doctor — one screen of facts for bug reports and sanity
-checks (pretty only):
+checks (pretty only). The task count comes from the same load a run
+uses, plugin stages included; a config that fails to load counts as
+zero rather than failing the doctor:
 
 ```
 $ vx info

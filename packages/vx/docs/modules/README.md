@@ -60,6 +60,7 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 | [`plan.md`](./plan.md)                             | `src/orchestrator/plan.ts` — `--dry` / `--graph` planning (no exec).                           |
 | [`run-artifacts.md`](./run-artifacts.md)           | `src/orchestrator/run-artifacts.ts` — `--summarize` JSON + `--profile` trace writers.          |
 | [`prepare.md`](./prepare.md)                       | `src/orchestrator/prepare.ts` — shared run / planRun setup (workspace, graph, cache).          |
+| [`projects.md`](./projects.md)                     | `src/orchestrator/projects.ts` — the staged project-config load runs and `vx show` share.      |
 | [`tally.md`](./tally.md)                           | `src/orchestrator/tally.ts` — shared outcome tally for summary + summarize JSON.               |
 | [`events.md`](./events.md)                         | `src/orchestrator/events.ts` — run event bus + serializable `WireEvent` contract.              |
 | [`plugin.md`](./plugin.md)                         | `src/orchestrator/plugin.ts` — `VxPlugin` capabilities + installer.                            |

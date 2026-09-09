@@ -5,14 +5,17 @@
 import { Cache } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
+import { loadProjects, loadWorkspacePlugins } from '../orchestrator/index.js'
 import {
+  buildPackageGraph,
+  computeWorkspaceFingerprint,
   findWorkspaceRoot,
   listProjects,
   loadProjectConfig,
   loadWorkspace,
-  loadWorkspaceConfig,
   lockfilePath,
   resolveCacheDir,
+  type ProjectMeta,
 } from '../workspace/index.js'
 import { formatBytes } from './format.js'
 
@@ -23,27 +26,38 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   }
   const root = await findWorkspaceRoot(process.cwd())
   const metas = await listProjects(await loadWorkspace(root))
-
-  let taskCount = 0
-  await Promise.all(
-    metas.map(async (meta) => {
-      if (meta.configPath === null) return
-      // A broken config must not take the doctor down with it — it
-      // just contributes zero tasks to the count.
-      try {
-        const config = await loadProjectConfig(meta.configPath)
-        taskCount += Object.keys(config.tasks ?? {}).length
-      } catch {
-        // counted as zero
-      }
-    }),
-  )
-
-  const cacheDir = resolveCacheDir(root, await loadWorkspaceConfig(root))
+  const warn = (m: string): void => {
+    process.stderr.write(`${m}\n`)
+  }
+  const { workspaceConfig, plugins } = await loadWorkspacePlugins(root, warn)
+  const cacheDir = resolveCacheDir(root, workspaceConfig)
   const cache = new Cache(cacheDir)
   let stats
+  let taskCount = 0
   try {
     stats = cache.stats()
+    // The run path's load — a plugin's `project` stage counts — so the
+    // doctor's task count is the number a run would see. A broken config
+    // must not take the doctor down with it: the count then falls back to
+    // the configs that do load, one by one, the broken ones as zero.
+    try {
+      const loaded = await loadProjects({
+        workspaceRoot: root,
+        cacheDir,
+        plugins,
+        projectMetas: metas,
+        packageGraph: buildPackageGraph([...metas]),
+        seeds: 'all',
+        closure: false,
+        lock: null,
+        evalCache: { store: cache, workspaceFingerprint: await computeWorkspaceFingerprint(root) },
+        warn,
+      })
+      for (const p of loaded.projects.values())
+        taskCount += Object.keys(p.config.tasks ?? {}).length
+    } catch {
+      taskCount = await countLoadableTasks(metas)
+    }
   } finally {
     cache.close()
   }
@@ -113,4 +127,20 @@ function gitVersion(): string {
   } catch {
     return '(not found)'
   }
+}
+
+async function countLoadableTasks(metas: readonly ProjectMeta[]): Promise<number> {
+  let count = 0
+  await Promise.all(
+    metas.map(async (meta) => {
+      if (meta.configPath === null) return
+      try {
+        const config = await loadProjectConfig(meta.configPath)
+        count += Object.keys(config.tasks ?? {}).length
+      } catch {
+        // counted as zero
+      }
+    }),
+  )
+  return count
 }
