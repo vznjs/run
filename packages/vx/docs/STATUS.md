@@ -941,6 +941,14 @@ function`); the seam now checks the returned shape once and refuses
     the 1000-project workspace, main vs head, both orders, min of 8:
     209 → 141 ms and 197 → 129 — the staged load serves cached
     evaluations where the raw path evaluated every config.
+29. DONE: probes that confirmed what is pinned, and one stale comment.
+    A plugin `key` part is named in `vx why` (`plugin tool/node-major`,
+    digest → digest — values are reduced to digests on purpose, the
+    rows persist); `@vzn/vx-turbo` warns its mapping gaps on `run` and
+    `show` alike; a reservation over the budget is admitted alone
+    (schema.md § resources, scheduler.ts). The run.ts comment on
+    resource costs still named the percent form removed 2026-08-30;
+    it now points at resources.ts instead.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;
