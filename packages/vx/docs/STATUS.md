@@ -864,6 +864,11 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     `assertKnownFields`, which now also names the nearest accepted
     spelling at every level (`did you mean plugins?`); pinned in the
     schema-doc drift table.
+21. DONE: the project config's top level too. `task:` (singular) loaded
+    as a project with no tasks — `vx show` said "(no tasks declared)",
+    `vx run build` said "no projects declare" — and the loader's
+    `assertKnownFields` had covered every level below it. Now
+    `has unknown field "task" — did you mean tasks?`.
 
 ## In flight
 

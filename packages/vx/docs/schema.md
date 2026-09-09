@@ -1299,8 +1299,9 @@ and surfaces `UserError` (clean output, no stack):
 | `description must be a string`                                                      | Non-string description.                            |
 
 **Unknown fields are rejected**, not ignored, at every level that feeds
-the cache key — the task itself, `exec`, `exec.resources`, `exec.sandbox`, `cache`,
-`cache.inputs`, and `cache.outputs` — and at the top of `vx.workspace.ts`,
+the cache key — the project's top level (`tasks`), the task itself, `exec`,
+`exec.resources`, `exec.sandbox`, `cache`, `cache.inputs`, and
+`cache.outputs` — and at the top of `vx.workspace.ts`,
 where `plugin:` (singular) would otherwise declare no plugins and run
 the workspace bare. A silently-dropped
 `workspaceFile` (singular) or `timeoutMs` would make the task hash as

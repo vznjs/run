@@ -106,6 +106,19 @@ describe('loadProjectConfig', () => {
     expect(err?.stack).toContain(path.basename(file))
   })
 
+  it('a typo at the top level is refused with the spelling meant, not loaded as an empty project', async () => {
+    const file = path.join(dir, 'vx.config.mjs')
+    await writeFile(file, "export default { task: { build: { exec: { command: 'tsc' } } } }\n")
+    const err = await loadProjectConfig(file).then(
+      () => null,
+      (e: unknown) => e as Error,
+    )
+    expect(err?.name).toBe('UserError')
+    expect(err?.message).toBe(
+      `${file} has unknown field "task" — did you mean tasks?. Allowed: tasks`,
+    )
+  })
+
   it('throws clearly when the config did not export a default object', async () => {
     const file = path.join(dir, 'vx.config.mjs')
     await writeFile(file, 'export const notDefault = 1')

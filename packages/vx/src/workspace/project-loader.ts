@@ -406,6 +406,9 @@ function validateWorkspace(config: WorkspaceConfig, configPath: string): void {
  * back from `vx-lock.json` (a hand-editable file — same boundary).
  */
 export function validateProjectConfig(config: ProjectConfig, configPath: string): void {
+  // The top level too: `task:` (singular) loaded as a project with no
+  // tasks and every request against it said "no projects declare".
+  assertKnownFields(config, PROJECT_FIELDS, configPath)
   const tasks = config.tasks
   if (tasks === undefined) return
   if (typeof tasks !== 'object' || tasks === null || Array.isArray(tasks)) {
@@ -701,6 +704,7 @@ export function validateProjectConfig(config: ProjectConfig, configPath: string)
 // discarded, so the task hashes as if the field were never written and vx
 // serves a stale artifact — the same reasoning `exec.resources` and
 // `sandbox` already encode. A new field must be added here deliberately.
+const PROJECT_FIELDS = new Set(['tasks'])
 const TASK_FIELDS = new Set(['description', 'exec', 'dependsOn', 'cache'])
 const EXEC_FIELDS = new Set([
   'command',
