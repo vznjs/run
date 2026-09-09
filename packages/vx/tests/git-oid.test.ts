@@ -37,6 +37,14 @@ function git(cwd: string, ...args: string[]): string {
   return new TextDecoder().decode(p.stdout).trim()
 }
 
+/** The index OID of a tracked path, from `git ls-files -s`. */
+function indexOid(root: string, rel: string): string {
+  const line = git(root, 'ls-files', '-s', '--', rel)
+  const oid = /^[0-7]{6} ([0-9a-f]+) /.exec(line)?.[1]
+  if (oid === undefined) throw new Error(`no index entry for ${rel}: ${line}`)
+  return oid
+}
+
 function initRepo(root: string): void {
   git(root, 'init', '-q')
   git(root, 'config', 'user.email', 't@vx.local')
@@ -99,6 +107,29 @@ describe('Cache.hashFile — git blob OID domain', () => {
     }
   })
 
+  it('a symlink hashes as the blob of its target string — the index OID, never the bytes behind it', async () => {
+    const target = path.join(root, 'target.txt')
+    await writeFile(target, 'behind the link\n')
+    const fileLink = path.join(root, 'file-link')
+    await symlink('target.txt', fileLink)
+    await mkdir(path.join(root, 'dir'))
+    const dirLink = path.join(root, 'dir-link')
+    await symlink('dir', dirLink)
+    const dangling = path.join(root, 'dangling')
+    await symlink('nowhere', dangling)
+    git(root, 'add', '-A')
+    // Every link's fallback hash equals git's index OID for it.
+    expect(await cache.hashFile(fileLink)).toBe(indexOid(root, 'file-link'))
+    expect(await cache.hashFile(dirLink)).toBe(indexOid(root, 'dir-link'))
+    expect(await cache.hashFile(dangling)).toBe(indexOid(root, 'dangling'))
+    // Differential: a file link is NOT its target's content hash.
+    expect(await cache.hashFile(fileLink)).not.toBe(await cache.hashFile(target))
+    // A retargeted link is a different blob.
+    await rm(fileLink)
+    await symlink('nowhere', fileLink)
+    expect(await cache.hashFile(fileLink)).toBe(await cache.hashFile(dangling))
+  })
+
   it('mtime+size memo returns the same OID without re-reading', async () => {
     const f = path.join(root, 'memo.txt')
     await writeFile(f, 'memo me\n')
@@ -124,7 +155,7 @@ describe('populateGitFilesCache — index OID harvesting', () => {
     await rm(root, { recursive: true, force: true })
   })
 
-  it('clean tracked files get their index OID; dirty/untracked/symlink/deleted do not', async () => {
+  it('clean tracked files and symlinks get their index OID; dirty/untracked/deleted do not', async () => {
     await writeFile(path.join(pkgDir, 'src', 'clean.ts'), 'clean\n')
     await writeFile(path.join(pkgDir, 'src', 'dirty.ts'), 'v1\n')
     await writeFile(path.join(pkgDir, 'src', 'gone.ts'), 'bye\n')
@@ -154,7 +185,10 @@ describe('populateGitFilesCache — index OID harvesting', () => {
     expect(oids!.get(cleanAbs)).toBe(git(root, 'hash-object', cleanAbs))
     expect(oids!.has(path.join(pkgDir, 'src', 'dirty.ts'))).toBe(false) // modified → untrusted
     expect(oids!.has(path.join(pkgDir, 'src', 'new.ts'))).toBe(false) // untracked → no OID
-    expect(oids!.has(path.join(pkgDir, 'src', 'link.ts'))).toBe(false) // symlink OID hashes the target string
+    // A clean symlink's OID is the blob of its target STRING — the same
+    // value hashFile computes for it, so trusting it is sound.
+    const linkAbs = path.join(pkgDir, 'src', 'link.ts')
+    expect(oids!.get(linkAbs)).toBe(indexOid(root, 'pkg/src/link.ts'))
     expect(oids!.has(path.join(pkgDir, 'src', 'gone.ts'))).toBe(false) // deleted → untrusted
   })
 
@@ -356,6 +390,41 @@ describe('semantic guardrails — key stability across dirty↔clean transitions
   afterEach(async () => {
     cache.close()
     await rm(root, { recursive: true, force: true })
+  })
+
+  it('a tracked symlink to a directory is an input: retargeting it moves the key, clean or dirty', async () => {
+    // `Bun.file(p).exists()` is false for a directory link and for a dangling
+    // one, and the old probe used it: both fell out of the input set, so a
+    // retarget — a change git itself reports — replayed the old artifact.
+    await mkdir(path.join(root, 'shared-a'), { recursive: true })
+    await mkdir(path.join(root, 'shared-b'), { recursive: true })
+    const link = path.join(pkgDir, 'src', 'shared')
+    await symlink('../../shared-a', link)
+    git(root, 'add', '-A')
+    git(root, 'commit', '-qm', 'link a')
+    const keyA = await keyNow()
+    // Dirty retarget: status reports the link modified, the fallback hashes
+    // the new target string.
+    await rm(link)
+    await symlink('../../shared-b', link)
+    const keyBDirty = await keyNow()
+    expect(keyBDirty).not.toBe(keyA)
+    // Committed: the trusted index OID must fold the same value.
+    git(root, 'add', '-A')
+    git(root, 'commit', '-qm', 'link b')
+    expect(await keyNow()).toBe(keyBDirty)
+    // Dangling is a state of its own, not "absent".
+    await rm(link)
+    await symlink('../../gone', link)
+    const keyDangling = await keyNow()
+    expect(keyDangling).not.toBe(keyBDirty)
+    expect(keyDangling).not.toBe(keyA)
+    // Control: the bytes BEHIND a directory link are not inputs (git parity —
+    // declare them with workspaceFiles).
+    await rm(link)
+    await symlink('../../shared-a', link)
+    await writeFile(path.join(root, 'shared-a', 'f.txt'), 'x')
+    expect(await keyNow()).toBe(keyA)
   })
 
   it('edit changes the key; reverting restores the ORIGINAL key before any commit', async () => {

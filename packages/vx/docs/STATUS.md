@@ -600,6 +600,27 @@ place with pins:
   harness cannot see the second half (it starts from an empty history
   table) and its rows swing 15% between reps on this box, so its
   figures are not the record here.
+- A stale-hit hole in input resolution, found reviewing inputs.ts
+  against a probe: a tracked symlink to a directory, or a dangling
+  link, fell out of the input set entirely, because the existence probe
+  asked Bun.file(p).exists(), which answers false for both. Retargeting
+  the link — a change git reports as modified — replayed the old
+  artifact; so did committing the retarget. A link to a file folded
+  the bytes BEHIND it instead, which for a target outside the project
+  folded a change that git diff and --affected cannot see. Symlinks
+  fold as git folds them now: the blob of the target string, the
+  mode-120000 index OID, so a clean link's OID is trusted like a
+  file's and the fallback (lstat + readlink) computes the identical
+  value; the probe is an lstat that admits files and links and refuses
+  directories (a gitlink's path). Pinned: hashFile of a file, directory
+  and dangling link equals the index OID and differs from the target's
+  content; retargeting a tracked directory link moves the key dirty
+  and committed, dangling is its own state, and the bytes behind a
+  directory link are not inputs (git parity — declare them with
+  workspaceFiles). Key-derivation fix, old keys were wrong for those
+  projects only, self-healing, no CACHE_VERSION bump. The warm path
+  ties (a clean tree reaches neither the probe nor the fallback):
+  interleaved both orders, 8 reps, within the box's noise either way.
 
 ## In flight
 

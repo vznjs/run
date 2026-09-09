@@ -134,14 +134,25 @@ over (in order):
     CRLF file). The gate costs nothing in a repo with no attributes
     and no `core.autocrlf` — see "Clean filters" below.
 
-    Every pruned path, plus untracked files and symlinks, falls back
-    to an in-process `HASH("blob " + len + "\0" + content)` over the
+    Every pruned path, plus untracked files, falls back to an
+    in-process `HASH("blob " + len + "\0" + content)` over the
     **worktree bytes** (sha1, or sha256 in `--object-format=sha256`
     repos), memoized in `file_hashes` on `(mtime, size, ctime, ino)`.
     That is the same value the index holds whenever no filter applies,
     so a file's contribution doesn't flip across dirty↔clean
     transitions. Folded as `(relPath, oid)` pairs, sorted for
     stability across OSes and walk orders.
+
+    A **symlink** folds as git folds it: the blob of its target
+    _string_ (its mode-120000 index OID), whether it points at a file,
+    a directory, or nothing. Retargeting a link changes the key; the
+    bytes behind a link to a directory, or to a file outside the
+    project, do not — `git diff` and `--affected` cannot see them
+    either, so declare them with `workspaceFiles`. A link to a file
+    inside the project tracks that file's content because the file is
+    an input of its own. (Before 2026-09-09 a file link folded the
+    bytes behind it and a directory or dangling link fell out of the
+    input set entirely, so retargeting one was a stale hit.)
 
 The composition is seed-chained (`xxh3(part, prevDigest)`) with a
 label prefix per field, so two different field layouts can't collide.
@@ -1132,7 +1143,9 @@ Files touched: `src/cache/cache.ts` (the constant), this doc (history),
   spawn yields the file list AND the index OIDs; a second
   `git status --porcelain -z` spawn prunes OIDs for paths whose
   working tree diverges from the index (renames drop both sides;
-  stage>0 conflict entries and symlinks never get one). A clean
+  stage>0 conflict entries never get one; symlinks did not either
+  until 2026-09-09, when the fallback started hashing a link the way
+  the index does). A clean
   tree's key derivation does zero reads / stats / SQLite per file.
   Everything else falls back to `Cache.hashFile`, which now computes
   the identical blob OID in-process (object format auto-detected via

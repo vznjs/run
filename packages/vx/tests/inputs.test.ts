@@ -837,9 +837,10 @@ describe('resolveInputs — symlink edge cases', () => {
       ownOutputs: [],
       nestedProjectDirs: [],
     })
-    // The walk shouldn't hang or throw. Broken symlinks may or may
-    // not appear in the file list — we just pin "doesn't crash".
-    expect(Array.isArray(resolved.files)).toBe(true)
+    // A dangling link is an input in its own right (its target string is
+    // what folds, as in git) — it must not fall out of the set for lacking
+    // bytes behind it.
+    expect(resolved.files).toContain(path.join(projectDir, 'src', 'dangling.txt'))
   })
 
   it('does not infinite-loop on a symlink cycle under the project dir', async () => {
