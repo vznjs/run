@@ -50,6 +50,62 @@ describe('loadProjectConfig', () => {
     expect(other?.message).not.toContain('bun add')
   })
 
+  it('a syntax error is a user error naming the file, line and column', async () => {
+    // Bun's `BuildMessage` says `Expected "}" but found end of file` and
+    // nothing else — the file is only in its `position`, which `vx` printed
+    // as nothing. Wrapping it is what makes the message actionable.
+    const file = path.join(dir, 'vx.config.mjs')
+    await writeFile(file, "export default { tasks: { build: { exec: { command: 'tsc' } }\n")
+    const err = await loadProjectConfig(file).then(
+      () => null,
+      (e: unknown) => e as Error,
+    )
+    expect(err?.name).toBe('UserError')
+    expect(err?.message).toContain(`Project config ${file}:1:`)
+    expect(err?.message).toContain('Expected "}"')
+  })
+
+  it('a syntax error in an imported preset names the preset, not only the config', async () => {
+    // The config itself is fine; the file that fails to parse is the one the
+    // user has to open, and the config is the entry point they can find it from.
+    const preset = path.join(dir, 'preset.mjs')
+    const file = path.join(dir, 'vx.config.mjs')
+    await writeFile(preset, "export const build = { exec: { command: 'tsc' }\n")
+    await writeFile(
+      file,
+      "import { build } from './preset.mjs'\nexport default { tasks: { build } }\n",
+    )
+    const err = await loadProjectConfig(file).then(
+      () => null,
+      (e: unknown) => e as Error,
+    )
+    expect(err?.name).toBe('UserError')
+    expect(err?.message).toContain(`Project config ${file} (in ${preset}:1:`)
+    expect(err?.message).toContain('Expected "}"')
+    // A REPEAT load of the same path evaluates in the worker; the position
+    // has to survive that hop or the second `vx watch` cycle loses the file.
+    const again = await loadProjectConfig(file).then(
+      () => null,
+      (e: unknown) => e as Error,
+    )
+    expect(again?.name).toBe('UserError')
+    expect(again?.message).toContain(`Project config ${file} (in ${preset}:1:`)
+  })
+
+  it("a config's own runtime throw passes through with its stack (control)", async () => {
+    // Only Bun's loader errors are rewrapped: a throw in user code already
+    // names its file in the stack, and wrapping it would lose that.
+    const file = path.join(dir, 'vx.config.mjs')
+    await writeFile(file, "throw new RangeError('preset out of range')\n")
+    const err = await loadProjectConfig(file).then(
+      () => null,
+      (e: unknown) => e as Error,
+    )
+    expect(err?.name).toBe('RangeError')
+    expect(err?.message).toBe('preset out of range')
+    expect(err?.stack).toContain(path.basename(file))
+  })
+
   it('throws clearly when the config did not export a default object', async () => {
     const file = path.join(dir, 'vx.config.mjs')
     await writeFile(file, 'export const notDefault = 1')

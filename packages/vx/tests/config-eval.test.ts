@@ -249,6 +249,21 @@ describe('evaluateConfigFresh: errors cross the boundary', () => {
     expect(err.stack).toContain(path.basename(file))
   })
 
+  it("forwards a transpile error's position, which its message does not carry", async () => {
+    // `BuildMessage` says only `Expected "}" but found end of file`; the file,
+    // line and column live in `position`, which the loader turns into the
+    // location the user opens. The three-string relay dropped it.
+    const file = await write('const a = 1\nconst b = 2\nexport default { tasks: ] }\n')
+    type Positioned = Error & { position?: { file?: string; line?: number } }
+    const err: Positioned = await evaluateConfigFresh(file).then(
+      () => new Error('NO THROW'),
+      (e: unknown) => e as Positioned,
+    )
+    expect(err.name).toBe('BuildMessage')
+    expect(err.position?.file).toBe(file)
+    expect(err.position?.line).toBe(3)
+  })
+
   it('reports the same name and message an in-process import would', async () => {
     // The repeat path must not change what a user sees for a config that
     // throws — the only difference between the two paths should be WHERE the

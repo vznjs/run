@@ -295,7 +295,7 @@ is Windows (unsupported).
 | MCP server (`@vzn/vx-mcp`)                       | **shippable**        | `vx mcp` — read-only tools for AI agents, no SDK                                          |
 | Turbo-wire cache (`@vzn/vx-turbo-cache`)         | **shippable**        | any `/v8/artifacts` server, Bearer auth, HMAC artifact signatures                         |
 | Nx-wire cache (`@vzn/vx-nx-cache`)               | **shippable**        | any Nx self-hosted cache server (`/v1/cache`, immutable records)                          |
-| Zero-migration Turbo (`@vzn/vx-turbo`)          | **shippable**        | a `turbo.json` workspace runs under vx with no `vx.config` written; a written config wins   |
+| Zero-migration Turbo (`@vzn/vx-turbo`)           | **shippable**        | a `turbo.json` workspace runs under vx with no `vx.config` written; a written config wins |
 
 ## Development
 

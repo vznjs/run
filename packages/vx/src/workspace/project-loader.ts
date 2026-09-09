@@ -44,7 +44,7 @@ async function loadDefaultExport(
   try {
     ns = (await import(`${configPath}?vx-bust=${bust}`)) as { default?: unknown }
   } catch (err) {
-    throw unresolvedImportError(err, configPath, kind) ?? err
+    throw configLoadError(err, configPath, kind) ?? err
   }
   const mod = ns?.default
   assertDefaultObject(mod, kind, configPath)
@@ -52,24 +52,55 @@ async function loadDefaultExport(
 }
 
 /**
- * A config whose import cannot be resolved is the user's to fix, and the
- * usual cause has one answer: the workspace runs the vx binary and never
- * installed `@vzn/vx`, which its own `vx.workspace.ts` imports. Bun's
- * resolver error also carries the module-cache bust query; the user
- * gets the file they wrote.
+ * Where a transpile error was found. Bun's `BuildMessage` carries it as
+ * `position`; the config worker forwards the same three fields (see
+ * config-eval.ts) so the repeat path names the line too.
  */
-export function unresolvedImportError(
-  err: unknown,
-  configPath: string,
-  kind: string,
-): UserError | null {
-  if (!(err instanceof Error) || err.name !== 'ResolveMessage') return null
-  const spec = /Cannot find (?:package|module) ['"]([^'"]+)['"]/.exec(err.message)?.[1]
-  const what =
-    spec === undefined ? err.message.replace(/\?vx-bust=\S+/g, '') : `cannot find '${spec}'`
-  const hint =
-    spec?.startsWith('@vzn/vx') === true ? `; install it in the workspace: bun add -d @vzn/vx` : ''
-  return new UserError(`${kind} config ${configPath}: ${what}${hint}`)
+interface BuildPosition {
+  file?: string
+  line?: number
+  column?: number
+}
+
+/**
+ * Turn the two errors Bun's own loader throws into user errors naming the
+ * file the user wrote; every other throw is the config's own and already
+ * carries its location in its stack, so it passes through unchanged.
+ *
+ * `ResolveMessage` — an import that cannot be resolved. The usual cause has
+ * one answer: the workspace runs the vx binary and never installed `@vzn/vx`,
+ * which its own `vx.workspace.ts` imports. Bun's message also carries the
+ * module-cache bust query; the user gets the file they wrote.
+ *
+ * `BuildMessage` — a syntax or transpile error. Its message alone (`Expected
+ * "}" but found end of file`) names no file at all, and the file is not
+ * always the config: a preset the config imports fails the same way, so the
+ * location is taken from the error's position, with the config as the
+ * fallback.
+ */
+export function configLoadError(err: unknown, configPath: string, kind: string): UserError | null {
+  if (!(err instanceof Error)) return null
+  if (err.name === 'ResolveMessage') {
+    const spec = /Cannot find (?:package|module) ['"]([^'"]+)['"]/.exec(err.message)?.[1]
+    const what =
+      spec === undefined ? err.message.replace(/\?vx-bust=\S+/g, '') : `cannot find '${spec}'`
+    const hint =
+      spec?.startsWith('@vzn/vx') === true
+        ? `; install it in the workspace: bun add -d @vzn/vx`
+        : ''
+    return new UserError(`${kind} config ${configPath}: ${what}${hint}`)
+  }
+  if (err.name === 'BuildMessage') {
+    const pos = (err as { position?: BuildPosition | null }).position ?? {}
+    const file = typeof pos.file === 'string' && pos.file.length > 0 ? pos.file : configPath
+    const at =
+      typeof pos.line === 'number'
+        ? `:${pos.line}${typeof pos.column === 'number' ? `:${pos.column}` : ''}`
+        : ''
+    const where = file === configPath ? `${configPath}${at}` : `${configPath} (in ${file}${at})`
+    return new UserError(`${kind} config ${where}: ${err.message}`)
+  }
+  return null
 }
 
 export interface LoadProjectConfigOptions {
@@ -203,7 +234,7 @@ export async function loadProjectConfigs(
     loadedConfigs.add(configPath)
     const mod = repeat
       ? await evaluateConfigFresh(configPath).catch((err: unknown) => {
-          throw unresolvedImportError(err, configPath, 'Project') ?? err
+          throw configLoadError(err, configPath, 'Project') ?? err
         })
       : await loadDefaultExport(configPath, 'Project', opts?.fresh === true, bytes!)
     assertDefaultObject(mod, 'Project', configPath)

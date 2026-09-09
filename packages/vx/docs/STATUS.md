@@ -734,6 +734,22 @@ nx` stays the Nx path.
    its output rows together (`OutputIndex.replaceFileRows` inside it).
    cache.ts 1,850 → 1,330 lines; the slices 260 / 90 / 210 / 150. Warm
    path ties both orders (211/219 vs 212/221, 218/222 vs 217/220).
+9. DONE: a config that fails to PARSE names its file, line and column.
+   A DX probe over broken configs: unknown field, `dependsOn` typo,
+   `cache` without inputs, unresolved import, runtime throw — all name
+   the file. The one that did not was a syntax error: `vx: Expected "}"
+but found end of file`, nothing else, because Bun's `BuildMessage`
+   keeps the location in `position`, not in the message, and the loader
+   only rewrapped `ResolveMessage`. `configLoadError` now rewraps both;
+   the file comes from the position (a preset the config imports fails
+   the same way and is named as `config (in preset:line:col)`), and the
+   config worker forwards the position so the repeat path — the second
+   `vx watch` cycle — reports the same text as the first. Refuted on
+   the way: the probe's "package silently dropped on a missing import"
+   was the probe. A `.ts` config with an UNUSED import of a missing
+   module loads fine because TypeScript elides unused imports, and
+   that config declared `tasks: {}`, so "1 affected · 2 total" was
+   correct. A used import of a missing module fails loud, as pinned.
 
 ## In flight
 

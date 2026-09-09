@@ -52,6 +52,10 @@ self.onmessage = async (e) => {
       name: err?.name ?? 'Error',
       message: err?.message ?? String(err),
       stack: err?.stack ?? null,
+      position:
+        err?.position && typeof err.position === 'object'
+          ? { file: err.position.file, line: err.position.line, column: err.position.column }
+          : null,
     })
   }
 }
@@ -66,6 +70,8 @@ interface WorkerReply {
   name: string
   message: string
   stack: string | null
+  /** A transpile error's location — `BuildMessage.position`, trimmed to what the loader reads. */
+  position: { file?: string; line?: number; column?: number } | null
 }
 
 interface Pending {
@@ -136,12 +142,13 @@ function acquireWorker(): Worker {
       p.resolve(msg.json)
       return
     }
-    // Rebuild the error the config actually threw. Name, message and
-    // stack all survive the hop, so a broken config reports the same
-    // text it would from an in-process import.
-    const err = new Error(msg.message)
+    // Rebuild the error the config actually threw. Name, message, stack
+    // and a transpile error's position all survive the hop, so a broken
+    // config reports the same text it would from an in-process import.
+    const err = new Error(msg.message) as Error & { position?: WorkerReply['position'] }
     err.name = msg.name
     if (msg.stack !== null) err.stack = msg.stack
+    if (msg.position !== null) err.position = msg.position
     p.reject(err)
   }
   w.onerror = (event: ErrorEvent): void => {
