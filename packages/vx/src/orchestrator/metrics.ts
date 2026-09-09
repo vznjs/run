@@ -559,7 +559,7 @@ export function cacheKeyDiff(db: Database, runId: string, taskId: string): Cache
       previousRunId: prev.runId,
       entries: [],
       unchangedCount: 0,
-      note: 'cache key changed but input fingerprints are unavailable (entry pruned); only the hash change is known',
+      note: 'cache key changed but input fingerprints are unavailable — the task declares no `cache` block (it runs every time), or its entry was pruned; only the key change is known',
     }
   }
 

@@ -255,8 +255,10 @@ export default {
 
 const WORKSPACE_FILE = `import { defineWorkspace } from '@vzn/vx'
 
-// Nothing runs that is not declared here. Put a remote executor or cache
-// plugin BEFORE the local one to prefer it.
+// Plugins are consulted in this order; running here and caching in
+// .vx/cache are the floor under all of them, so an empty list is a
+// complete workspace. Add a remote cache, a remote executor or telemetry
+// as one entry each.
 export default defineWorkspace({ plugins: [] })
 `
 
