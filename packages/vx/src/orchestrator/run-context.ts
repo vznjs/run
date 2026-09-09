@@ -81,7 +81,7 @@ export function captureGitContext(
       // defaultBranch`) means it is at least never mistaken for trunk, but
       // every PR collapses into one scope — so one PR's timings feed another's
       // baseline, cross-branch regression detection counts them as a single
-      // branch, and the dashboard's branch column reads "HEAD".
+      // branch, and a consumer grouping runs by branch reads "HEAD".
       if (br && br !== 'HEAD') branch = br
     }
   } catch {

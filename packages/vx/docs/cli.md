@@ -558,6 +558,17 @@ no history count as 0 and are called out (`N tasks without history
 (+?)`) — the totals are honest lower bounds. The footer is omitted
 when nothing would run or when no would-run task has history.
 
+**Placement.** When the workspace's plugins supply more than one
+executor, each row carries the one the task would land on (`@spy-remote`;
+`@local` for the floor; `@noop` for an `exec.remote: 'only'` task no
+remote accepts, which the run would skip rather than run here) and the
+JSON object carries it as `executor`. With one executor there is
+nothing to choose and the column is absent. If an executor hook throws
+or returns something that is not an executor, the plan still prints —
+`--dry` never fails over a label — but says so on the status line, in
+the plugin's name: `[vx] placement not shown — plugin 'x' … (the run
+would refuse on it)`.
+
 Status legend:
 
 | Symbol | Meaning                                                      |

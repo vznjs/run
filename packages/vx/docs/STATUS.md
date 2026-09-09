@@ -1120,6 +1120,21 @@ artifacts`. Pinned end to end: the run after a poked version says
     above the summary — exactly what CLAUDE.md's "never pipe a gate
     through tail" is about. Fixed in 377c00f; the check is read whole.
 
+40. DONE (a swallow that hid a refusal): `planRun`'s placement helper
+    caught every error from `resolveExecutors` and returned nothing —
+    right that `--dry` must not fail over a label, wrong that it said
+    nothing: the run the plan previews WOULD refuse on that plugin, and
+    the plan read as "everything lands locally". It now puts one line
+    on the status channel, in the plugin's name — `[vx] placement not
+shown — plugin 'org/broken-exec' … exec boom (the run would refuse
+on it)` — and still returns the plan. Pinned with a throwing
+    executor factory; the pin fails on the old code (zero notices).
+    Found by reading the 47 bare `catch {}` sites in core: the rest are
+    teardown-must-not-throw, best-effort git probes, and ENOENT-means-no
+    checks, each with its reason on the line. A run-context comment
+    that explained a `HEAD` branch by "the dashboard's column" was
+    reworded; there is no dashboard.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

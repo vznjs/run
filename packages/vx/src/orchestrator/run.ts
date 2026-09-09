@@ -1033,7 +1033,10 @@ function placeTasks(
 /**
  * `executorOf` for `planRun`, or nothing. Declining plugins, a single
  * executor, or a resolution error all yield nothing: `--dry` is an
- * inspection command and must not fail over a label.
+ * inspection command and must not fail over a label. The error is still
+ * said, on the status line, in the plugin's name: the run this plan
+ * previews would refuse on it, and a plan that hid that would read as
+ * "everything lands locally".
  */
 async function planExecutorOf(
   prepared: Awaited<ReturnType<typeof prepareRun>>,
@@ -1052,7 +1055,10 @@ async function planExecutorOf(
       warn: (m: string) => log.status(m),
       concurrency: Math.max(1, navigator.hardwareConcurrency),
     })
-  } catch {
+  } catch (err) {
+    log.status(
+      `[vx] placement not shown — ${err instanceof Error ? err.message : String(err)} (the run would refuse on it)`,
+    )
     return {}
   }
   const placements = placeTasks(prepared.nodes, executors)

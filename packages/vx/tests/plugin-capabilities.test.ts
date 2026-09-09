@@ -804,6 +804,41 @@ describe('executor capability — end-to-end via run()', () => {
     }
   })
 
+  it("placement: --dry says, in the plugin's name, when placement could not be resolved", async () => {
+    // A plan must not fail over a label — but the run it previews WOULD
+    // refuse on this plugin, and a plan that hid that read as "everything
+    // lands locally". Control: the same plan succeeds and shows no
+    // placement column (one executor, nothing to choose).
+    const { workspaceRoot, cleanup } = await writeFixture()
+    try {
+      await Bun.write(
+        path.join(workspaceRoot, 'pkg-a/vx.config.mjs'),
+        `export default { tasks: { hello: { exec: { command: 'echo hi' } } } }`,
+      )
+      await Bun.write(
+        path.join(workspaceRoot, 'vx.workspace.mjs'),
+        localWorkspaceSource([
+          `{ name: 'org/broken-exec', executor() { throw new Error('exec boom') } }`,
+        ]),
+      )
+      await gitInit(workspaceRoot)
+      const status: string[] = []
+      const plan = await planRun({
+        cwd: workspaceRoot,
+        projects: ['pkg-a'],
+        tasks: ['hello'],
+        log: makeSilentLogger((line) => status.push(line)),
+      })
+      expect(plan.tasks.map((t) => t.executor)).toEqual([undefined])
+      const notices = status.filter((l) => l.includes('placement not shown'))
+      expect(notices).toHaveLength(1)
+      expect(notices[0]).toMatch(/^\[vx\] placement not shown — .*org\/broken-exec.*exec boom/)
+      expect(notices[0]).toContain('the run would refuse on it')
+    } finally {
+      cleanup()
+    }
+  })
+
   it("placement: --dry labels a noop'd remote-only task as @noop, not as a lie", async () => {
     // `remote: 'only'` + a remote executor that DECLINES it = the task will
     // not run anywhere. A --dry that shows the local executor's name there
