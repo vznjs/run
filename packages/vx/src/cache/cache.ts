@@ -1184,12 +1184,12 @@ export class Cache implements CacheLayer {
   }
 
   /**
-   * Content-addressed storage view over the same artifacts directory.
-   * Returns an `FsCASBackend` pointing at `cacheDir`, so external
-   * subsystems (R2 mirror, REAPI CAS bridge, analytics scanners) can
-   * read raw bytes with a `Digest`-keyed API without coupling to
-   * Cache's internal save path. Read/write semantics match what
-   * Cache.save writes (`<cacheDir>/<hash>.tar.zst`).
+   * Content-addressed view over the same artifacts directory: an
+   * `FsCASBackend` rooted at `cacheDir`, reading and writing the
+   * `<hash>.tar.zst` files `Cache.save` produces, keyed by `Digest`.
+   * A write through it lands a file with no index row — a lookup never
+   * sees it and `prune()` reaps it after the in-flight grace window —
+   * so it is a bytes view, not a second save path.
    */
   contentBackend(): FsCASBackend {
     return new FsCASBackend(this.cacheDir)

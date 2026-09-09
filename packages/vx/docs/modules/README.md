@@ -106,12 +106,12 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 
 ## Cache cluster
 
-| File                                               | Topic                                                                                |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| [`cache.md`](./cache.md)                           | `src/cache/cache.ts` — local cache: `bun:sqlite` index + tar.zst artifacts.          |
-| [`layered-cache.md`](./layered-cache.md)           | `src/cache/layered-cache.ts` — local + remote composition + `RemoteCacheLayer` seam. |
-| [`inputs.md`](./inputs.md)                         | `src/cache/inputs.ts` — glob resolution, boundary enforcement, `cleanOutputs`.       |
-| [`cas-backend-digest.md`](./cas-backend-digest.md) | `src/cache/{cas-backend,digest}.ts` — pluggable CAS seam (internal, roadmap).        |
+| File                                               | Topic                                                                                                      |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [`cache.md`](./cache.md)                           | `src/cache/cache.ts` — local cache: `bun:sqlite` index + tar.zst artifacts.                                |
+| [`layered-cache.md`](./layered-cache.md)           | `src/cache/layered-cache.ts` — local + remote composition + `RemoteCacheLayer` seam.                       |
+| [`inputs.md`](./inputs.md)                         | `src/cache/inputs.ts` — glob resolution, boundary enforcement, `cleanOutputs`.                             |
+| [`cas-backend-digest.md`](./cas-backend-digest.md) | `src/cache/{cas-backend,digest}.ts` — content-addressed view of the artifacts dir (internal, no consumer). |
 
 ## Exec (process primitives)
 

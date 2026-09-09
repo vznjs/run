@@ -1043,6 +1043,23 @@ function`); the seam now checks the returned shape once and refuses
     said entries are stored uncompressed and `SCHEMA_VERSION` is v22;
     both corrected.
 
+36. DONE (de-claim): the CAS seam (`cache/cas-backend.ts`,
+    `digest.ts`, `Cache.contentBackend()`) still carried its 2026-06
+    plan in three places — "Cache.ts has NOT yet been rewired … a
+    follow-up (Phase 1b)", "R2 mirror, REAPI CAS bridge, analytics
+    scanners", "internal until the artifact store lands", "dev-flows
+    roadmap Phase 3". None of it is true or planned: nothing distributed
+    ships here, `vx-reapi` speaks Bazel's CAS over its own wire without
+    the type, and no package imports it. The header, the method doc,
+    the module doc, `architecture.md`, and the two module indexes now
+    say what it is: a module-internal, consumer-less digest-keyed view
+    of the artifacts directory that core's save/restore path does not
+    go through, kept because it is small, tested and free on the run
+    path — and that a write through it lands a row-less file item 35's
+    sweep will reap. Not deleted: the façade snapshot and the
+    integration test would go with it for no run-path gain, and the
+    seam is the shape a blob store built on top would need.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

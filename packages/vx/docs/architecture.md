@@ -221,10 +221,10 @@ The cache is not a single file. It is composed:
 - **`inputs.ts`** — git-backed input enumeration (`GitFilesCache`),
   glob resolution with hard project boundaries, runtime-command
   resolution, output cleaning.
-- **`cas-backend.ts` / `digest.ts`** — the pluggable
-  content-addressed-storage seam (`CASBackend`, `Digest`). Reference
-  `Memory`/`Fs` backends ship; `cache.ts` is not yet rewired onto it
-  (roadmap: R2/S3/REAPI backends).
+- **`cas-backend.ts` / `digest.ts`** — a content-addressed view of
+  the artifacts directory (`CASBackend`, `Digest`), module-internal
+  with reference `Memory`/`Fs` backends and no consumer; `cache.ts`
+  reads and writes the directory directly, not through it.
 
 `prepareRun` constructs the local cache, then resolves the layer: an
 explicitly injected `RunOptions.remoteCache` wins outright (composed
