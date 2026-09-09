@@ -989,6 +989,22 @@ function`); the seam now checks the returned shape once and refuses
     (commit + branch for the invocations row) ~4, the status walk, and
     ~13 for two cache hits — a floor of deliberate spawns, nothing to
     cut without a number.
+33. DONE (fix shipped, cause half-proven): CI red on 1414cf2 (a
+    help-text commit) in `@vzn/vx#lint.oxfmt`: `oxfmt --check .`
+    failed with `Failed to read file: packages/vx/.mcp.json` — a file
+    that exists nowhere in the repo. It exists INSIDE the sandbox:
+    `@anthropic-ai/sandbox-runtime` 0.0.75 lists `.mcp.json` among its
+    DANGEROUS_FILES and masks `<cwd>/.mcp.json` with a `/dev/null`
+    ro-bind on Linux whether or not the file exists
+    (`linuxGetMandatoryDenyPaths`), so the walker meets an entry it
+    cannot read. `.oxfmtrc.json` now ignores `.mcp.json`, `.vscode`,
+    `.idea` and `.claude` — every masked name oxfmt could take for
+    input — so the sandboxed check never opens them. Not reproduced
+    here (no sandbox as root): a device node and a directory named
+    `.mcp.json` both pass locally, so the mask's exact shape inside
+    bwrap, and why every earlier head passed the same task, are not
+    known. CI on the next head is the arbiter; if it reds the same
+    way with the ignore in place, the cause is elsewhere.
 
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
