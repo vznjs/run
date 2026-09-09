@@ -689,6 +689,10 @@ Cache`, the handle a layer may wrap) is a type import. Next candidate
    fresh workspace with no `.gitignore` folds `dist/` into every
    default input set until the user ignores it — is git's model, not a
    bug, and the TODO comment already tells the user to declare outputs.
+5. DONE: the Linux gate no longer depends on apt sources it never
+   uses. Two heads went red before any vx step ran: `apt-get update`
+   exited 100 on a hash-sum mismatch from the runner image's Chrome
+   repository. The step drops every source but Ubuntu's own first.
 
 ## In flight
 
