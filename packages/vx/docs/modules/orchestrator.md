@@ -76,20 +76,25 @@ export interface RunSummary {
    each ready node runs `executeTask` (with its pre-probe when
    present). A service-supplied `inflight` map dedupes identical-hash
    tasks across concurrent delegated runs.
-10. **Persistent cleanup.** Dependency-only persistent children are
-    SIGTERMed and awaited. Persistent tasks the user REQUESTED (or
-    that were surfaced) are KEPT ALIVE in the real CLI foreground
-    (`options.log === undefined && handleSignals !== false`).
+10. **Persistent cleanup** (`persistent.ts`). `selectKeepAlive` picks
+    the persistent tasks the user REQUESTED (or that were surfaced) to
+    KEEP ALIVE in the real CLI foreground (`options.log === undefined
+&& handleSignals !== false`); `shutdownPersistent` SIGTERMs every
+    other persistent child and waits, SIGKILLing stragglers after a
+    2 s grace.
 11. **Summary.** `formatPersistentList` rows for kept-alive tasks,
     then `formatRunSummary(list, totalMs, colors, runContext)` — the
     footer carries the run banner (wordmark rule + projects/tasks/
     cache meters + info + time).
 12. **Optional artifacts.** `writeRunSummary` / `writeRunProfile`.
     Errors logged, exit code unchanged.
-13. **`cache.recordRunBundle({ runs, invocation })`** — one
-    transaction: a `runs` row per real task (group + `aborted`
-    skipped) plus the `invocations` header row (command, policy,
-    git/CI/host context, tags, counts).
+13. **`assembleRunRecords` → `cache.recordRunBundle`**
+    (`run-records.ts`). One pass over the outcomes builds the `runs`
+    rows (one per real task; group + `aborted` skipped), the
+    `invocations` header row (command, policy, git/CI/host context,
+    tags, counts) and, only when a sink is active, the per-task
+    telemetry mirror — so all three carry the same task count by
+    construction. Written in one transaction.
 14. **Telemetry summary.** When a sink is active: build + emit the
     `RunSummaryRecord`, await `flush()` (crash-isolated).
 15. **Drain + close.** Await background prefetches/uploads,

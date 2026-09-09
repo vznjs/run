@@ -4,13 +4,7 @@
 
 import type { ProjectEntry } from '../workspace/index.js'
 import os from 'node:os'
-import {
-  type CacheLayer,
-  type CachePolicy,
-  FULL_CACHE_POLICY,
-  type InvocationRecord,
-  type RunRecord,
-} from '../cache/index.js'
+import { type CacheLayer, type CachePolicy, FULL_CACHE_POLICY } from '../cache/index.js'
 import { VERSION } from '../version.js'
 import { initSandbox, probeSandbox, resetSandbox, signalExitCode } from '../exec/index.js'
 import { DeferredOutputs } from './deferred-outputs.js'
@@ -31,8 +25,8 @@ import { busLogger, createEventBus, terminalSubscriber } from './events.js'
 import { installPlugins } from './plugin.js'
 import { resolveExecutors, teardownPlugins } from './plugin-host.js'
 import { subscribeTelemetry, type TelemetryHandle } from './telemetry-host.js'
-import { assembleRunSummary, deriveCacheSource, isCacheHit, isPassStatus } from './telemetry.js'
-import type { RunContextRecord, TaskTelemetry } from './telemetry.js'
+import { assembleRunSummary, isPassStatus } from './telemetry.js'
+import type { RunContextRecord } from './telemetry.js'
 import { defaultLogger, resolveOutputView, type Logger } from './logger.js'
 import { detectColors } from './colors.js'
 import { formatPersistentList } from './framed-output.js'
@@ -49,18 +43,13 @@ import {
 import { startRemotePrefetch } from './remote-prefetch.js'
 import { startLocalShortCircuit, type ShortCircuit } from './local-shortcircuit.js'
 
-const EMPTY_SHORT_CIRCUIT: ShortCircuit = { preProbed: new Map(), restoreTier: new Set() }
-
-/**
- * Grace after SIGTERMing the dependency-only persistent tasks at end-of-run
- * before force-killing any that trap or ignore it — so a wedged mock server
- * can't hang a normal run at completion. Well-behaved servers exit far under
- * this, so the happy path never waits it out.
- */
-const PERSISTENT_SHUTDOWN_GRACE_MS = 2000
+import { assembleRunRecords } from './run-records.js'
+import { selectKeepAlive, shutdownPersistent } from './persistent.js'
 import { writeRunProfile, writeRunSummary } from './run-artifacts.js'
 import { formatAbortedSection, formatRunSummary } from './summary.js'
 import type { RunOptions, RunSummary } from './options.js'
+
+const EMPTY_SHORT_CIRCUIT: ShortCircuit = { preProbed: new Map(), restoreTier: new Set() }
 
 /**
  * Parse the `VX_TASK_TIMEOUT` env var (ms) — the "global" run-level task
@@ -721,55 +710,15 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       restoreTier: shortCircuit.restoreTier,
     })
 
-    // A persistent task the user REQUESTED (a dev server / watcher) is
-    // the run's whole purpose — don't tear it down the instant it's
-    // ready. We leave those running and block on them at the very end
-    // (after the normal summary prints); everything else (persistent
-    // tasks pulled in only as dependencies of now-finished work) is
-    // SIGTERMed here as before. Scoped to the real CLI foreground:
-    // `options.log === undefined` means the default logger (a `vx run`
-    // invocation), and `handleSignals` excludes watch mode (own signal
-    // loop) and embedders that manage lifecycle themselves — both expect
-    // run() to return, not block on a server.
+    // Which persistent children outlive the graph, and the bounded SIGTERM
+    // of the rest, before the summary prints. Scoped to the real CLI
+    // foreground: `options.log === undefined` means the default logger (a
+    // `vx run` invocation), and `handleSignals` excludes watch mode (own
+    // signal loop) and embedders that manage lifecycle themselves — both
+    // expect run() to return, not block on a server.
     const foreground = options.log === undefined && (options.handleSignals ?? true)
-    const keepAliveNodes: TaskNode[] = []
-    const keepAlive: ReturnType<typeof Bun.spawn>[] = []
-    if (foreground) {
-      for (const [id, child] of persistentRegistry) {
-        const n = nodes.get(id)
-        if (n !== undefined && (n.requested || n.surfaced === true)) {
-          keepAliveNodes.push(n)
-          keepAlive.push(child)
-        }
-      }
-    }
-    const keepAliveSet = new Set(keepAlive)
-
-    // Shut down the dependency-only persistent tasks before reporting the final
-    // summary. SIGTERM gives well-behaved servers (vite, next, esbuild --watch)
-    // a moment to clean up. Bun's Subprocess.kill is idempotent on an
-    // already-exited child. Bound the wait: a persistent dep that traps or
-    // ignores SIGTERM (a wedged mock server) would otherwise hang the run at
-    // NORMAL completion forever — after a grace, SIGKILL the stragglers and move
-    // on. Well-behaved servers exit in well under the grace, so the happy path
-    // pays nothing; the timer is cleared + unref'd so a fast shutdown never
-    // delays CLI exit.
-    const dyingChildren = [...persistentRegistry.values()].filter((c) => !keepAliveSet.has(c))
-    for (const child of dyingChildren) child.kill('SIGTERM')
-    const allExited = Promise.allSettled(dyingChildren.map((c) => c.exited))
-    let graceTimer: ReturnType<typeof setTimeout> | undefined
-    const winner = await Promise.race([
-      allExited.then(() => 'exited' as const),
-      new Promise<'grace'>((resolve) => {
-        graceTimer = setTimeout(() => resolve('grace'), PERSISTENT_SHUTDOWN_GRACE_MS)
-        graceTimer.unref?.()
-      }),
-    ])
-    if (graceTimer !== undefined) clearTimeout(graceTimer)
-    if (winner === 'grace') {
-      for (const child of dyingChildren) child.kill('SIGKILL')
-      await allExited
-    }
+    const keepAlive = selectKeepAlive(persistentRegistry, nodes, foreground)
+    await shutdownPersistent(persistentRegistry, keepAlive.children)
 
     mark('run graph')
     // Clear the status line for good before the summary prints.
@@ -785,8 +734,8 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     const totalMs = Number(process.hrtime.bigint() - runStartHrTimeNs) / 1_000_000
     // Foreground dev mode: between the task frame and the footer, list
     // the persistent tasks still running (see the keep-alive block below).
-    if (keepAliveNodes.length > 0) {
-      for (const line of formatPersistentList(keepAliveNodes, colors)) log.status(line)
+    if (keepAlive.nodes.length > 0) {
+      for (const line of formatPersistentList(keepAlive.nodes, colors)) log.status(line)
     }
     for (const line of formatRunSummary(list, totalMs, colors, runContext)) log.status(line)
     // A task killed by a shutdown signal is in no bucket above, yet it makes
@@ -839,118 +788,32 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     }
 
     // Record each task to the run history in a single SQLite transaction
-    // (one fsync instead of N). Group tasks (no `exec`) are skipped —
-    // they aren't real runs and the `runs` table is analytics-focused.
-    // One invocation header row is written alongside, atomically via
-    // recordRunBundle. The Tier-3 input-fingerprint rows (entry_inputs)
-    // are NOT built here — they're persisted inside each entry's save
-    // transaction (miss path only), so a warm all-cache-hit run does no
-    // extra recording work.
-    const now = endedAtMs
-    const toRecord: RunRecord[] = []
-    // Per-task telemetry mirrors `toRecord` 1:1 — built only when a
-    // telemetry sink is active, so a no-telemetry run allocates nothing.
-    const summaryTasks: TaskTelemetry[] = []
-    let failedCount = 0
-    let hitLocalCount = 0
-    let hitRemoteCount = 0
-    for (const o of list) {
-      if (isGroupTask(o.node)) continue
-      // aborted (killed by a shutdown signal) isn't a real run.
-      if (o.status === 'aborted') continue
-      if (telemetry !== undefined) {
-        const t: TaskTelemetry = {
-          taskId: o.node.id,
-          project: o.node.projectName,
-          task: o.node.taskName,
-          status: o.status,
-          cacheSource: deriveCacheSource(o.status),
-          exitCode: o.exitCode,
-          durationMs: o.durationMs,
-        }
-        if (o.hash !== undefined) t.hash = o.hash
-        if (o.cpuMs !== undefined) t.cpuMs = o.cpuMs
-        if (o.peakRssBytes !== undefined) t.peakRssBytes = o.peakRssBytes
-        if (o.where !== undefined) t.where = o.where
-        if (o.outputs !== undefined) t.outputs = o.outputs
-        if (o.attempts !== undefined) t.attempts = o.attempts
-        if (o.wallclockStartNs !== undefined) t.wallclockStartNs = o.wallclockStartNs.toString()
-        if (o.wallclockEndNs !== undefined) t.wallclockEndNs = o.wallclockEndNs.toString()
-        summaryTasks.push(t)
-      }
-      // Every non-group, non-aborted outcome gets a row — the same set
-      // `tallyOutcomes` counts, so `invocations.task_count` equals both the
-      // terminal's "N total" and `COUNT(*) FROM runs WHERE run_id = ?`.
-      // An outcome with NO hash (a `skipped` task never probed the cache; a
-      // `persistent` one is never cacheable) used to be dropped here because
-      // `runs.hash` is NOT NULL — which made a failing persistent task record
-      // `0 tasks, 0 failures` on a run the terminal called red, and a failed
-      // task with a skipped dependent record 1 of 2. `bindRun` stores `''` for
-      // those instead; the key-diff readers guard it.
-      toRecord.push({
-        ...(o.hash !== undefined ? { hash: o.hash } : {}),
-        project: o.node.projectName,
-        task: o.node.taskName,
-        status: o.status,
-        exitCode: o.exitCode,
-        durationMs: o.durationMs,
-        ...(options.forwardArgs !== undefined ? { forwardArgs: options.forwardArgs } : {}),
-        // Anchor to the REAL per-task wall-clock window: run-start wall time +
-        // the task's ns offset (captured for hits and executed tasks alike).
-        // The `now - duration` fallback applies to outcomes without an offset —
-        // today only `skipped`, which the scheduler finishes synchronously with
-        // no span, so it collapses to a zero-width mark at the run's end. Using
-        // run-end-minus-duration for EVERYTHING was the old bug that piled every
-        // task at the right edge of the timeline.
-        startedAt:
-          o.wallclockStartNs !== undefined
-            ? endedAtMsAtStart + Math.round(Number(o.wallclockStartNs) / 1e6)
-            : now - o.durationMs,
-        endedAt:
-          o.wallclockEndNs !== undefined
-            ? endedAtMsAtStart + Math.round(Number(o.wallclockEndNs) / 1e6)
-            : now,
-        runId,
-        ...(o.cpuMs !== undefined ? { cpuMs: o.cpuMs } : {}),
-        ...(o.peakRssBytes !== undefined ? { peakRssBytes: o.peakRssBytes } : {}),
-        ...(o.wallclockStartNs !== undefined ? { wallclockStartNs: o.wallclockStartNs } : {}),
-        ...(o.wallclockEndNs !== undefined ? { wallclockEndNs: o.wallclockEndNs } : {}),
-        cacheHit: isCacheHit(o.status),
-        ...(o.attempts !== undefined ? { attempts: o.attempts } : {}),
-        cached: o.node.config.cache !== undefined,
-      })
-      if (o.status === 'failed') failedCount++
-      if (o.status === 'cache-hit') hitLocalCount++
-      if (o.status === 'cache-hit-remote') hitRemoteCount++
-    }
-    const invocation: InvocationRecord = {
+    // (one fsync instead of N), with the invocation header row alongside,
+    // atomically via recordRunBundle. The Tier-3 input-fingerprint rows
+    // (entry_inputs) are NOT built here — they're persisted inside each
+    // entry's save transaction (miss path only), so a warm all-cache-hit
+    // run does no extra recording work. The telemetry mirror is built in
+    // the same pass, only when a sink is active.
+    const records = assembleRunRecords({
+      outcomes: list,
       runId,
+      startedAtMs: endedAtMsAtStart,
+      endedAtMs,
+      totalMs,
+      ok,
       command: options.command ?? process.argv.slice(1).join(' '),
-      requestedTasks: JSON.stringify([...options.tasks]),
+      requestedTasks: options.tasks,
       cachePolicy: compactCachePolicy(policy),
       concurrency,
       flow: options.flow ?? null,
-      startedAt: endedAtMsAtStart,
-      endedAt: endedAtMs,
-      totalDurationMs: Math.round(totalMs),
-      taskCount: toRecord.length,
-      failedCount,
-      hitCount: hitLocalCount + hitRemoteCount,
-      hitLocalCount,
-      hitRemoteCount,
-      exitOk: ok,
-      commitSha: gitContext.commitSha,
-      branch: gitContext.branch,
-      dirty: gitContext.dirty,
-      ci: ciContext.ci,
-      ciProvider: ciContext.provider,
-      host: hostContext.host,
-      os: hostContext.os,
-      arch: hostContext.arch,
-      vxVersion: VERSION,
-      tags: JSON.stringify(options.tags ?? {}),
-    }
-    cache.recordRunBundle({ runs: toRecord, invocation })
+      forwardArgs: options.forwardArgs,
+      tags: options.tags ?? {},
+      git: gitContext,
+      ci: ciContext,
+      host: hostContext,
+      withTelemetry: telemetry !== undefined,
+    })
+    cache.recordRunBundle(records)
     mark('record history')
     // Hand the per-run summary to the telemetry sinks + drain them. Only
     // when a sink is active (telemetry !== undefined) — otherwise this
@@ -958,7 +821,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     // emitSummary/flush are crash-isolated, so a faulty sink can't fail
     // the run; flush is the sink's last chance to ship buffered records.
     if (telemetry !== undefined && runContextRecord !== undefined) {
-      const summary = assembleRunSummary(runContextRecord, summaryTasks, {
+      const summary = assembleRunSummary(runContextRecord, records.telemetryTasks, {
         startedAt: endedAtMsAtStart,
         endedAt: endedAtMs,
         totalDurationMs: Math.round(totalMs),
@@ -1012,9 +875,9 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     // until it exits: Ctrl-C hits the whole process group (the server
     // dies; our SIGINT handler also exits 130), and a crash resolves the
     // wait so the run returns. Nothing here prints — the UI is unchanged.
-    if (keepAlive.length > 0) {
-      await Promise.allSettled(keepAlive.map((c) => c.exited))
-      for (const child of keepAlive) child.kill('SIGTERM')
+    if (keepAlive.children.length > 0) {
+      await Promise.allSettled(keepAlive.children.map((c) => c.exited))
+      for (const child of keepAlive.children) child.kill('SIGTERM')
     }
 
     return { ok, outcomes: list }

@@ -750,6 +750,17 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
    module loads fine because TypeScript elides unused imports, and
    that config declared `tasks: {}`, so "1 affected · 2 total" was
    correct. A used import of a missing module fails loud, as pinned.
+10. DONE: `run()` composed from two more phase modules, behaviour-
+    preserving. The 900-line body had two self-contained blocks that
+    read as their own concerns: what a finished run leaves behind
+    (`run-records.ts`: one pass over the outcomes builds the `runs`
+    rows, the `invocations` header and the telemetry mirror, so the
+    three task counts agree by construction) and the end-of-run
+    disposition of persistent children (`persistent.ts`:
+    `selectKeepAlive` + bounded `shutdownPersistent`). run.ts
+    1,303 → 1,167 lines; the record and persistent suites pass
+    unchanged. Warm path ties in both orders (min 296/296, 286/286;
+    med 321/328, 294/299 ms on the 1000-project workspace).
 
 ## In flight
 
