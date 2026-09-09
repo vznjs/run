@@ -75,10 +75,10 @@ export interface TaskOutcome {
    */
   attempts?: number
   /**
-   * Count of sandbox violations captured during this task's exec.
-   * Populated only when `--sandbox` was set and the task is cached.
-   * Non-zero values mean the task read files outside its declared
-   * inputs; `cache.save()` was skipped so the result can't be replayed.
+   * Count of sandbox violations captured during this task's exec (a task
+   * declaring `exec.sandbox`). Non-zero means the task touched something
+   * it did not declare; execute-task fails the task on any violation, so
+   * nothing built that way is ever saved or replayed.
    */
   sandboxViolations?: number
   /**
@@ -116,13 +116,12 @@ export interface ScheduleOptions {
    *     finish naturally, everything not yet started completes as
    *     skipped (restore-tier included: a fail-fast run stops
    *     restoring too).
-   *   - 'always': dependents run even when an upstream failed. Sound
-   *     under pure-input transitive hashing: failed outcomes carry the
-   *     upstream's INPUT key (computed before exec), so dependents'
-   *     keys fold exactly what a healthy run folds. An upstream that
-   *     died before hashing folds nothing — that key is derivable by
-   *     no healthy run, so the worst case is an unreachable cache
-   *     entry, never a stale hit.
+   *   - 'always': dependents run even when an upstream failed. Their
+   *     keys are the ones a healthy run derives (failed outcomes carry
+   *     the upstream's INPUT key, computed before exec), which is
+   *     exactly why the orchestrator withholds their SAVE: the bytes
+   *     were built on a partial tree, and a healthy key over them would
+   *     be the next clean run's stale hit (`ExecuteArgs.taintedUpstream`).
    */
   continueMode?: ContinueMode
   execute: (node: TaskNode, upstream: TaskOutcome[]) => Promise<TaskOutcome>
