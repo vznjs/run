@@ -971,6 +971,19 @@ function`); the seam now checks the returned shape once and refuses
     Refuted on the way: the stage's remaining 11–12 ms is not the
     config — `loadWorkspace` + `loadWorkspaceConfig` measure 1.8 ms in
     isolation; the stage also holds the early `git ls-files` spawn.
+32. DONE (a measurement, and a probe refuted): the shipped binary vs
+    `bun bin.ts` on the two-package workspace, interleaved, min of 8.
+    A flag-less `bun build --compile` read SLOWER than source (89 vs
+    52 ms for `--version`, 148 vs 114 for a warm run) — refuted as a
+    finding: the release tasks build with `--minify --bytecode`, and
+    that binary reads 36 vs 53 ms and 71 vs 114. So the dev path pays
+    ~40 ms of transpile per run that no user of the binary sees, and
+    every small-workspace number in this file taken through
+    `bun bin.ts` overstates the shipped wall time by about that much;
+    the 1000-project figures are dominated by work the transpile does
+    not touch. When a small-workspace number matters, time the
+    bytecode binary (`scratchpad/abbin.ts` did; `vx-bench` has no
+    binary option yet — add one before quoting it).
 
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
