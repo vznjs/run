@@ -8,7 +8,6 @@
   "sortPackageJson": false,
   "ignorePatterns": [
     "node_modules",
-    "apps",
     "dist",
     "coverage",
     "*.tsbuildinfo",

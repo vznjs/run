@@ -7,7 +7,7 @@ resolves everything about one attempt — command, cwd, env, capture,
 timeout, sandbox baselines — into an `ExecuteRequest`; a `TaskExecutor`
 runs it and returns an `ExecuteResult` (exit code, streams, rusage,
 sandbox violations). Core's own executor, `localExecutor`, is the same
-`runCommand` / `runSandboxed` call the orchestrator used to make directly — it lives in `src/plugins/local-executor/` (see plugins.md).
+`runCommand` / `runSandboxed` call the orchestrator used to make directly — it lives in `src/exec/local-executor.ts` and is appended to the TAIL of every executor list (`resolveExecutors`, plugin-host.ts), so a task every plugin declines runs here.
 
 ## Public surface
 
@@ -46,9 +46,10 @@ cacheable }` — what `accepts()` sees. Placement happens ONCE per task,
   `vx.task.where`), never the analytics store.
 - `selectExecutor(executors, task)` — first executor, in order, that may
   take the task: a `remote` executor is skipped outright for a
-  `pinnedLocal` task, then `accepts` decides. Throws naming the task when
-  all decline (the message says to declare `localExecutorPlugin()` after
-  the one that declined).
+  `pinnedLocal` task, then `accepts` decides. The local executor is the
+  tail of the list and accepts everything, so the throw for "every
+  executor declined" is unreachable from `run()`; it stays for a caller
+  that builds its own list.
 
 ## Rules
 
@@ -88,4 +89,4 @@ cacheable }` — what `accepts()` sees. Placement happens ONCE per task,
 ## Replacing this module
 
 Contribute `executor(ctx)` from a plugin; to wrap the local behaviour,
-delegate to `localExecutor()` (`@vzn/vx/plugins/local-executor`) inside your own executor.
+delegate to `localExecutor()` (exported from `@vzn/vx`) inside your own executor.

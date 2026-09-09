@@ -9,12 +9,10 @@ any other MCP client can call.
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { mcp } from '@vzn/vx-mcp'
 
 export default defineWorkspace({
-  plugins: [mcp(), localExecutorPlugin(), localCachePlugin()],
+  plugins: [mcp()],
 })
 ```
 

@@ -1,21 +1,20 @@
 ---
 title: Workspace configuration
-description: Declare your plugins and set workspace-wide defaults in vx.workspace.ts — the file that decides what actually runs your tasks.
+description: Declare your plugins and set workspace-wide defaults in vx.workspace.ts — the optional file at the workspace root.
 ---
 
 Per-package settings live in each package's `vx.config.ts`. Settings that
 apply to the **whole workspace** go in `vx.workspace.ts` at the workspace
-root — and so does the one thing vx will not assume for you: **which
-plugins provide the executor and the cache**.
+root, and so do the **plugins** — the remote cache, the remote executor,
+the telemetry exporter, the extra CLI verbs.
 
 ```ts
 // vx.workspace.ts (at the workspace root)
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
+import { reapi } from '@vzn/vx-reapi'
 
 export default defineWorkspace({
-  plugins: [localExecutorPlugin(), localCachePlugin()],
+  plugins: [reapi({ endpoint: 'cache.internal:443' })],
   concurrency: 8,
   cacheDir: '.vx/cache',
 })
@@ -25,39 +24,24 @@ export default defineWorkspace({
 autocomplete and validation, with no runtime effect. The file is loaded
 from `vx.workspace.{ts,mts,js,mjs}`.
 
-## `plugins` — required, and deliberately so
+## The file is optional; the floor is not a plugin
 
-Everything except `plugins` has a built-in default. `plugins` does not.
-Core applies **nothing** by default: not a cache, not even the thing
-that spawns your command. Leave the file out and the first real run
-stops before any task, and tells you exactly what to paste:
+A workspace with no `vx.workspace.ts` runs and caches: every field has a
+default, and running a command on this machine and storing its artifact
+in `.vx/cache` are what those words mean when no plugin says otherwise.
+Core applies **no plugin** by default — the local executor and the local
+cache are its floor, not something you declare.
 
-```console
-$ vx run build --all
-vx: no vx.workspace.ts found — run `vx init` to write it with the local executor and cache, plus a vx.config.ts per package from its package.json scripts. no cache plugin declared. vx runs nothing it was not told to.
-Declare the plugins in vx.workspace.ts:
-
-  import { defineWorkspace } from '@vzn/vx'
-  import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-  import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
-  export default defineWorkspace({ plugins: [localExecutorPlugin(), localCachePlugin()] })
-```
-
-That looks like ceremony for a one-machine build, and for a one-machine
-build it is. It buys something real once there is more than one machine:
-vx's own local executor and local cache are ordinary plugins filling the
-same seams a remote cache or a remote executor fills, so no first-party
-path is privileged and core never grows a special case for the default.
-
-**Order is precedence.** A plugin listed earlier is consulted first, so
-put a remote cache *before* `localCachePlugin()` if you want remote hits
-consulted ahead of local ones:
+**Order is precedence.** Plugins are consulted in declaration order, and
+the floor is the tail of every list: a remote cache is asked before the
+local store, and a remote executor that declines a task hands it back to
+this machine. There is nothing to put after your plugins:
 
 ```ts
 import { reapi } from '@vzn/vx-reapi'
 
 export default defineWorkspace({
-  plugins: [reapi({ endpoint: 'cache.internal:443' }), localExecutorPlugin(), localCachePlugin()],
+  plugins: [reapi({ endpoint: 'cache.internal:443' })],
 })
 ```
 

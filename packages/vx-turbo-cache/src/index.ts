@@ -4,8 +4,8 @@
 // spec. The wire is Turbo's; the bytes are vx's own artifacts under vx's
 // own keys, so the server is storage — a Turbo binary cannot read them.
 //
-// Nothing is on by default: declare `turboCache()` in `vx.workspace.ts`,
-// before `localCachePlugin()`, and give it a URL and a token (options, or
+// Nothing is on by default: declare `turboCache()` in `vx.workspace.ts`
+// (the local store is the floor beneath it) and give it a URL and a token (options, or
 // Turbo's own environment variables so a self-hosted setup carries over).
 // With neither the plugin DECLINES and the run stays local.
 //
@@ -229,10 +229,10 @@ export class TurboRemoteCache implements RemoteCacheLayer {
 }
 
 /**
- * Declare in `vx.workspace.ts`, BEFORE `localCachePlugin()`:
+ * Declare in `vx.workspace.ts`; the local store stays the floor beneath it:
  *
  * ```ts
- * plugins: [turboCache({ apiUrl: 'https://cache.example.com', token: process.env.CACHE_TOKEN }), localExecutorPlugin(), localCachePlugin()]
+ * plugins: [turboCache({ apiUrl: 'https://cache.example.com', token: process.env.CACHE_TOKEN })]
  * ```
  *
  * Declines without a URL and a token, so it is safe to leave declared.

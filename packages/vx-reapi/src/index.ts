@@ -88,11 +88,11 @@ export interface ReapiPluginOptions extends Partial<ReapiOptions> {
 }
 
 /**
- * Declare in `vx.workspace.ts`, BEFORE `localCachePlugin()` so a remote hit is
- * consulted first:
+ * Declare in `vx.workspace.ts`; the local store is the floor beneath it, so a
+ * remote hit is consulted first:
  *
  * ```ts
- * plugins: [reapi({ endpoint: 'grpc.example.com:443' }), localExecutorPlugin(), localCachePlugin()]
+ * plugins: [reapi({ endpoint: 'grpc.example.com:443' })]
  * ```
  *
  * Declines when no endpoint is configured, so it is safe to leave declared.

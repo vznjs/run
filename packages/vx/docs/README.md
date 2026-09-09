@@ -126,16 +126,16 @@ export default defineProject({
 })
 ```
 
-Declare what runs it — core applies nothing by default (`vx migrate`
-emits this file):
+Optionally declare plugins — a remote cache, a remote executor,
+telemetry — in `vx.workspace.ts` (`vx init` and `vx migrate` emit it).
+Core applies none by default; running here and caching in `.vx/cache`
+are its floor, so the file can be absent:
 
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 
-export default defineWorkspace({ plugins: [localExecutorPlugin(), localCachePlugin()] })
+export default defineWorkspace({ plugins: [] })
 ```
 
 Run things:

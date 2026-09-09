@@ -8,17 +8,11 @@ which we had to write, because a REAPI server is deliberately dumb.
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { reapi } from '@vzn/vx-reapi'
 
 export default defineWorkspace({
-  // reapi BEFORE localCachePlugin so a remote hit is consulted first.
-  plugins: [
-    reapi({ endpoint: 'cache.example.com:443' }),
-    localExecutorPlugin(),
-    localCachePlugin(),
-  ],
+  // The local cache is the floor under every declared layer: a remote hit is consulted first.
+  plugins: [reapi({ endpoint: 'cache.example.com:443' })],
 })
 ```
 

@@ -92,7 +92,7 @@ caches.
      declared outputs, timeout, sandbox grants) and hands it to
      `args.executor` — the executor this task was PLACED on by `run.ts`
      before scheduling, so every attempt of a task runs in the same
-     place. With only `localExecutorPlugin()` declared that is
+     place. With no executor plugin declared that is the local floor —
      `runCommand` / `runSandboxed` exactly as before.
    - Up to `1 + (exec.retries ?? args.retries ?? 0)` attempts: a failed
      attempt (timeouts included, `aborted` NOT — a teardown breaks out
@@ -168,6 +168,6 @@ extensions:
   Hook between `resolveOutputs` and `cache.save`.
 - **Pre-spawn hooks.** Run a setup script (e.g. cgroup/limits
   application) before each spawn: contribute an `executor` that wraps
-  `localExecutor()` from `@vzn/vx/plugins/local-executor` — no change to this module.
+  `localExecutor()` from `@vzn/vx` — no change to this module.
 - **Different cache layer.** Already abstracted via `CacheLayer` —
   the caller decides which.

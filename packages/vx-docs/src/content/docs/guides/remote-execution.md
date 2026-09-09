@@ -19,8 +19,6 @@ should switch on merely by being present:
 ```ts
 // vx.workspace.ts
 import { defineWorkspace } from '@vzn/vx'
-import { localExecutorPlugin } from '@vzn/vx/plugins/local-executor'
-import { localCachePlugin } from '@vzn/vx/plugins/local-cache'
 import { reapi } from '@vzn/vx-reapi'
 
 export default defineWorkspace({
@@ -31,8 +29,6 @@ export default defineWorkspace({
       platform: { OSFamily: 'Linux', 'container-image': 'docker://node:22' },
       capacity: 64, // concurrent remote tasks — the scheduler pools them
     }),
-    localExecutorPlugin(),
-    localCachePlugin(),
   ],
 })
 ```

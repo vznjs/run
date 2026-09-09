@@ -55,6 +55,8 @@ nothing can shadow `vx run` — and a plugin verb runs only when the cwd
 is inside a workspace that declares the plugin. `vx help` lists them.
 
 ```ts
+import { Cache, type VxPlugin } from '@vzn/vx'
+
 export function mcp(): VxPlugin {
   return {
     name: 'org/mcp',
@@ -63,7 +65,9 @@ export function mcp(): VxPlugin {
         description: 'serve run history to an AI agent over stdio',
         async run(argv, ctx) {
           const db = new Cache(ctx.cacheDir).dbHandle() // the same queries `vx why` reads
-          // … speak MCP on stdin/stdout …
+          // … speak MCP on stdin/stdout, reading `db` and `argv` …
+          void argv
+          void db
           return 0 // the process exit code — resolving anything else fails the verb
         },
       },
@@ -90,7 +94,8 @@ export function typecheck(): VxPlugin {
   return {
     name: 'org/typecheck',
     project(config, ctx) {
-      if (!ctx.packageJson['devDependencies']?.['typescript']) return
+      const dev = ctx.packageJson['devDependencies'] as Record<string, string> | undefined
+      if (!dev?.['typescript']) return
       config.tasks ??= {}
       config.tasks['typecheck'] ??= {
         exec: { command: 'tsc --noEmit' },
@@ -104,6 +109,8 @@ export function typecheck(): VxPlugin {
 A plugin that makes every `test` wait for its project's `build`:
 
 ```ts
+import type { VxPlugin } from '@vzn/vx'
+
 export function testAfterBuild(): VxPlugin {
   return {
     name: 'org/test-after-build',
@@ -131,6 +138,8 @@ plugin contributes something, so keys without it are unchanged, and
 `vx why` names it as a `plugin` component:
 
 ```ts
+import type { VxPlugin } from '@vzn/vx'
+
 export function nodeMajor(): VxPlugin {
   const major = process.versions.node.split('.')[0]!
   return { name: 'org/node-major', key: () => ({ 'node-major': major }) }
@@ -144,10 +153,11 @@ stays the tie-break. Core ships one reference policy — the expected
 remaining critical path learned from your own run history:
 
 ```ts
+import { defineWorkspace } from '@vzn/vx'
 import { scheduleHistoryPlugin } from '@vzn/vx/plugins/schedule-history'
 
 export default defineWorkspace({
-  plugins: [scheduleHistoryPlugin(), localExecutorPlugin(), localCachePlugin()],
+  plugins: [scheduleHistoryPlugin()],
 })
 ```
 
@@ -160,14 +170,14 @@ which is why it is a plugin and not a flag.
   `accepts(task)` returns true gets it. That is how `@vzn/vx-reapi` can
   run most tasks on a remote worker while a task marked
   `exec: { remote: false }` still falls to the local executor in the
-  same run. Declaring none is an authoring error, not a default: vx does
-  not assume even a local executor.
+  same run. The local executor is the TAIL of every list — core's floor,
+  not a plugin — so a task every plugin declines runs here.
 - **`cache`** returns a `CacheLayer` or `undefined`. Layers **chain**
   rather than compete: a lookup walks them in order and a save reaches
-  all of them, so a remote plugin declared before `localCachePlugin()`
-  composes with it instead of replacing it. (A bare local layer that
-  another declared layer already wraps is dropped, so the local store is
-  never written twice.) Core ships no wire client of its own.
+  all of them, and the local store is the tail of the chain — a remote
+  plugin composes with it instead of replacing it. (A layer that wraps
+  the local handle it is given subsumes it, so the local store is never
+  written twice.) Core ships no wire client of its own.
 - **`telemetry`** returns one or more `TelemetrySink`s that receive versioned
   `RunSummaryRecord` / `TelemetryRecord` values. A sink holds NO run handle, so
   it provably can't change a run; ALL plugins' sinks run (additive), each
@@ -180,8 +190,8 @@ REAPI server, `@vzn/vx-turbo-cache` and `@vzn/vx-nx-cache` fill `cache`
 against any server speaking Turbo's or Nx's self-hosted cache API,
 `@vzn/vx-otel` and `@vzn/vx-github` fill `telemetry`. None
 of them is privileged — core depends on none, and yours plugs in the
-same way. Even vx's own `localExecutorPlugin()` and `localCachePlugin()`
-are written against the public contract.
+same way. What a plugin declines lands on core's floor: the local
+executor and the local cache, which sit behind every declared list.
 
 ## The telemetry sink
 
@@ -307,12 +317,11 @@ export function sentryPlugin(opts: { dsn: string }): VxPlugin {
   }
 }
 
-// vx.workspace.ts
+// vx.workspace.ts — `import { sentryPlugin } from './plugins/sentry'`
 import { defineWorkspace } from '@vzn/vx'
-import { sentryPlugin } from './plugins/sentry'
 
 export default defineWorkspace({
-  plugins: [sentryPlugin({ dsn: process.env.SENTRY_DSN! })],
+  plugins: [sentryPlugin({ dsn: process.env['SENTRY_DSN']! })],
 })
 ```
 
@@ -428,7 +437,7 @@ class AcmeRemote implements RemoteCacheLayer {
     return { body: await res.arrayBuffer(), durationMs: undefined }
   }
   async put(hash: string, body: ArrayBuffer | Uint8Array) {
-    await fetch(`${this.url}/artifacts/${hash}`, { method: 'PUT', body })
+    await fetch(`${this.url}/artifacts/${hash}`, { method: 'PUT', body: new Uint8Array(body) })
   }
 }
 
@@ -467,8 +476,7 @@ Drive a real run against a throwaway workspace with `run()` from
 `@vzn/vx` — the same call the CLI makes — and assert on what your sink
 received. The fixture lives in a temp dir where nothing resolves
 `@vzn/vx`, so its workspace file imports plugins by absolute path:
-the local ones resolved from your test file (where the package is
-installed) and the plugin under test from its source.
+the plugin under test resolved from its source next to the test file.
 
 ```ts
 // my-plugin.test.ts
@@ -497,10 +505,8 @@ beforeEach(async () => {
   await writeFile(
     path.join(root, 'vx.workspace.mjs'),
     [
-      `import { localExecutorPlugin } from ${abs('@vzn/vx/plugins/local-executor')}`,
-      `import { localCachePlugin } from ${abs('@vzn/vx/plugins/local-cache')}`,
       `import { myPlugin } from ${abs('./my-plugin.test.ts')}`,
-      'export default { plugins: [localExecutorPlugin(), localCachePlugin(), myPlugin()] }',
+      'export default { plugins: [myPlugin()] }',
     ].join('\n'),
   )
   Bun.spawnSync({ cmd: ['git', 'init', '-q'], cwd: root })

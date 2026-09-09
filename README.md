@@ -9,7 +9,7 @@ where Turborepo takes 760 ms and Nx 3.59 s on the identical workspace —
 and a cold build of that graph burns 34 s of CPU in vx, 73 s in Turborepo
 and 114 minutes in Nx.
 Measured, reproducible, on hardware you own
-([benchmarks](docs/benchmarks.md)).
+([benchmarks](packages/vx/docs/benchmarks.md)).
 
 One binary. No daemon. No Node. Nothing to babysit.
 
@@ -78,8 +78,8 @@ skip extraction entirely when the tree already matches. In-process
 tar (no subprocess on the hot path). Atomic artifact publishes.
 Single-transaction metadata writes. Every optimization is recorded
 with the invariant that keeps it valid —
-[`docs/optimizations.md`](docs/optimizations.md) is the ledger, and
-[`bench/`](bench/) reproduces the numbers.
+[`packages/vx/docs/optimizations.md`](packages/vx/docs/optimizations.md) is the ledger, and
+[`packages/vx-bench/`](packages/vx-bench/) reproduces the numbers.
 
 ## Built for trust
 
@@ -183,7 +183,7 @@ build it.
 
 ¹ Wall-clock, direct binaries, same machine and workspace — full
 methodology and more scenarios in
-[`docs/benchmarks.md`](docs/benchmarks.md).
+[`packages/vx/docs/benchmarks.md`](packages/vx/docs/benchmarks.md).
 
 ## Switching from another runner
 
@@ -231,7 +231,7 @@ Differences to know:
 - Persistent tasks: `persistent: { readyWhen: 'regex' }` (Turbo uses just `persistent: true`).
 - Remote caching is a plugin, not a built-in — connect one and every `vx run` reads through it.
 
-Side-by-side feature matrix + every known gap: [`docs/comparison.md`](./docs/comparison.md).
+Side-by-side feature matrix + every known gap: [`packages/vx/docs/comparison.md`](packages/vx/docs/comparison.md).
 
 ## Architecture (one paragraph)
 
@@ -250,24 +250,24 @@ versioned telemetry contract (`TelemetryRecord` / `RunSummaryRecord`)
 them. Core never imports a plugin; the arrow only points plugin → core.
 Every module has a docs page; every interface is a swappable seam.
 
-Read [`docs/architecture.md`](./docs/architecture.md) for the module
-map; the design record lives under [`docs/design/`](./docs/design/).
+Read [`packages/vx/docs/architecture.md`](packages/vx/docs/architecture.md) for the module
+map; the design record lives under [`packages/vx/docs/design/`](packages/vx/docs/design/).
 
 ## Documentation
 
-Full technical docs live under [`docs/`](./docs/) and on the
+Full technical docs live under [`packages/vx/docs/`](packages/vx/docs/) and on the
 [documentation site](https://vznjs.github.io/vx/):
 
-- [`docs/architecture.md`](./docs/architecture.md) — module map + data flow
-- [`docs/schema.md`](./docs/schema.md) — every config field
-- [`docs/caching.md`](./docs/caching.md) — cache-key derivation + invalidation table
-- [`docs/execution.md`](./docs/execution.md) — `vx run` lifecycle
-- [`docs/cli.md`](./docs/cli.md) — every flag
-- [`docs/comparison.md`](./docs/comparison.md) — Turbo / Nx / vite-task feature matrix
-- [`docs/modules/`](./docs/modules/) — one reference page per source module
+- [`packages/vx/docs/architecture.md`](packages/vx/docs/architecture.md) — module map + data flow
+- [`packages/vx/docs/schema.md`](packages/vx/docs/schema.md) — every config field
+- [`packages/vx/docs/caching.md`](packages/vx/docs/caching.md) — cache-key derivation + invalidation table
+- [`packages/vx/docs/execution.md`](packages/vx/docs/execution.md) — `vx run` lifecycle
+- [`packages/vx/docs/cli.md`](packages/vx/docs/cli.md) — every flag
+- [`packages/vx/docs/comparison.md`](packages/vx/docs/comparison.md) — Turbo / Nx / vite-task feature matrix
+- [`packages/vx/docs/modules/`](packages/vx/docs/modules/) — one reference page per source module
 
-The design record lives under [`docs/design/`](./docs/design/); the
-maintainers' handoff is [`docs/STATUS.md`](./docs/STATUS.md).
+The design record lives under [`packages/vx/docs/design/`](packages/vx/docs/design/); the
+maintainers' handoff is [`packages/vx/docs/STATUS.md`](packages/vx/docs/STATUS.md).
 
 ## Status
 
@@ -281,17 +281,17 @@ Production readiness for the **core task runner**: the semantics are
 solid; it is dogfooded continuously. The main operational rough edge
 is Windows (unsupported).
 
-| Surface                                          | Maturity             | Notes                                                                        |
-| ------------------------------------------------ | -------------------- | ---------------------------------------------------------------------------- |
-| Core task runner + caching                       | **production-ready** | dogfooded continuously; ~2,500 core tests + the package suites, green        |
-| Plugin pipeline (9 hooks, `commands` included)   | **shippable**        | crash-isolated, re-validated; core's own executor + cache are plugins        |
-| `vx init` / `vx migrate` (scripts, Turbo, Nx)    | **shippable**        | one config per package, TODOs where a source cannot say                      |
-| REAPI remote cache + execution (`@vzn/vx-reapi`) | **shippable**        | Bazel AC + CAS + Execute; NativeLink / BuildBuddy / Buildbarn / bazel-remote |
-| OTel export (`@vzn/vx-otel`)                     | **shippable**        | OTLP traces + metrics + logs, zero SDK deps                                  |
-| GitHub Actions (`@vzn/vx-github`)                | **shippable**        | job summary + Checks API run                                                 |
-| MCP server (`@vzn/vx-mcp`)                       | **shippable**        | `vx mcp` — read-only tools for AI agents, no SDK                             |
-| Turbo-wire cache (`@vzn/vx-turbo-cache`)         | **shippable**        | any `/v8/artifacts` server, Bearer auth, HMAC artifact signatures            |
-| Nx-wire cache (`@vzn/vx-nx-cache`)               | **shippable**        | any Nx self-hosted cache server (`/v1/cache`, immutable records)             |
+| Surface                                          | Maturity             | Notes                                                                                     |
+| ------------------------------------------------ | -------------------- | ----------------------------------------------------------------------------------------- |
+| Core task runner + caching                       | **production-ready** | dogfooded continuously; ~2,500 core tests + the package suites, green                     |
+| Plugin pipeline (9 hooks, `commands` included)   | **shippable**        | crash-isolated, re-validated; the local executor + cache are the floor under every plugin |
+| `vx init` / `vx migrate` (scripts, Turbo, Nx)    | **shippable**        | one config per package, TODOs where a source cannot say                                   |
+| REAPI remote cache + execution (`@vzn/vx-reapi`) | **shippable**        | Bazel AC + CAS + Execute; NativeLink / BuildBuddy / Buildbarn / bazel-remote              |
+| OTel export (`@vzn/vx-otel`)                     | **shippable**        | OTLP traces + metrics + logs, zero SDK deps                                               |
+| GitHub Actions (`@vzn/vx-github`)                | **shippable**        | job summary + Checks API run                                                              |
+| MCP server (`@vzn/vx-mcp`)                       | **shippable**        | `vx mcp` — read-only tools for AI agents, no SDK                                          |
+| Turbo-wire cache (`@vzn/vx-turbo-cache`)         | **shippable**        | any `/v8/artifacts` server, Bearer auth, HMAC artifact signatures                         |
+| Nx-wire cache (`@vzn/vx-nx-cache`)               | **shippable**        | any Nx self-hosted cache server (`/v1/cache`, immutable records)                          |
 
 ## Development
 
@@ -302,7 +302,7 @@ bun packages/vx/src/bin.ts run ci --all     # lint + test + docs build, every pa
 bun packages/vx/src/bin.ts run build --filter @vzn/vx   # cross-target binaries → packages/vx/dist/
 ```
 
-vx is self-hosted: every dev task routes through `bun packages/vx/src/bin.ts run <task>` per each package's own `vx.config.ts`. No `package.json` scripts; CI invokes vx directly. Start with [`docs/STATUS.md`](docs/STATUS.md) — the living handoff — and `CLAUDE.md`.
+vx is self-hosted: every dev task routes through `bun packages/vx/src/bin.ts run <task>` per each package's own `vx.config.ts`. No `package.json` scripts; CI invokes vx directly. Start with [`packages/vx/docs/STATUS.md`](packages/vx/docs/STATUS.md) — the living handoff — and `CLAUDE.md`.
 
 ## License
 
