@@ -925,6 +925,19 @@ function`); the seam now checks the returned shape once and refuses
     `config` and `project` stages, cached evaluations served), the same
     view `vx show` prints; an embedder's task catalog is the other
     consumer. The façade pin gained the name.
+28. DONE: `vx init` on a Turbo (or Nx) repo names the config it did
+    not read. A probe on the Turbo fixture: `init` generated the
+    scripts' configs with their TODOs and said nothing about the
+    `dependsOn` / `inputs` / `outputs` that `turbo.json` already
+    declares one directory up. It now prints one note naming both ways
+    to use it (`vx migrate`, `plugins: [turbo()]`); `migrate` itself
+    auto-detects, so the note is `init`-only (control pinned). Also
+    probed and found right: `vx lock` / `--frozen` / `lock --check`
+    under `@vzn/vx-turbo` — the lock records nothing for a config-less
+    package and the plugin maps live under `--frozen`; the README now
+    says so. Left alone by 8(d)'s rule: `logger.ts` is one 550-line
+    terminal renderer and `framed-output.ts` one formatting concern —
+    no seam to cut.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;

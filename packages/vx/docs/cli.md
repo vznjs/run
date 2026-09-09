@@ -1078,6 +1078,11 @@ wrong tree for every package that writes elsewhere. `test` / `typecheck` wait fo
 edge); `dev` / `start` / `serve` / `watch` /
 `preview` become persistent tasks with a TODO to add `readyWhen`.
 
+On a repo that already has `turbo.json` or an Nx workspace, `init`
+still maps scripts only and says so, naming the richer path:
+`vx migrate` (which auto-detects the source) or `plugins: [turbo()]`
+from `@vzn/vx-turbo`.
+
 A run in a root with no `vx.workspace.*` at all fails before any task
 with `no vx.workspace.ts found — run vx init …` ahead of the usual
 `no cache plugin declared` snippet; a file that declares no plugins gets

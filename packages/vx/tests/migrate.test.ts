@@ -864,6 +864,26 @@ describe('vx init — the generated build is not a cached no-op', () => {
     }
   })
 
+  it('names a turbo.json it did not read, with both ways to use it', async () => {
+    // `init` maps scripts only; on a Turbo repo it used to generate the
+    // scripts' TODOs and say nothing about the edges turbo.json declares.
+    const root = await makeScriptsWorkspace()
+    try {
+      await Bun.write(path.join(root, 'turbo.json'), '{ "tasks": { "build": {} } }\n')
+      const r = await vx(root, ['init'])
+      expect(r.code).toBe(0)
+      const text = `${r.out}${r.err}`
+      expect(text).toContain('vx init: package.json scripts → vx.config.ts')
+      expect(text).toContain('note: turbo.json found and not read — `vx migrate` maps it')
+      expect(text).toContain('`plugins: [turbo()]` from @vzn/vx-turbo')
+      // CONTROL: `vx migrate` reads it, so the note would be false there.
+      const m = await vx(root, ['migrate', '--dry'])
+      expect(`${m.out}${m.err}`).not.toContain('not read')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('a run in a workspace with no vx config at all names `vx init`', async () => {
     const root = await makeRoot('vx-init-first-run-')
     await addPackage(root, 'w', { build: 'echo hi' })

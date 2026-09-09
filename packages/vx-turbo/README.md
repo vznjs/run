@@ -14,6 +14,14 @@ export default defineWorkspace({ plugins: [turbo()] })
 
 Then `vx run build --all` runs every package's `build` script the way `turbo run build` would: `dependsOn` edges (`^build`, same-package deps, `pkg#task`), `inputs` / `outputs` as the cache block, `env` / `passThroughEnv`, `cache: false`, `persistent`. Turbo's global fields (`globalDependencies`, `globalEnv`, `globalPassThroughEnv`) are inlined into every task; per-package `turbo.json` overlays apply.
 
+## Locking
+
+`vx lock` freezes the evaluation of written `vx.config.*` files only.
+A package that has none gets its tasks from `turbo.json` on every
+load — under `--frozen` too — so the lock records nothing for it and
+`vx lock --check` does not audit it; `turbo.json` is its source of
+truth, committed like one.
+
 ## What it does not do
 
 - A task the package's own `vx.config` already declares is left alone — the plugin fills, it never overwrites. Migrate a package by writing its config; the rest of the repo keeps running from `turbo.json`.

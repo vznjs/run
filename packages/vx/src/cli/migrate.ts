@@ -224,6 +224,23 @@ export async function migrateCmd(
     // Name the verb the user typed: `vx init` is this command with the
     // scripts source, and a report that says `migrate` reads as a mistake.
     report.push(`${opts.init ? 'vx init' : 'vx migrate'}: ${source} → vx.config.ts`)
+    // `init` reads scripts only; a runner's own config beside them is the
+    // richer source (dependsOn, inputs, outputs) and was ignored without a
+    // word — the walkthrough on a Turbo repo (2026-09-09) got the scripts'
+    // TODOs and none of the edges turbo.json already declared.
+    if (opts.init === true && source === 'package.json scripts') {
+      if (hasTurbo) {
+        report.push(
+          'note: turbo.json found and not read — `vx migrate` maps it (dependsOn, inputs, ' +
+            'outputs), or `plugins: [turbo()]` from @vzn/vx-turbo runs it with nothing written',
+        )
+      } else if (hasGraph || hasNxJson) {
+        report.push(
+          'note: an Nx workspace found and not read — `vx migrate --from nx` maps its ' +
+            'exported project graph',
+        )
+      }
+    }
     for (const n of plan.headerNotes) report.push(`note: ${n}`)
     report.push(
       '',
