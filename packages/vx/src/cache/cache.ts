@@ -30,7 +30,7 @@
 //   close           : release the SQLite handle
 
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readlinkSync, statSync, writeFileSync } from 'node:fs'
 import { lstat, mkdir, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { relPosix, UserError, xxh3, xxh3hex, span } from '../util/index.js'
@@ -1414,7 +1414,8 @@ export class Cache implements CacheLayer {
    * are load-bearing — see the comment at the comparison.
    *
    * The OID is byte-identical to what `git hash-object` (and the git
-   * index) computes for the same content, so this fallback and the
+   * index) computes for the same content — for a symlink, the index's
+   * mode-120000 blob of the link text — so this fallback and the
    * `CacheKeyInput.fileHashes` index-OID fast path agree on any file
    * git stores verbatim. They do NOT agree when a clean filter
    * (`text`/`eol`/`ident`) is active: the index blob is the filtered
@@ -1422,20 +1423,30 @@ export class Cache implements CacheLayer {
    * the index OID for those paths and routes them here.
    */
   async hashFile(filePath: string): Promise<string> {
-    // statSync intentional: a single stat is ~1.6µs (Bun 1.3); the
+    // lstatSync intentional: a single stat is ~1.6µs (Bun 1.3); the
     // async-stat equivalent adds ~75µs of Promise machinery per call.
     // Promise.all over the batched callers (key derivation) gives no
     // I/O parallelism benefit because the stat is faster than the
-    // threadpool dispatch overhead.
+    // threadpool dispatch overhead. lstat, not stat, so a symlink is
+    // seen as one.
     let st
     try {
-      st = statSync(filePath)
+      st = lstatSync(filePath)
     } catch {
       // Caller is responsible for skipping files that don't exist;
       // fall through to the content-hash path which will throw with
       // a more useful error.
       return await this.hashFileFromDisk(filePath)
     }
+    // A symlink folds as git folds it: the blob of its TARGET STRING, which
+    // is its mode-120000 index OID. Not the bytes behind it — a link to a
+    // directory has none, a dangling one has none, and a link to a file
+    // outside the project would fold bytes `git diff` and `--affected`
+    // cannot see. A link to a file inside the project still tracks that
+    // file's content, because the file is an input in its own right. No
+    // memo: readlink is one syscall, and the row would be keyed on the
+    // link's own stat, not its target's.
+    if (st.isSymbolicLink()) return this.hashBlob(new TextEncoder().encode(readlinkSync(filePath)))
     const mtimeMs = Math.floor(st.mtimeMs)
     const size = st.size
     // ctime + ino are what make this memo SAFE, not merely fast. mtime is
@@ -1578,8 +1589,14 @@ export class Cache implements CacheLayer {
    * spawn per file.
    */
   private async hashFileFromDisk(filePath: string): Promise<string> {
-    const bytes = await Bun.file(filePath).bytes()
-    const hasher = new Bun.CryptoHasher(this.objectFormat ?? this.detectObjectFormat(filePath))
+    return this.hashBlob(await Bun.file(filePath).bytes(), filePath)
+  }
+
+  /** `git hash-object` of `bytes`: the blob OID in the repo's object format. */
+  private hashBlob(bytes: Uint8Array, nearPath?: string): string {
+    const hasher = new Bun.CryptoHasher(
+      this.objectFormat ?? this.detectObjectFormat(nearPath ?? this.cacheDir),
+    )
     hasher.update(`blob ${bytes.byteLength}\0`)
     hasher.update(bytes)
     return hasher.digest('hex')

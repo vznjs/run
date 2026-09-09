@@ -19,7 +19,7 @@
 // supported.
 
 import path from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
 import { realpath, rm } from 'node:fs/promises'
 import type { CacheInputs } from '../config.js'
 import { UserError } from '../util/index.js'
@@ -186,14 +186,27 @@ async function resolveWorkspaceFiles(args: {
   // Same OID-trust shortcut as project files: a clean-per-status
   // tracked file necessarily exists on disk.
   const oids = args.gitFilesCache?.oidsFor(args.workspaceRoot)
-  const exists = await Promise.all(
-    candidates.map((abs) => oids?.has(abs) === true || Bun.file(abs).exists()),
-  )
-  const matches: string[] = []
-  for (let i = 0; i < candidates.length; i++) {
-    if (exists[i]) matches.push(candidates[i]!)
+  return candidates.filter((abs) => oids?.has(abs) === true || isInputOnDisk(abs)).sort()
+}
+
+/**
+ * What an enumerated path must be to count as an input: a regular file, or
+ * a symlink (to anything, or to nothing — its target STRING is what folds,
+ * as in git). A directory is not one: git lists a gitlink (a submodule) at
+ * its path and the glob `**\/*` matches it, and the hasher has nothing to
+ * read there. `Bun.file(p).exists()` answered false for every symlink to a
+ * directory and every dangling link too, which silently dropped a tracked
+ * link from the key — retargeting it was a stale hit. lstat, synchronously:
+ * the paths that reach this probe are the ones without a trusted index OID
+ * (untracked and dirty files), a handful on a warm run.
+ */
+function isInputOnDisk(abs: string): boolean {
+  try {
+    const st = lstatSync(abs)
+    return st.isFile() || st.isSymbolicLink()
+  } catch {
+    return false
   }
-  return matches.sort()
 }
 
 function resolveEnvValues(
@@ -687,34 +700,27 @@ async function resolveFiles(args: ResolveFilesArgs): Promise<string[]> {
   if (unmatchedLiterals.size > 0) {
     await assertNoInvisibleLiteralInputs(unmatchedLiterals, args.projectDir, 'files')
   }
-  // Second pass: parallel existence check — but ONLY for paths
-  // without a trusted index OID. A clean-per-status tracked file
-  // necessarily exists on disk, so skipping its probe keeps the warm
-  // path free of per-file syscalls. Paths without an OID keep the
-  // probe: `git ls-files -s` can surface staged entries whose
-  // working-tree file is gone; the hasher would otherwise throw
-  // ENOENT.
+  // Second pass: existence check — but ONLY for paths without a
+  // trusted index OID. A clean-per-status tracked file necessarily
+  // exists on disk, so skipping its probe keeps the warm path free of
+  // per-file syscalls. Paths without an OID keep the probe:
+  // `git ls-files -s` can surface staged entries whose working-tree
+  // file is gone; the hasher would otherwise throw ENOENT.
   const oids = args.gitFilesCache?.oidsFor(args.projectDir)
-  const exists = await Promise.all(
-    candidates.map((abs) => oids?.has(abs) === true || Bun.file(abs).exists()),
-  )
-  const matches: string[] = []
-  for (let i = 0; i < candidates.length; i++) {
-    if (exists[i]) matches.push(candidates[i]!)
-  }
-  return matches.sort()
+  return candidates.filter((abs) => oids?.has(abs) === true || isInputOnDisk(abs)).sort()
 }
 
 interface GitLsResult {
   /** cwd-relative paths — same visibility set as `--cached --others`. */
   files: string[]
   /**
-   * cwd-relative path → index blob OID, for tracked REGULAR files
-   * (mode 100644 / 100755) at stage 0 only. Symlinks are excluded
-   * (their OID hashes the link-target string, not the dereferenced
-   * content our fallback hasher would read); merge-conflict stages
-   * and gitlinks are excluded too. NOT yet filtered by working-tree
-   * dirtiness — callers intersect with `git status` before trusting.
+   * cwd-relative path → index blob OID, for tracked regular files
+   * (mode 100644 / 100755) and symlinks (120000) at stage 0 only. A
+   * symlink's OID is the blob of its target string, which is exactly
+   * what `Cache.hashFile` computes for one, so the two paths agree.
+   * Merge-conflict stages and gitlinks are excluded. NOT yet filtered
+   * by working-tree dirtiness — callers intersect with `git status`
+   * before trusting.
    */
   oids: Map<string, string>
   /** Paths flagged skip-worktree / assume-unchanged (only when `-v` was passed). */
@@ -783,7 +789,7 @@ function parseLsFilesOutput(out: string): GitLsResult {
     files.push(filePath)
     const mode = m[2]!
     const stage = m[4]!
-    if ((mode === '100644' || mode === '100755') && stage === '0') {
+    if ((mode === '100644' || mode === '100755' || mode === '120000') && stage === '0') {
       oids.set(filePath, m[3]!)
     }
     // A LOWERCASE letter means skip-worktree or assume-unchanged (`S` is the
