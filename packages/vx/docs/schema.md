@@ -848,8 +848,10 @@ responsibility — vx does not police it; last restore wins.
 
 ### `exec.sandbox` (optional)
 
-Opt this command into an OS-level sandbox. Silently skipped for
-persistent tasks. **Opt-in per task — omit it and the command runs
+Opt this command into an OS-level sandbox. A persistent task runs
+inside it too — enforced, but with no violation report, since the report
+reads the trace after the child exits and a server exits only at
+teardown. **Opt-in per task — omit it and the command runs
 unsandboxed.** Full walkthrough in the
 [sandboxing guide](https://vznjs.github.io/vx/guides/sandboxing/).
 

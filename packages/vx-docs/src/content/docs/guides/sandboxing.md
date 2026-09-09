@@ -196,7 +196,10 @@ fails fast with a clear message (it never runs unsandboxed by accident).
 ## What can't be sandboxed
 
 - **Group tasks** (no `exec`) — there's no command to wrap.
-- **Persistent tasks** (dev servers) — the sandbox is silently skipped.
+- **Persistent tasks** (dev servers) ARE sandboxed — the same grants and
+  walls — but get no violation *report*: the report reads the trace after
+  the child exits, and a server exits only when the run tears it down.
+  A denied read fails inside the server the way it would anywhere else.
 - **A task that itself sandboxes, on macOS.** `sandbox_apply` is refused
   inside a sandboxed process, so seatbelt cannot nest at any permission
   level. `weakerWhenNested` covers the Linux case; there is no macOS

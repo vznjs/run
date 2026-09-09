@@ -355,7 +355,9 @@ interface CanonicalBaselines {
   cwd: string
 }
 
-function canonicalBaselines(args: SandboxedRunArgs): CanonicalBaselines {
+function canonicalBaselines(
+  args: Pick<SandboxedRunArgs, 'baseAllowRead' | 'baseAllowWrite' | 'baseDenyRead' | 'cwd'>,
+): CanonicalBaselines {
   return {
     allowRead: args.baseAllowRead.map(toRealPath),
     allowWrite: args.baseAllowWrite.map(toRealPath),
@@ -443,9 +445,24 @@ export interface SandboxedRunResult extends RunResult {
  * across packages) would otherwise collide. We prepend `: '<tag>';`
  * (shell no-op) to make every command's first 100 chars unique.
  */
-export async function runSandboxed(args: SandboxedRunArgs): Promise<SandboxedRunResult> {
+/**
+ * The sandboxed form of a command: SRT's wrapper over the tagged command,
+ * with vx's own seatbelt rules appended on macOS. This is the ENFORCEMENT
+ * half of `runSandboxed`, shared with persistent tasks — a dev server is
+ * spawned through it and never exits while the run watches, so it gets
+ * the same walls and no violation report (reporting reads the trace after
+ * exit). Returns the wrapped command and the tag the store keys by.
+ */
+export async function wrapSandboxedCommand(
+  args: Pick<SandboxedRunArgs, 'command' | 'cwd' | 'forwardArgs' | 'config'> &
+    Pick<SandboxedRunArgs, 'baseAllowRead' | 'baseAllowWrite' | 'baseDenyRead'>,
+): Promise<{
+  wrapped: string
+  tag: string
+  taggedCommand: string
+  baselines: CanonicalBaselines
+}> {
   const { SandboxManager } = await loadSrt()
-  const start = Date.now()
   const userCommand =
     args.forwardArgs && args.forwardArgs.length > 0
       ? args.command + ' ' + args.forwardArgs.map(shellQuote).join(' ')
@@ -461,6 +478,13 @@ export async function runSandboxed(args: SandboxedRunArgs): Promise<SandboxedRun
     const rules = macProfileRules(args.config)
     if (rules.length > 0) wrapped = injectProfileRules(wrapped, rules)
   }
+  return { wrapped, tag, taggedCommand, baselines }
+}
+
+export async function runSandboxed(args: SandboxedRunArgs): Promise<SandboxedRunResult> {
+  const start = Date.now()
+  const { SandboxManager } = await loadSrt()
+  const { wrapped, tag, taggedCommand, baselines } = await wrapSandboxedCommand(args)
 
   // Linux: SRT's SandboxViolationStore is macOS-only, so structured
   // detection on Linux requires us to wrap the spawn with strace and
@@ -1236,7 +1260,7 @@ export function punchWritePaths(readPath: string, writePaths: readonly string[])
 }
 
 function buildCustomConfig(
-  args: SandboxedRunArgs,
+  args: Pick<SandboxedRunArgs, 'config'>,
   baselines: {
     allowRead: readonly string[]
     allowWrite: readonly string[]
