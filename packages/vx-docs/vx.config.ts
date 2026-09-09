@@ -41,6 +41,11 @@ export default defineProject({
       dependsOn: ['install'],
       exec: {
         command: 'astro build',
+        // astro's telemetry does `mkdir ~/.config` before anything else; a
+        // sandboxed task may read HOME but not write it, so on Linux astro
+        // threw EROFS at startup (exit 1 in 225 ms, no output) until the
+        // telemetry was told to stay home.
+        env: { define: { ASTRO_TELEMETRY_DISABLED: '1' } },
         sandbox: {
           allow: {
             read: ['**/*'],
@@ -65,6 +70,7 @@ export default defineProject({
       dependsOn: ['install'],
       exec: {
         command: 'astro dev',
+        env: { define: { ASTRO_TELEMETRY_DISABLED: '1' } },
         persistent: { readyWhen: 'Local' },
         timeout: 120000,
         sandbox: {
@@ -84,6 +90,7 @@ export default defineProject({
       dependsOn: ['build'],
       exec: {
         command: 'astro preview',
+        env: { define: { ASTRO_TELEMETRY_DISABLED: '1' } },
         persistent: { readyWhen: 'Local' },
         timeout: 120000,
         sandbox: {

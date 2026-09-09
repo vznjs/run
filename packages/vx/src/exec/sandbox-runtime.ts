@@ -475,8 +475,31 @@ export async function runSandboxed(args: SandboxedRunArgs): Promise<SandboxedRun
   // are mostly shell PATH-walking and stat probes that aren't
   // actionable (we'd report every node_modules/.bin entry the shell
   // checks before resolving a command).
+  //
+  // `--seccomp-bpf` is what makes that filter cheap: without it strace
+  // ptrace-stops the tracee on EVERY syscall and discards the untraced
+  // ones in userspace, so a stat-heavy task ran many times slower under
+  // the sandbox than outside it. That is what failed the cache perf
+  // baselines on the Linux job (reproduced 2026-09-09: plain `bun test`
+  // 24/24; under `strace -f -e trace=openat` the same four fail with
+  // medians 2.5–7× over budget; with `--seccomp-bpf` 24/24 again), and
+  // it taxed every other sandboxed task the same way. With the flag the
+  // kernel filter stops only on `openat`. strace ≥ 5.3 (2019); an older
+  // one gets the slow form rather than no detection.
   const spawnArgv = straceLog
-    ? ['strace', '-f', '-e', 'trace=openat', '-o', straceLog, '--', 'sh', '-c', wrapped]
+    ? [
+        'strace',
+        '-f',
+        ...(useStrace === 'seccomp' ? ['--seccomp-bpf'] : []),
+        '-e',
+        'trace=openat',
+        '-o',
+        straceLog,
+        '--',
+        'sh',
+        '-c',
+        wrapped,
+      ]
     : ['sh', '-c', wrapped]
 
   let proc: ReturnType<typeof Bun.spawn>
@@ -789,15 +812,25 @@ function expandGrants(paths: readonly string[]): string[] {
   return out
 }
 
-/** Memoized check: is `strace` on PATH on a Linux host? */
-let straceAvailableCache: boolean | undefined
-async function wantsStraceDetection(): Promise<boolean> {
+/**
+ * Memoized check: is `strace` on PATH on a Linux host, and does it know
+ * `--seccomp-bpf` (5.3+)? `'seccomp'` is the fast form; `'plain'` traces
+ * every syscall through ptrace and is kept only for an old strace.
+ */
+let straceAvailableCache: false | 'plain' | 'seccomp' | undefined
+async function wantsStraceDetection(): Promise<false | 'plain' | 'seccomp'> {
   if (process.platform !== 'linux') return false
   if (straceAvailableCache !== undefined) return straceAvailableCache
   try {
-    const p = Bun.spawn(['strace', '--version'], { stdout: 'ignore', stderr: 'ignore' })
+    const p = Bun.spawn(['strace', '--version'], { stdout: 'pipe', stderr: 'ignore' })
+    const out = await new Response(p.stdout).text()
     await p.exited
-    straceAvailableCache = p.exitCode === 0
+    if (p.exitCode !== 0) straceAvailableCache = false
+    else {
+      const m = /version (\d+)\.(\d+)/.exec(out)
+      const [major, minor] = m ? [Number(m[1]), Number(m[2])] : [0, 0]
+      straceAvailableCache = major > 5 || (major === 5 && minor >= 3) ? 'seccomp' : 'plain'
+    }
   } catch {
     straceAvailableCache = false
   }
