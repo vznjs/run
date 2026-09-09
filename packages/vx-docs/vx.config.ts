@@ -3,7 +3,33 @@ import { defineProject } from '@vzn/vx'
 export default defineProject({
   tasks: {
     ci: {
-      dependsOn: ['build'],
+      dependsOn: ['build', 'test'],
+    },
+
+    test: {
+      description: 'bun test — the guide and sidebar pins (needs the imported content)',
+      dependsOn: ['install'],
+      exec: {
+        command: 'bun test',
+        sandbox: {
+          allow: {
+            read: ['**/*'],
+            systemInfo: ['vfs.disk-space'],
+          },
+        },
+      },
+      cache: {
+        inputs: {
+          files: [
+            'tests/**',
+            'src/content/docs/**',
+            'astro.config.*',
+            '.gitignore',
+            'package.json',
+          ],
+        },
+        outputs: { files: [] },
+      },
     },
 
     install: {
