@@ -46,16 +46,7 @@ export default defineProject({
         // dependency on whichever Node a CI image ships — astro 6 refuses
         // anything below 22.12, and the Linux gate's docs build had been
         // exiting 1 in 61 ms with no output at all.
-        // TEMPORARY CI DIAGNOSTIC (reverted in the next commit): the build
-        // exits 1 with no output on the Linux gate and nowhere else.
-        command: [
-          'echo "TMPDIR=$TMPDIR"; ls -ld /tmp "$TMPDIR" "$HOME" "$HOME/.config" 2>&1',
-          'touch "$TMPDIR/.vx-probe" && echo write-ok TMPDIR',
-          'node --version 2>&1; echo "node-exit=$?"',
-          'bun --bun diag.mjs; echo "diag-exit=$?"',
-          'bun --bun node_modules/astro/bin/astro.mjs --version; echo "astro-direct-exit=$?"',
-          'exit 1',
-        ].join('; '),
+        command: 'bun --bun astro build',
         // astro's telemetry does `mkdir ~/.config` before anything else; a
         // sandboxed task may read HOME but not write it, so it is told to
         // stay home.
@@ -63,7 +54,13 @@ export default defineProject({
         sandbox: {
           allow: {
             read: ['**/*'],
-            write: ['dist/**', '.astro/**', 'node_modules/.astro/**', 'node_modules/.vite/**'],
+            // astro's and vite's caches live under `.astro/` (astro.config.mjs),
+            // never under node_modules: a write grant there makes the sandbox
+            // punch the read grant into node_modules' children, and bwrap
+            // mounts a SYMLINKED child (every package in Bun's isolated
+            // layout) as a plain directory — astro then could not resolve
+            // its own `yargs-parser` (Linux CI, 2026-09-05 → 09-09).
+            write: ['dist/**', '.astro/**'],
             // A static build binds no port; `localBinding` belongs to `dev`
             // and `preview` below, which serve.
             systemInfo: ['vfs.disk-space', 'net.link.addr'],
@@ -91,7 +88,7 @@ export default defineProject({
         sandbox: {
           allow: {
             read: ['**/*'],
-            write: ['.astro/**', 'node_modules/.astro/**', 'node_modules/.vite/**'],
+            write: ['.astro/**'],
             systemInfo: ['vfs.disk-space', 'net.link.addr'],
             machLookup: ['com.apple.SystemConfiguration.DNSConfiguration'],
             localBinding: true,

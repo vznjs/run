@@ -25,7 +25,7 @@
 
 import path from 'node:path'
 import os from 'node:os'
-import { readdirSync, realpathSync, statSync } from 'node:fs'
+import { lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, unlink } from 'node:fs/promises'
 import type { SandboxConfig } from '../config.js'
 import {
@@ -1201,11 +1201,36 @@ export function punchWritePaths(readPath: string, writePaths: readonly string[])
     return [readPath]
   }
   const out: string[] = []
+  const linked: string[] = []
   for (const entry of entries) {
     const child = path.join(readPath, entry)
     // A write path is already bound read-write, which is readable.
     if (under.includes(child)) continue
+    // bwrap resolves a bind SOURCE, so a symlinked child is mounted as the
+    // directory it points at: inside the sandbox the link is gone. For a
+    // package in Bun's isolated node_modules layout that severs it from
+    // the `.bun/` siblings its own dependencies resolve through — astro
+    // could not find `yargs-parser` for four days of red CI (2026-09-09).
+    // SRT's config carries no `--symlink`, so the only fix is the grant:
+    // say which one, loudly.
+    try {
+      if (lstatSync(child).isSymbolicLink()) linked.push(child)
+    } catch {
+      // vanished between readdir and lstat: nothing to bind either way
+    }
     out.push(...punchWritePaths(child, under))
+  }
+  if (linked.length > 0) {
+    process.stderr.write(
+      `[vx] sandbox: a write grant under ${readPath} makes its ${linked.length} symlinked ` +
+        `entr${linked.length === 1 ? 'y' : 'ies'} (${linked
+          .slice(0, 3)
+          .map((l) => path.basename(l))
+          .join(', ')}${linked.length > 3 ? ', …' : ''}) plain directories inside the sandbox — ` +
+        `a package resolved through one loses its siblings. Move the write grant (${under
+          .map((w) => path.relative(readPath, w))
+          .join(', ')}) out of it.\n`,
+    )
   }
   return out
 }

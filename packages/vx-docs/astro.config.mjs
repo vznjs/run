@@ -8,6 +8,11 @@ const site = process.env.SITE_URL ?? 'https://vznjs.github.io'
 const base = process.env.BASE_PATH ?? '/vx'
 
 export default defineConfig({
+  // Both caches under `.astro/`, not node_modules: see the `build` task's
+  // sandbox grants in vx.config.ts for why a write under node_modules breaks
+  // module resolution inside the Linux sandbox.
+  cacheDir: './.astro/cache',
+  vite: { cacheDir: './.astro/vite' },
   site,
   base,
   trailingSlash: 'always',
