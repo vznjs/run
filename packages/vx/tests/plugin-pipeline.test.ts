@@ -337,6 +337,12 @@ describe('key stage', () => {
       await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
         /plugin 'org\/tool' failed in key: value for 'n'/,
       )
+      // A non-record return is refused too: a string used to fold its
+      // characters into the key as parts named '0', '1', '2'.
+      await workspace([`{ name: 'org/tool', key() { return 'v22' } }`])
+      await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
+        "plugin 'org/tool' failed in key: returned a string, not a record of string values",
+      )
     },
     TIMEOUT,
   )
@@ -429,6 +435,32 @@ describe('schedule stage', () => {
       await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
         /plugin 'org\/nan' failed in schedule/,
       )
+      // Not a Map: a string's characters matched no task and the plugin was
+      // a silent no-op.
+      await workspace([`{ name: 'org/str', schedule() { return 'fast' } }`])
+      await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
+        "plugin 'org/str' failed in schedule: returned a string, not a Map of task id → weight",
+      )
+    },
+    TIMEOUT,
+  )
+})
+
+describe('telemetry stage', () => {
+  it(
+    'a sink that handles nothing is disabled with a word, never a failed run',
+    async () => {
+      // Every handler is optional, so `{ nope: true }` used to be a valid
+      // sink: subscribed, silent, "on".
+      await pkg('a', build)
+      await workspace([`{ name: 'org/deaf', telemetry() { return { nope: true } } }`])
+      const lines: string[] = []
+      const log = Object.assign(silent(), { status: (line: string) => lines.push(line) })
+      const summary = await run({ cwd: root, tasks: ['build'], log, handleSignals: false })
+      expect(summary.ok).toBe(true)
+      expect(lines.filter((l) => l.includes('org/deaf'))).toEqual([
+        "[vx] plugin 'org/deaf' telemetry failed to initialize; disabled for this run: telemetry sink handles nothing: neither onRecord nor onRunSummary is a function",
+      ])
     },
     TIMEOUT,
   )

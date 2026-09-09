@@ -891,6 +891,15 @@ function`); the seam now checks the returned shape once and refuses
     it, and the plugin-verb lookup, which reports why it could not
     finish — naming the plugins and the verb; the pin now asserts the
     refusal (`help` and `version` never load the workspace).
+24. DONE: the same probe over the remaining stages. `key` returning a
+    string folded its CHARACTERS into every cache key as parts named
+    '0', '1', '2' (`Object.entries` over a string) — silent and
+    permanent; `schedule` returning a string was a silent no-op (its
+    characters matched no task); a telemetry hook returning `{}` was a
+    valid sink that heard nothing. Non-record and non-Map returns are
+    refused by plugin and stage; a sink with no handler is disabled
+    with the same warning a throwing hook gets. `graph` was already
+    right: a missing edge target and a cycle both name the plugin.
 
 ## In flight
 
