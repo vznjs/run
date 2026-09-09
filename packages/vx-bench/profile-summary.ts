@@ -3,7 +3,7 @@
 // go?" in one screen instead of a flame chart.
 //
 //   bun --cpu-prof --cpu-prof-dir=/tmp/prof packages/vx/src/bin.ts run build --all
-//   bun bench/profile-summary.ts /tmp/prof/*.cpuprofile [top=25]
+//   bun packages/vx-bench/profile-summary.ts /tmp/prof/*.cpuprofile [top=25]
 
 interface ProfileNode {
   id: number
@@ -17,7 +17,8 @@ interface Profile {
 }
 
 const file = process.argv[2]
-if (!file) throw new Error('usage: bun bench/profile-summary.ts <file.cpuprofile> [top]')
+if (!file)
+  throw new Error('usage: bun packages/vx-bench/profile-summary.ts <file.cpuprofile> [top]')
 const top = Number(process.argv[3] ?? 25)
 const prof = (await Bun.file(file).json()) as Profile
 

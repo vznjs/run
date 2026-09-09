@@ -1,11 +1,11 @@
 #!/usr/bin/env bun
 // Rewrite the landing page's benchmark rows, stat tiles and note, and the
-// benchmarks doc's stress-shape section, from bench/results.json — the file
-// `bench/compare.ts` commits. The site is a rendering of the runner's
+// benchmarks doc's stress-shape section, from packages/vx-bench/results.json — the file
+// `packages/vx-bench/compare.ts` commits. The site is a rendering of the runner's
 // output, never hand-typed numbers; run this after every comparison.
 //
-//   bun bench/update-site.ts          # rewrite in place
-//   bun bench/update-site.ts --check  # exit 1 if the site would change (CI-able)
+//   bun packages/vx-bench/update-site.ts          # rewrite in place
+//   bun packages/vx-bench/update-site.ts --check  # exit 1 if the site would change (CI-able)
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
@@ -79,7 +79,7 @@ const row = (task: string, key: keyof Row, baseKey: keyof Results['baseline']): 
 // ideal schedule; a cached run, a restore and the CPU a runner burns are 0
 // in theory — everything drawn is the runner (owner's definition,
 // 2026-09-03). The measured floors (one git walk, a raw copy, the task
-// shells under xargs) stay in bench/RESULTS.md as context.
+// shells under xargs) stay in packages/vx-bench/RESULTS.md as context.
 const zeroRow = (task: string, key: keyof Row): string =>
   [
     '  {',
@@ -128,7 +128,7 @@ const note = `<p>
               <code>sleep 1</code>, so the clock measures the runner and CPU measures its overhead:
               vx burned ${Math.round(vx.freshCpu / 1000)} s to build the whole graph cold, Turborepo ${Math.round(turbo.freshCpu / 1000)} s, Nx ${Math.round(nx.freshCpu / 60_000)} minutes. Warm,
               vx replays ${nodes.toLocaleString('en-US')} tasks in ${disp(vx.warmNoRestore)}; Turborepo ${disp(turbo.warmNoRestore)}; Nx ${disp(nx.warmNoRestore)}. Reproduce with
-              <code>bun bench/compare.ts 100 11 1</code>; the committed results are this run. The dashed <em>baseline</em> is the theoretical best case: cold is the tasks' own ${disp(B.fresh)} on 10 perfectly parallel workers along the dependency graph, and a cached run, a restore and the CPU a runner burns are 0 in theory — every bar is the runner's overhead. Bars are proportional within a row; a bar more than ten times the next runner's is clipped with a break, and the numbers are exact.
+              <code>bun packages/vx-bench/compare.ts 100 11 1</code>; the committed results are this run. The dashed <em>baseline</em> is the theoretical best case: cold is the tasks' own ${disp(B.fresh)} on 10 perfectly parallel workers along the dependency graph, and a cached run, a restore and the CPU a runner burns are 0 in theory — every bar is the runner's overhead. Bars are proportional within a row; a bar more than ten times the next runner's is clipped with a break, and the numbers are exact.
             </p>`
 landing = landing.replace(
   /<p>\s*[\d,]+ packages, [\d,]+ tasks, 100 dependency layers,[\s\S]*?<\/p>/,
@@ -145,9 +145,9 @@ The shape that actually stresses a task runner: **100 dependency layers**,
 ~11 packages per layer, ~30 deps per package, three tasks each
 (\`build\` + \`installDeps\` + \`test\`, \`sleep 1\` for build and test) — **${nodes.toLocaleString('en-US')}
 task nodes**, ${d.packages.toLocaleString('en-US')} packages. Same repo, same hardware, same task commands;
-every runner pinned to concurrency ${d.concurrency}. \`bun bench/compare.ts 100 11 1\`,
+every runner pinned to concurrency ${d.concurrency}. \`bun packages/vx-bench/compare.ts 100 11 1\`,
 this machine (macOS arm64, 10 cores), Turbo ${turbo.version}, Nx ${nx.version}.
-The committed \`bench/RESULTS.md\` / \`bench/results.json\` are this run.
+The committed \`packages/vx-bench/RESULTS.md\` / \`packages/vx-bench/results.json\` are this run.
 
 |                              | vx         | Turborepo | Nx       |
 | ---------------------------- | ---------- | --------- | -------- |
@@ -220,11 +220,11 @@ if (CHECK) {
     )
     process.exit(1)
   }
-  process.stdout.write('site matches bench/results.json\n')
+  process.stdout.write('site matches packages/vx-bench/results.json\n')
 } else {
   writeFileSync(landingPath, landingOut)
   writeFileSync(docPath, docOut)
   process.stdout.write(
-    changed ? 'site rewritten from bench/results.json\n' : 'site already matched\n',
+    changed ? 'site rewritten from packages/vx-bench/results.json\n' : 'site already matched\n',
   )
 }

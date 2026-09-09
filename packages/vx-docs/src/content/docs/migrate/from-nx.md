@@ -83,7 +83,7 @@ inline for you.
 - **No daemon.** Nothing running in the background, no `nx reset` when the
   graph goes stale, no socket state to corrupt. vx's warm, cached runs
   are several times faster than Nx's in the repo's head-to-head benchmark
-  (`bun bench/compare.ts`, results in [Benchmarks](../../benchmarks/)).
+  (`bun packages/vx-bench/compare.ts`, results in [Benchmarks](../../benchmarks/)).
 - **No plugin graph to maintain.** No `@nx/*` packages to keep in sync
   with your tools. When a tool changes, you change a string.
 - **Caching that's stricter.** Resolved-config hashing (your imports and

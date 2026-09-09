@@ -543,7 +543,7 @@ const footCols = {
               <code>sleep 1</code>, so the clock measures the runner and CPU measures its overhead:
               vx burned 35 s to build the whole graph cold, Turborepo 73 s, Nx 114 minutes. Warm,
               vx replays 3,270 tasks in 510ms; Turborepo 760ms; Nx 3.59s. Reproduce with
-              <code>bun bench/compare.ts 100 11 1</code>; the committed results are this run. The dashed <em>baseline</em> is the theoretical best case: cold is the tasks' own 3m 38s on 10 perfectly parallel workers along the dependency graph, and a cached run, a restore and the CPU a runner burns are 0 in theory — every bar is the runner's overhead. Bars are proportional within a row; a bar more than ten times the next runner's is clipped with a break, and the numbers are exact.
+              <code>bun packages/vx-bench/compare.ts 100 11 1</code>; the committed results are this run. The dashed <em>baseline</em> is the theoretical best case: cold is the tasks' own 3m 38s on 10 perfectly parallel workers along the dependency graph, and a cached run, a restore and the CPU a runner burns are 0 in theory — every bar is the runner's overhead. Bars are proportional within a row; a bar more than ten times the next runner's is clipped with a break, and the numbers are exact.
             </p>
           </div>
         </div>

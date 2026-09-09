@@ -1,6 +1,6 @@
 // Reproducible local benchmark for the table in docs/benchmarks.md.
 //
-//   bun bench/run.ts [projects=100] [reps=3]
+//   bun packages/vx-bench/run.ts [projects=100] [reps=3]
 //
 // Measures three conditions over the synthetic workspace from
 // bench/generate.ts, reporting the median of `reps` runs each:
@@ -20,7 +20,7 @@ import path from 'node:path'
 
 const projects = Number(process.argv[2] ?? 100)
 const reps = Number(process.argv[3] ?? 3)
-const vxRoot = path.resolve(import.meta.dir, '..')
+const vxRoot = path.resolve(import.meta.dir, '..', '..')
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b)

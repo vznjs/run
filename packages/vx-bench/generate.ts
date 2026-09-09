@@ -1,6 +1,6 @@
 // Synthetic-workspace generator for the numbers in docs/benchmarks.md.
 //
-//   bun bench/generate.ts <dir> [projects=100]
+//   bun packages/vx-bench/generate.ts <dir> [projects=100]
 //
 // Shape matches the benchmark doc: N projects, each with
 //   build   — leaf; writes dist/out.js from src/index.js
@@ -18,12 +18,12 @@ const dir = process.argv[2]
 // named after it in the cwd (a `1000/` appeared in the repo root that way,
 // 2026-09-03); refuse it.
 if (dir === undefined || /^\d+$/.test(dir)) {
-  process.stderr.write('usage: bun bench/generate.ts <dir> [projects=100]\n')
+  process.stderr.write('usage: bun packages/vx-bench/generate.ts <dir> [projects=100]\n')
   process.exit(2)
 }
 const count = Number(process.argv[3] ?? 100)
 if (!dir || !Number.isInteger(count) || count < 1) {
-  console.error('usage: bun bench/generate.ts <dir> [projects=100]')
+  console.error('usage: bun packages/vx-bench/generate.ts <dir> [projects=100]')
   process.exit(1)
 }
 const root = path.resolve(dir)
@@ -34,12 +34,6 @@ await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "package
 // this, `git ls-files --others` walks 2×N untracked files that no real repo
 // has and the enumeration numbers say nothing about real repos.
 await writeFile(path.join(root, '.gitignore'), 'dist\n.vx\n')
-// NO DEFAULTS: a workspace with no executor and cache plugins fails before
-// any task runs, so the synthetic workspace declares the local ones — by
-// ABSOLUTE path into this checkout, since a tmp dir has no `@vzn/vx` in
-// node_modules (the same shape tests/helpers/local-workspace.ts emits).
-// Benches are not in CI, so this comment is the tripwire: if this file ever
-// fails with the missing-plugin hint, the workspace contract changed under it.
 // The bench measures core on its own fallbacks: run here, cache in
 // .vx/cache. No plugin is declared, so nothing it measures is a plugin's
 // cost.
