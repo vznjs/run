@@ -569,22 +569,22 @@ place with pins:
 green, 36/36, no violations. CI is not, and every remaining item is
 either a one-line decision or a known constraint, not a mystery:
 
-1. `@vzn/vx-docs#build` on Linux CI (2026-09-09, in flight until the
-   next run is green). The telemetry EROFS recorded before is real, but
-   telling astro's telemetry to stay home did not change the failure:
-   the task still exits 1 after 61 ms with NOTHING on either stream,
-   which is before astro's bin could load, and the same silent exit is
-   what the Deploy docs workflow has shown on main since 2026-09-05.
-   Two candidates, both removed in one change: the runner's Node (astro
-   6 refuses anything below 22.12; neither workflow sets one up), and
-   `localBinding: true` on a task that binds no port — the only task in
-   the repo with it on Linux. The three astro tasks now run under
-   `bun --bun`, which builds the same 133 pages in 18.5 s against 37 s
-   under Node 22 here and removes the runner's Node from the equation;
-   the build task keeps only the grants a static build needs. If the
-   next run still exits silently, the cause is in the sandbox wrapper
-   and needs a diagnostic frame from CI (this box is root in a
-   container and cannot run the Linux sandbox).
+1. DONE 2026-09-09: `@vzn/vx-docs#build` on Linux CI, red since
+   2026-09-05 with exit 1 and nothing on either stream. Not the
+   telemetry EROFS recorded before (real, but not what exited), not the
+   runner's Node. A diagnostic frame from CI (hooking `process.exit` and
+   both rejection channels) said `Cannot find package 'yargs-parser'
+from …/node_modules/astro/dist/cli/index.js` — astro's OWN
+   dependency, unresolvable because the task's write grants under
+   `node_modules` (`.astro/**`, `.vite/**`) made `punchWritePaths` bind
+   node_modules' children one by one, and bwrap mounts a SYMLINKED child
+   (every package in Bun's isolated layout) as the directory it points
+   at, so astro sat in a plain directory with no `.bun/` siblings.
+   astro's and vite's caches now live under `.astro/` (astro.config.mjs)
+   and the grants follow; `punchWritePaths` warns, naming the grant,
+   whenever a punch meets a symlinked entry. The build also runs under
+   `bun --bun` (half the wall time; no dependency on the runner's Node)
+   and the telemetry define stays.
 2. DONE 2026-09-09, and the diagnosis was wrong: the four perf baselines
    did not fail from eight-way contention but from ptrace. The Linux
    sandbox wraps every task in `strace -f -e trace=openat`, and without
