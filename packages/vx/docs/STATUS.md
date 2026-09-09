@@ -878,6 +878,19 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     refuted on the way: `--retries` is NOT a prefix of `--retry` (a
     prefix rule was written and thrown out), and a plain three-edit
     budget hinted `--all` for `--zzz` (the existing pin caught it).
+23. DONE: a plugin-authoring probe, four quiet failures. A `cache` or
+    `executor` hook returning junk failed every task with an internal
+    TypeError deep in the chain (`this.layers[0].key is not a
+function`); the seam now checks the returned shape once and refuses
+    by plugin and hook. A `project` edit that broke a task was refused
+    "(after plugins)" — which one? — so the stage re-validates after
+    each plugin and names it. Two plugins declaring the same verb ran
+    the first and hid the second; a plugin naming a core verb loaded
+    fine and sat dead (a pin even asserted it "never runs"). Both are
+    refused wherever the workspace loads — every core verb that opens
+    it, and the plugin-verb lookup, which reports why it could not
+    finish — naming the plugins and the verb; the pin now asserts the
+    refusal (`help` and `version` never load the workspace).
 
 ## In flight
 

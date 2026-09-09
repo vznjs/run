@@ -52,8 +52,19 @@ const HELLO = `{
         return 7
       },
     },
+  },
+}`
+
+const SHADOW = `{
+  name: 'org/shadow',
+  commands: {
     version: { description: 'never runs — core owns this verb', run() { globalThis.__vxCmd = 'shadowed'; return 9 } },
   },
+}`
+
+const TWICE = `{
+  name: 'org/twice',
+  commands: { hello: { description: 'also hi', run() { return 1 } } },
 }`
 
 describe('plugin commands', () => {
@@ -88,11 +99,30 @@ describe('plugin commands', () => {
     expect(await cli(['ok'])).toBe(0) // CONTROL: an integer passes through
   })
 
-  it("core's verbs win — a plugin naming `version` never runs", async () => {
-    await Bun.write(path.join(root, 'vx.workspace.mjs'), localWorkspaceSource([HELLO]))
-    expect(await cli(['version'])).toBe(0)
-    expect(out.join('')).toMatch(/^vx \d/)
+  it('a plugin naming a core verb is refused on every verb, not silently never run', async () => {
+    // Core verbs are matched first, so such a verb could never run; it used
+    // to load fine and sit dead. The refusal reaches `vx version` too — the
+    // workspace load is where every verb meets the plugin list — and names
+    // the plugin and the verb.
+    await Bun.write(path.join(root, 'vx.workspace.mjs'), localWorkspaceSource([HELLO, SHADOW]))
+    const refusal =
+      "plugin 'org/shadow' declares command 'version', a core verb — core verbs cannot be shadowed"
+    // A plugin verb: the lookup cannot finish, and says why.
+    expect(await cli(['hello'])).toBe(1)
+    expect(err.join('')).toContain(refusal)
     expect((globalThis as { __vxCmd?: unknown }).__vxCmd).toBeUndefined()
+    // A core verb that loads the workspace: refused outright.
+    await expect(cli(['show'])).rejects.toThrow(refusal)
+  })
+
+  it('two plugins naming the same verb are refused, naming both', async () => {
+    // First-declared used to win and the second was never heard of.
+    await Bun.write(path.join(root, 'vx.workspace.mjs'), localWorkspaceSource([HELLO, TWICE]))
+    const refusal =
+      "plugins 'org/hello' and 'org/twice' both declare command 'hello' — a verb has one owner"
+    expect(await cli(['hello'])).toBe(1)
+    expect(err.join('')).toContain(refusal)
+    await expect(cli(['show'])).rejects.toThrow(refusal)
   })
 
   it('an unknown verb is still unknown, with the help text', async () => {

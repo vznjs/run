@@ -4,7 +4,7 @@
 
 import { VERSION } from '../version.js'
 import { runCmd } from './run.js'
-import { printHelp } from './help.js'
+import { CORE_VERBS, printHelp } from './help.js'
 import { pluginCommandHelp, resolvePluginCommand } from './plugin-commands.js'
 import { nearest, UserError } from '../util/index.js'
 
@@ -135,24 +135,6 @@ function wantsHelp(command: string, rest: readonly string[]): boolean {
   const own = sep === -1 ? rest : rest.slice(0, sep)
   return own.includes('--help') || own.includes('-h')
 }
-
-/** The verbs the switch above dispatches; `stats` is a deprecated alias and stays out. */
-const CORE_VERBS = [
-  'run',
-  'watch',
-  'cache',
-  'lock',
-  'migrate',
-  'init',
-  'upgrade',
-  'show',
-  'info',
-  'why',
-  'last',
-  'prune',
-  'help',
-  'version',
-] as const
 
 /** ` Did you mean run?` for a verb within two edits of a core one — the same
  *  hint a task or flag typo gets. Plugin verbs are not listed: resolving

@@ -200,9 +200,14 @@ describe('project stage', () => {
     'a plugin that produces an invalid task is refused like a user would be',
     async () => {
       await pkg('a', build)
-      await workspace([`{ name: 'org/broken', project(config) { config.tasks.build.exec = 5 } }`])
+      // Two plugins in the stage: the refusal names the one whose edit broke
+      // the task, not "plugins" — the fix is in THAT plugin.
+      await workspace([
+        `{ name: 'org/fine', project(config) { config.tasks.build.description = 'ok' } }`,
+        `{ name: 'org/broken', project(config) { config.tasks.build.exec = 5 } }`,
+      ])
       await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
-        /after plugins/,
+        /vx\.config\.mjs \(after plugin 'org\/broken'\): tasks\.build\.exec must be an object/,
       )
     },
     TIMEOUT,

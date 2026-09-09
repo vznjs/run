@@ -141,20 +141,22 @@ export async function loadProjects(args: LoadProjectsArgs): Promise<LoadedProjec
         meta.configPath === null ? { tasks: {} } : (loaded[next++] as ProjectConfig)
       if (projectStage) {
         // The `project` stage edits the validated object in place; core
-        // then re-validates so a plugin can only produce what the loader
-        // accepts from a user. The message names the config file — the
-        // plugin's edit is a defect in THAT project's tasks.
-        await applyProjectHooks(plugins, config, {
-          workspaceRoot,
-          cacheDir: args.cacheDir,
-          warn: args.warn,
-          name: meta.name,
-          dir: meta.dir,
-          packageJson: meta.packageJson as unknown as Readonly<Record<string, unknown>>,
-        })
-        validateProjectConfig(
+        // re-validates after EACH plugin so a plugin can only produce what
+        // the loader accepts from a user, and the refusal names both the
+        // config file and the plugin whose edit broke it.
+        const where = meta.configPath ?? `${meta.name} (no config file)`
+        await applyProjectHooks(
+          plugins,
           config,
-          `${meta.configPath ?? `${meta.name} (no config file)`} (after plugins)`,
+          {
+            workspaceRoot,
+            cacheDir: args.cacheDir,
+            warn: args.warn,
+            name: meta.name,
+            dir: meta.dir,
+            packageJson: meta.packageJson as unknown as Readonly<Record<string, unknown>>,
+          },
+          (plugin) => validateProjectConfig(config, `${where} (after plugin '${plugin.name}')`),
         )
       }
       projects.set(meta.name, { name: meta.name, dir: meta.dir, config })

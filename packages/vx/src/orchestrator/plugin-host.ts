@@ -30,6 +30,25 @@ import type {
  * never silently degrade. (Telemetry sinks are the observe-only exception,
  * and telemetry-host.ts logs-and-skips them instead.)
  */
+/** What a capability hook handed back must be what the seam runs. */
+function assertShape(
+  plugin: VxPlugin,
+  hook: string,
+  value: unknown,
+  methods: readonly string[],
+  what: string,
+): void {
+  const missing =
+    value === null || typeof value !== 'object'
+      ? methods
+      : methods.filter((m) => typeof (value as Record<string, unknown>)[m] !== 'function')
+  if (missing.length === 0) return
+  throw new UserError(
+    `plugin '${plugin.name}' returned from ${hook} something that is not ${what}: ` +
+      `missing ${missing.map((m) => `${m}()`).join(', ')}`,
+  )
+}
+
 async function safe<T>(plugin: VxPlugin, hook: string, fn: () => T | Promise<T>): Promise<T> {
   try {
     return await fn()
@@ -72,10 +91,13 @@ export async function applyProjectHooks(
   plugins: readonly VxPlugin[],
   config: ProjectConfig,
   ctx: ProjectHookContext,
+  /** Runs after EACH plugin's edit, so a refusal can name the plugin that made it. */
+  afterEach?: (plugin: VxPlugin) => void,
 ): Promise<void> {
   for (const plugin of plugins) {
     if (plugin.project === undefined) continue
     await safe(plugin, 'project', () => plugin.project!(config, ctx))
+    afterEach?.(plugin)
   }
 }
 
@@ -186,7 +208,12 @@ export async function resolveCache(
   for (const plugin of plugins) {
     if (plugin.cache === undefined) continue
     const layer = await safe(plugin, 'cache', () => plugin.cache!(ctx))
-    if (layer !== undefined) layers.push(layer)
+    if (layer === undefined) continue
+    // The seam's contract, checked once here: a layer missing its methods
+    // otherwise failed every task with an internal TypeError deep in the
+    // chain, naming neither the plugin nor the hook.
+    assertShape(plugin, 'cache', layer, ['key', 'get', 'has', 'save', 'close'], 'a cache layer')
+    layers.push(layer)
   }
   // Core's own store is the TAIL of the chain — the floor under every
   // lookup, not a plugin a workspace has to declare. A layer that WRAPS
@@ -212,7 +239,12 @@ export async function resolveExecutors(
   for (const plugin of plugins) {
     if (plugin.executor === undefined) continue
     const executor = await safe(plugin, 'executor', () => plugin.executor!(ctx))
-    if (executor !== undefined) executors.push(executor)
+    if (executor === undefined) continue
+    assertShape(plugin, 'executor', executor, ['execute'], 'an executor')
+    if (typeof executor.name !== 'string' || executor.name.length === 0) {
+      throw new UserError(`plugin '${plugin.name}' returned an executor with no name`)
+    }
+    executors.push(executor)
   }
   // Core's own executor is the TAIL of every list, so a plugin executor
   // that declines a task hands it back to this machine rather than

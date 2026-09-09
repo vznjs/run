@@ -5,6 +5,8 @@
 // prune` pruned nothing, `vx watch` ignored the wrong path.
 
 import type { WorkspaceConfig } from '../config.js'
+import { UserError } from '../util/index.js'
+import { CORE_VERBS } from './help.js'
 import { Cache } from '../cache/index.js'
 import { loadProjects, loadWorkspacePlugins } from '../orchestrator/index.js'
 import type { VxPlugin } from '../orchestrator/index.js'
@@ -28,7 +30,35 @@ export const warnToStderr = (message: string): void => {
 
 export async function loadCliWorkspace(workspaceRoot: string): Promise<CliWorkspace> {
   const { workspaceConfig, plugins } = await loadWorkspacePlugins(workspaceRoot, warnToStderr)
+  assertPluginVerbs(plugins)
   return { workspaceConfig, plugins, cacheDir: resolveCacheDir(workspaceRoot, workspaceConfig) }
+}
+
+/**
+ * A plugin verb the dispatcher would never reach is refused, not ignored.
+ * Core verbs are matched first, so a plugin naming one has written a verb
+ * that cannot run; two plugins naming the same verb would run the first
+ * declared and hide the second. Checked on every verb's load, so the
+ * refusal does not wait for someone to type the dead one.
+ */
+export function assertPluginVerbs(plugins: readonly VxPlugin[]): void {
+  const owners = new Map<string, string>()
+  for (const plugin of plugins) {
+    for (const verb of Object.keys(plugin.commands ?? {})) {
+      if ((CORE_VERBS as readonly string[]).includes(verb) || verb === 'stats') {
+        throw new UserError(
+          `plugin '${plugin.name}' declares command '${verb}', a core verb — core verbs cannot be shadowed`,
+        )
+      }
+      const owner = owners.get(verb)
+      if (owner !== undefined) {
+        throw new UserError(
+          `plugins '${owner}' and '${plugin.name}' both declare command '${verb}' — a verb has one owner`,
+        )
+      }
+      owners.set(verb, plugin.name)
+    }
+  }
 }
 
 /**

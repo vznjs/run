@@ -47,8 +47,8 @@ export function loadProjects(args: LoadProjectsArgs): Promise<LoadedProjects>
    every configured project is already pending.
 3. **Rounds to a fixpoint.** Each round evaluates its config files in
    one `loadProjectConfigs` batch (or reads them from the lock),
-   applies the `project` stage per project and re-validates the
-   result under a `(after plugins)` label, then queues any project a
+   applies the `project` stage per project, re-validating after EACH
+   plugin under an `(after plugin '<name>')` label, then queues any project a
    `pkg#task` dependsOn entry names — the package graph cannot see
    the cross form. No cross deps → one round.
 

@@ -126,6 +126,44 @@ describe('plugin-host — capability consultation + fallbacks', () => {
     expect(resolved.map((e) => e.name)).toEqual(['a', 'b', 'local'])
   })
 
+  it('resolveCache / resolveExecutors: a hook returning something that is not the contract is refused by name', async () => {
+    // Before: every task failed with `this.layers[0].key is not a function`
+    // — an internal TypeError naming neither the plugin nor the hook.
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'vx-cache-host-'))
+    const local = new Cache(cacheDir, { read: true, write: true })
+    try {
+      await expect(
+        resolveCache([{ name: 'org/junk', cache: () => ({ nope: true }) as never }], {
+          ...baseCtx,
+          localCache: local,
+          policy: { localRead: true, localWrite: true, remoteRead: false, remoteWrite: false },
+        }),
+      ).rejects.toThrow(
+        "plugin 'org/junk' returned from cache something that is not a cache layer: missing key(), get(), has(), save(), close()",
+      )
+    } finally {
+      local.close()
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+    await expect(
+      resolveExecutors([{ name: 'org/junk', executor: () => ({ name: 'x' }) as never }], {
+        ...baseCtx,
+        concurrency: 1,
+      }),
+    ).rejects.toThrow(
+      "plugin 'org/junk' returned from executor something that is not an executor: missing execute()",
+    )
+    await expect(
+      resolveExecutors(
+        [{ name: 'org/anon', executor: () => ({ execute: async () => ({}) }) as never }],
+        {
+          ...baseCtx,
+          concurrency: 1,
+        },
+      ),
+    ).rejects.toThrow("plugin 'org/anon' returned an executor with no name")
+  })
+
   it('resolveExecutors: a throwing executor factory aborts with a named UserError', async () => {
     const plugins: VxPlugin[] = [
       {
