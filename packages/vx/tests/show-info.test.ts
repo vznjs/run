@@ -365,6 +365,36 @@ describe('vx info (e2e)', () => {
       expect(r.out).toMatch(row('cache entries', '0 (0 B)'))
       expect(r.out).toMatch(row('runs (24h)', '0'))
       expect(r.out).toMatch(row('vx-lock.json', 'no'))
+      // Control for the orphans row below: nothing on disk the index does
+      // not know, so the doctor says nothing about it.
+      expect(r.out).not.toContain('orphans:')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'names the artifacts on disk the index does not know, and the verb that reaps them',
+    async () => {
+      // An aged row-less artifact: what a SCHEMA_VERSION reset leaves
+      // behind. A fresh one is a save in flight and is not counted.
+      const cacheDir = path.join(root, '.vx', 'cache')
+      const { utimes, writeFile, rm } = await import('node:fs/promises')
+      const aged = path.join(cacheDir, 'deadbeefdeadbeef.tar.zst')
+      const fresh = path.join(cacheDir, 'feedfacefeedface.tar.zst')
+      await writeFile(aged, 'x'.repeat(2048))
+      const twoHoursAgo = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+      await utimes(aged, twoHoursAgo, twoHoursAgo)
+      await writeFile(fresh, 'y')
+      try {
+        const r = await vx(root, ['info'])
+        expect(r.code).toBe(0)
+        expect(r.out).toMatch(
+          /^orphans: +1 artifact \(2\.0 KB\) the index does not know — `vx cache prune` reaps them$/m,
+        )
+      } finally {
+        await rm(aged, { force: true })
+        await rm(fresh, { force: true })
+      }
     },
     TIMEOUT,
   )

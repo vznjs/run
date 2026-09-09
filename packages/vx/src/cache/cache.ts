@@ -1336,11 +1336,37 @@ export class Cache implements CacheLayer {
    * without a row is a save in flight, not an orphan.
    */
   private async reapOrphans(): Promise<{ orphans: number; orphanBytes: number }> {
+    let orphans = 0
+    let orphanBytes = 0
+    await Promise.all(
+      (await this.scanOrphans()).map(async (o) => {
+        try {
+          await rm(o.file, { force: true })
+          orphans += 1
+          orphanBytes += o.size
+        } catch {
+          // Gone under us (a concurrent prune, a save's own cleanup): not ours.
+        }
+      }),
+    )
+    return { orphans, orphanBytes }
+  }
+
+  /** What `prune()` would reap right now, for `vx info` to say before anyone prunes. */
+  async orphanStats(): Promise<{ orphans: number; orphanBytes: number }> {
+    const found = await this.scanOrphans()
+    let orphanBytes = 0
+    for (const o of found) orphanBytes += o.size
+    return { orphans: found.length, orphanBytes }
+  }
+
+  /** Row-less artifacts and temps past the in-flight grace window: one readdir, one stat per candidate. */
+  private async scanOrphans(): Promise<Array<{ file: string; size: number }>> {
     let names: string[]
     try {
       names = await readdir(this.cacheDir)
     } catch {
-      return { orphans: 0, orphanBytes: 0 }
+      return []
     }
     const indexed = new Set(
       (this.db.prepare('SELECT hash FROM entries').all() as Array<{ hash: string }>).map(
@@ -1356,23 +1382,19 @@ export class Cache implements CacheLayer {
         candidates.push(name)
       }
     }
-    let orphans = 0
-    let orphanBytes = 0
+    const found: Array<{ file: string; size: number }> = []
     await Promise.all(
       candidates.map(async (name) => {
         const file = path.join(this.cacheDir, name)
         try {
           const st = await stat(file)
-          if (!st.isFile() || st.mtimeMs > cutoff) return
-          await rm(file, { force: true })
-          orphans += 1
-          orphanBytes += st.size
+          if (st.isFile() && st.mtimeMs <= cutoff) found.push({ file, size: st.size })
         } catch {
-          // Gone under us (a concurrent prune, a save's own cleanup): not ours.
+          // Gone between readdir and stat: not an orphan any more.
         }
       }),
     )
-    return { orphans, orphanBytes }
+    return found
   }
 
   close(): void {

@@ -1304,6 +1304,7 @@ workspace root:    /work/repo
 projects:       12 (34 tasks)
 cache dir:      /work/repo/.vx/cache
 cache entries:  42 (1.3 GB)
+orphans:        3 artifacts (12.4 MB) the index does not know — `vx cache prune` reaps them
 runs (24h):     7 (5 cache hits)
 vx-lock.json:   yes
 ```
@@ -1316,6 +1317,11 @@ vx-lock.json:   yes
   critical path. git's `core.fsmonitor` (a daemon that watches the
   worktree) and `core.untrackedCache` make it near-free after the first
   run; both are off by default, so `vx info` says when they are.
+- `orphans` appears only when the cache directory holds artifacts or
+  save temps the index has no row for, older than an hour (what a
+  `SCHEMA_VERSION` reset leaves behind; a fresh one is a save in
+  flight). They are never a hit and nothing but `vx cache prune`
+  reclaims them, so the doctor says so.
 - `vx stats` is a **deprecated alias** of `vx info` (info absorbed
   it); it prints byte-identical output.
 

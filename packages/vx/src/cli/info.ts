@@ -27,9 +27,11 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   const cache = new Cache(cacheDir)
   noteSchemaReset(cache, warnToStderr)
   let stats
+  let orphans
   let taskCount = 0
   try {
     stats = cache.stats()
+    orphans = await cache.orphanStats()
     // The run path's load — a plugin's `project` stage counts — so the
     // doctor's task count is the number a run would see. A broken config
     // must not take the doctor down with it: the count then falls back to
@@ -59,6 +61,17 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
     ['projects', `${metas.length} (${taskCount} task${taskCount === 1 ? '' : 's'})`],
     ['cache dir', cacheDir],
     ['cache entries', `${stats.entryCount} (${formatBytes(stats.totalBytes)})`],
+    // Only when there is something to say: the index is authoritative, so a
+    // row-less artifact is bytes nothing will ever hit — and only `vx cache
+    // prune` reclaims them (after an upgrade's schema reset, most often).
+    ...(orphans.orphans > 0
+      ? ([
+          [
+            'orphans',
+            `${orphans.orphans} artifact${orphans.orphans === 1 ? '' : 's'} (${formatBytes(orphans.orphanBytes)}) the index does not know — \`vx cache prune\` reaps them`,
+          ],
+        ] as [string, string][])
+      : []),
     ['runs (24h)', `${stats.runCountLast24h} (${stats.hitCountLast24h} cache hits)`],
     ['vx-lock.json', lockPresent ? 'yes' : 'no'],
   ]

@@ -58,6 +58,9 @@ export interface CacheLayer {
   recordRunBundle(bundle: { runs: readonly RunRecord[]; invocation: InvocationRecord }): void
   stats(): CacheStats
   prune(options: PruneOptions): Promise<PruneResult>
+  // `Cache` only (not the layer contract): what prune's orphan sweep
+  // would reap right now — `vx info`'s `orphans` row.
+  orphanStats(): Promise<{ orphans: number; orphanBytes: number }>
   close(): void
 }
 

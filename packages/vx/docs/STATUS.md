@@ -1135,6 +1135,16 @@ on it)` — and still returns the plan. Pinned with a throwing
     that explained a `HEAD` branch by "the dashboard's column" was
     reworded; there is no dashboard.
 
+41. DONE (the doctor names the bytes nothing will hit): `vx info` now
+    prints an `orphans` row — `3 artifacts (12.4 MB) the index does not
+know — vx cache prune reaps them` — only when there are any, from
+    the same scan item 35's sweep uses (`Cache.orphanStats()`, one
+    readdir and a stat per row-less file past the hour). The reset
+    notice (39) says an upgrade emptied the index; this says what it
+    left on disk, before anyone prunes. Pinned end to end with an aged
+    orphan and a fresh one as the in-flight control; the existing info
+    pin holds the no-orphans control (no row at all).
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

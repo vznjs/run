@@ -867,12 +867,15 @@ describe('Cache storage (v10)', () => {
     const freshTmp = path.join(cacheDir, 'h-fresh.tar.zst.tmp-1-2-3')
     await writeFile(freshTmp, 'z')
 
+    // What `vx info` reports before anyone prunes is exactly what prune reaps.
+    expect(await cache.orphanStats()).toEqual({ orphans: 2, orphanBytes: 15 })
     const result = await cache.prune({ olderThanMs: 1 })
     expect(result.evicted).toBe(0)
     expect({ orphans: result.orphans, orphanBytes: result.orphanBytes }).toEqual({
       orphans: 2,
       orphanBytes: 15,
     })
+    expect(await cache.orphanStats()).toEqual({ orphans: 0, orphanBytes: 0 })
     expect(existsSync(orphanTar)).toBe(false)
     expect(existsSync(orphanTmp)).toBe(false)
     expect(existsSync(cache.outputsPath('h-indexed'))).toBe(true)
