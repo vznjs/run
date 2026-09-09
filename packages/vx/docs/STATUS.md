@@ -971,11 +971,24 @@ function`); the seam now checks the returned shape once and refuses
     Refuted on the way: the stage's remaining 11–12 ms is not the
     config — `loadWorkspace` + `loadWorkspaceConfig` measure 1.8 ms in
     isolation; the stage also holds the early `git ls-files` spawn.
-    Next-list 8(b) decided: `--max-size` keeps reading a bare integer
-    as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
-    byte), documented as `<bytes>`, and the zero bound is the guard;
-    refusing unitless there would reverse an earlier call for one
-    footgun the docs already name.
+
+**Handoff after item 31 (2026-09-09, late).** PR #265 carries the
+loop, 40+ commits, every head green on CI except the one test flake
+(d295a90, fixed next commit). The shape of the day: three seams
+closed (`loadProjects` for every reader, the `config` stage for every
+verb, the workspace validator for plugin verbs), a dozen quiet
+failures turned into refusals that name the file and the plugin, five
+files split by concern with the warm path tied at each step, and one
+measured perf win on the default scaffold (item 31). Start the next
+session from Next § 8: (a) is done, (b) decided, (e)/(f) are open with
+numbers. The scratchpad harnesses (`ab2.ts` warm, `ab3.ts` cold,
+`abshow.ts` for `vx show`) take two worktrees and two workspace
+copies; recreate the copies with the bench generator.
+Next-list 8(b) decided: `--max-size` keeps reading a bare integer
+as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
+byte), documented as `<bytes>`, and the zero bound is the guard;
+refusing unitless there would reverse an earlier call for one
+footgun the docs already name.
 
 ## In flight
 
