@@ -910,6 +910,18 @@ function`); the seam now checks the returned shape once and refuses
     296/304 and 302/295, med 310/313 and 325/320; at 20 reps 310/313.
     Within this box's run-to-run jitter (the baseline itself moved
     296 → 310 between runs) and no `VX_TIMING` stage moved.
+26. DONE: the cached path's save block is `orchestrator/miss-save.ts`
+    (`saveMiss`), pure code motion: resolve outputs → the empty-set
+    warning → `cache.save` → `recordOutputDirs` → the git marks.
+    execute-task.ts 932 → 892 lines; the whole gate passed unchanged.
+    Cold A/B (the path it sits on), 1000 tasks, both orders, min of 4:
+    3592 → 3490 ms and 3518 → 3701 — mixed by ±200 on a 3.5 s run,
+    i.e. a tie inside the cold path's noise on this box.
+    Next-list 8(b) decided: `--max-size` keeps reading a bare integer
+    as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
+    byte), documented as `<bytes>`, and the zero bound is the guard;
+    refusing unitless there would reverse an earlier call for one
+    footgun the docs already name.
 
 ## In flight
 

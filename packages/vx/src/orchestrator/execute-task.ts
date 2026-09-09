@@ -28,6 +28,7 @@ import {
 import { isGroupTask, type TaskNode, type TaskOutcome } from '../graph/index.js'
 import { span, wholeSubtreePrefixes } from '../util/index.js'
 import { sandboxRequestFor } from './sandbox-request.js'
+import { saveMiss } from './miss-save.js'
 import type { DeferredOutputs } from './deferred-outputs.js'
 import type { Logger } from './logger.js'
 import {
@@ -638,88 +639,21 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
       })
     }
   } else if (effectiveExitCode === 0 && willSave) {
-    const endResolve = span('miss: resolve outputs')
-    const outputFiles = await resolveOutputs({
-      projectDir: node.projectDir,
-      outputs,
-      nestedProjectDirs: args.nestedProjectDirs,
-    })
-    const wsOutputFiles = await resolveWorkspaceOutputs({
-      workspaceRoot: args.workspaceRoot,
-      outputs: wsOutputs,
-    })
-    endResolve()
-    // The mirror of the input warning: declared outputs that resolve to
-    // nothing save an empty artifact, and the next hit "restores" it —
-    // the build that ran nowhere looks like a build that ran. `files: []`
-    // is a deliberate cached no-op and says nothing; a glob that matched
-    // nothing is a glob against the wrong directory.
-    if (outputs.length + wsOutputs.length > 0 && outputFiles.length + wsOutputFiles.length === 0) {
-      log.status(
-        `[vx] ${node.id}: cache.outputs matched no files (${[...outputs, ...wsOutputs].join(', ')}) — ` +
-          `an empty artifact is saved; a later hit restores nothing`,
-      )
-    }
-    const endSave = span('miss: save')
-    // Tier-3 input fingerprint: the digest rows captured by the pre-exec
-    // describe above, persisted with the entry inside `cache.save`'s
-    // transaction. Miss path only — the warm/hit path never reaches here.
-    await cache.save({
+    await saveMiss({
+      node,
       hash,
-      projectDir: node.projectDir,
-      outputFiles,
-      ...(wsOutputFiles.length > 0
-        ? { workspaceOutputFiles: wsOutputFiles, workspaceRoot: args.workspaceRoot }
-        : {}),
-      inputComponents: captured.map((c) => ({ entryHash: hash, ...c })),
-      // No `exitCode`: the save only runs under `effectiveExitCode === 0`, and
-      // the contract no longer accepts one — so the invariant is enforced by
-      // the type rather than by every call site remembering the gate.
-      entry: {
-        taskId: node.id,
-        command: step.command,
-        durationMs: result.durationMs,
-        stdout: result.stdout,
-      },
+      cache,
+      log,
+      workspaceRoot: args.workspaceRoot,
+      nestedProjectDirs: args.nestedProjectDirs,
+      gitFilesCache: args.gitFilesCache,
+      outputs,
+      wsOutputs,
+      captured,
+      command: step.command,
+      durationMs: result.durationMs,
+      stdout: result.stdout,
     })
-    endSave()
-    {
-      const savedDirPrefixes = wholeSubtreePrefixes(outputs)
-      if (savedDirPrefixes !== null) {
-        await cache.recordOutputDirs?.(hash, node.projectDir, savedDirPrefixes)
-      }
-    }
-    // This task just wrote outputs to the project's tree. Record the
-    // exact declared-output paths as changed (same as the cache-hit
-    // restore path) instead of dropping the whole snapshot: a downstream
-    // same-project task then re-spawns git ONLY when its input globs can
-    // actually see one of these paths. On a 1000-package cold run this
-    // removes ~one synchronous `git ls-files` spawn per project (the
-    // single largest cold-run cost — 22% of CPU in profiling). Contract:
-    // outputs must be declared — an executed task that writes files
-    // outside `cache.outputs.files` which a same-project downstream task
-    // reads is undeclared behavior (the restore path already assumes it).
-    if (outputFiles.length > 0) {
-      args.gitFilesCache?.markOutputsChanged(
-        node.projectDir,
-        outputFiles.map((p) => path.relative(node.projectDir, p).split(path.sep).join('/')),
-      )
-    }
-    // Declared workspace outputs may have landed inside OTHER
-    // projects' dirs (no-boundary escape hatch) — mark the exact
-    // paths against every partition that can see them.
-    if (wsOutputFiles.length > 0) {
-      args.gitFilesCache?.markWorkspaceOutputsChanged(
-        args.workspaceRoot,
-        wsOutputFiles.map((f) => path.relative(args.workspaceRoot, f).split(path.sep).join('/')),
-      )
-    }
-    // The workspace-wide partition (when one exists) spans this
-    // project's subtree, so it inherits the same "undeclared writes
-    // are only visible to git" rule as the project drop above.
-    if (outputFiles.length + wsOutputFiles.length > 0) {
-      args.gitFilesCache?.invalidateWorkspacePartition()
-    }
   }
 
   const finalViolations = violations

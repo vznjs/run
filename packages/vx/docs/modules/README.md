@@ -51,6 +51,7 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 | [`options.md`](./options.md)                       | `src/orchestrator/options.ts` — `RunOptions` / `RunSummary` declarations.                      |
 | [`execute-task.md`](./execute-task.md)             | `src/orchestrator/execute-task.ts` — per-task: hash → cache lookup → spawn → save.             |
 | [`sandbox-request.md`](./sandbox-request.md)       | `src/orchestrator/sandbox-request.ts` — the sandbox half of an ExecuteRequest: grants, binds.  |
+| [`miss-save.md`](./miss-save.md)                   | `src/orchestrator/miss-save.ts` — what a miss leaves behind: resolve outputs, save, mark git.  |
 | [`task-hash.md`](./task-hash.md)                   | `src/orchestrator/task-hash.ts` — cache-key derivation (`computeTaskHash` & co.).              |
 | [`upstream.md`](./upstream.md)                     | `src/orchestrator/upstream.ts` — filter upstream cache hashes by `cache.inputs.tasks`.         |
 | [`logger.md`](./logger.md)                         | `src/orchestrator/logger.ts` — default logger (flow-aware policy, frames, replay).             |

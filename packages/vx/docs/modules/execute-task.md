@@ -107,6 +107,14 @@ caches.
    exitCode, durationMs, captured stdout/stderr, hrtime spans, and
    (when Bun's resourceUsage returned them) `cpuMs` / `peakRssBytes`.
 
+## The save
+
+What a miss leaves behind — outputs resolved, artifact and rows saved,
+output prefixes recorded, git snapshot marked — is
+[`miss-save.md`](./miss-save.md); `execute-task.ts` calls it under the
+`exitCode === 0 && willSave` gate and keeps the deferred-download
+branch beside it.
+
 ## Sandbox request
 
 The `sandbox` half of the `ExecuteRequest` (grants, denials, the paths a
