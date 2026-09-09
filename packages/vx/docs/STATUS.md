@@ -937,7 +937,10 @@ function`); the seam now checks the returned shape once and refuses
     package and the plugin maps live under `--frozen`; the README now
     says so. Left alone by 8(d)'s rule: `logger.ts` is one 550-line
     terminal renderer and `framed-output.ts` one formatting concern —
-    no seam to cut.
+    no seam to cut. A number for item 11's other half: `vx show` on
+    the 1000-project workspace, main vs head, both orders, min of 8:
+    209 → 141 ms and 197 → 129 — the staged load serves cached
+    evaluations where the raw path evaluated every config.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;
