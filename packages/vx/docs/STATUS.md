@@ -1310,6 +1310,13 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    directory. `defineWorkspace({ cacheDir })` is the durable way and
    the docs call the flag per-run; add it to the reading verbs only if
    someone hits it.
+   (g) `vx why` names a plugin `key` part but shows its digests
+   (`plugin tool/node-major a2d9… → e893…`), because `entry_inputs`
+   rows reduce every value to a digest — right for env values, which
+   can be secrets, but a plugin's own material (`node-major: 22`) is
+   what its author wants to read. Storing the value for `plugin` rows
+   only is a column and a SCHEMA_VERSION bump; do it with the schema
+   doc and the `why` renderer in one commit.
 
 ## Decisions (this arc)
 
