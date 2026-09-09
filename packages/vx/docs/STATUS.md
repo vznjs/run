@@ -1096,6 +1096,30 @@ function`); the seam now checks the returned shape once and refuses
     carries (its table reads 1.9× and ~7× warm); the catalog now points
     at the benchmarks doc instead of restating a figure that moves.
 
+39. DONE (DX: an upgrade that empties the cache says so): a
+    `SCHEMA_VERSION` mismatch drops every table — entries, history,
+    memos — on the first open, silently; the run after an upgrade was
+    an all-miss run that looked like a bug, and `vx last` after it
+    said "no recorded runs yet" with no reason. `Cache.schemaReset`
+    now carries `{ from, to }` on the one open that did the drop (null
+    on every later one, pinned), and `noteSchemaReset` prints one line
+    at each opener that has a channel — the run's status line
+    (`prepare`, `loadResolvedProjects`) and a verb's stderr (`last`,
+    `why`, `info`, `cache prune`, the CLI project load): `[vx] cache
+index reset: schema v0 → v25 (vx upgraded); every cached task
+misses once and re-saves, and vx cache prune reclaims the old
+artifacts`. Pinned end to end: the run after a poked version says
+    it once and the run after that is quiet; `vx last` prints it before
+    its own empty-history refusal. Cost: one property read per open.
+    Refuted on the way: a CLI-flag drift probe (every `--flag` in
+    `cli.md` against every string in `src/cli`, both directions) found
+    only examples and git/bwrap flags — `cli-doc-drift.test.ts` already
+    holds that line. And a rule re-learned: two commits before this one
+    pushed three doc tables the formatter rejects, because the format
+    check was read through `tail -1`, which hid the "issues found" line
+    above the summary — exactly what CLAUDE.md's "never pipe a gate
+    through tail" is about. Fixed in 377c00f; the check is read whole.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

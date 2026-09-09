@@ -135,6 +135,20 @@ const CACHE_VERSION = 'vx-cache-v27'
  * re-run, a leaked temp costs disk.
  */
 const ORPHAN_GRACE_MS = 60 * 60 * 1000
+
+export interface SchemaReset {
+  from: string
+  to: string
+}
+
+/** Say once, on the channel the opener has, that an upgrade emptied the index. */
+export function noteSchemaReset(cache: Cache, warn: (message: string) => void): void {
+  if (cache.schemaReset === null) return
+  const { from, to } = cache.schemaReset
+  warn(
+    `[vx] cache index reset: schema ${from} → ${to} (vx upgraded); every cached task misses once and re-saves, and \`vx cache prune\` reclaims the old artifacts`,
+  )
+}
 // SCHEMA history (drop+recreate on mismatch; pre-alpha, no migrations):
 //   v20: file_hashes.content_hash (git blob OIDs).
 //   v21: dropped the unused outputs_hash column (pure-input hashing).
@@ -270,6 +284,16 @@ export class Cache implements CacheLayer {
   private readonly read: boolean
   private readonly write: boolean
 
+  /**
+   * Set when THIS open found an index written by another `SCHEMA_VERSION`
+   * and dropped every table. The next open sees the current version and
+   * reports null, so whoever opened first is the one that can say so —
+   * `noteSchemaReset` is that one line, at every opener that has a
+   * channel. Without it an upgrade empties the cache and the history in
+   * silence, and the all-miss run that follows looks like a bug.
+   */
+  readonly schemaReset: SchemaReset | null = null
+
   constructor(
     private readonly cacheDir: string,
     localPolicy: { read: boolean; write: boolean } = { read: true, write: true },
@@ -318,6 +342,7 @@ export class Cache implements CacheLayer {
       | { value: string }
       | undefined
     if (meta && meta.value !== SCHEMA_VERSION) {
+      this.schemaReset = { from: meta.value, to: SCHEMA_VERSION }
       this.db.exec(
         'DROP TABLE IF EXISTS entries; DROP TABLE IF EXISTS runs; DROP TABLE IF EXISTS file_hashes; DROP TABLE IF EXISTS output_files; DROP TABLE IF EXISTS invocations; DROP TABLE IF EXISTS run_task_inputs; DROP TABLE IF EXISTS entry_inputs; DROP TABLE IF EXISTS config_evals;',
       )

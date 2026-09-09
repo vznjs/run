@@ -22,6 +22,8 @@ export {
   OUTPUT_DIRS_CAP,
   FILE_HASH_RACY_MS,
   OUTPUT_DIRS_RACY_MS,
+  noteSchemaReset,
+  type SchemaReset,
 } from './cache.js'
 export { type CASBackend, FsCASBackend } from './cas-backend.js'
 export { type Digest } from './digest.js'

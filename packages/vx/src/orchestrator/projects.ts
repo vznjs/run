@@ -16,7 +16,7 @@ import {
   type ProjectMeta,
 } from '../workspace/index.js'
 import type { WorkspaceConfig } from '../config.js'
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import {
   buildPackageGraph,
   computeWorkspaceFingerprint,
@@ -213,6 +213,7 @@ export async function loadResolvedProjects(
   const { workspaceConfig, plugins } = await loadWorkspacePlugins(workspaceRoot, warn)
   const cacheDir = resolveCacheDir(workspaceRoot, workspaceConfig)
   const cache = new Cache(cacheDir)
+  noteSchemaReset(cache, warn)
   try {
     const loaded = await loadProjects({
       workspaceRoot,

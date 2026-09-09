@@ -2,10 +2,10 @@
 // workspace + cache facts for bug reports and quick sanity checks.
 // `vx stats` is a deprecated alias (info absorbed it).
 
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
-import { loadCliProjects, loadCliWorkspace } from './workspace-config.js'
+import { loadCliProjects, loadCliWorkspace, warnToStderr } from './workspace-config.js'
 import {
   findWorkspaceRoot,
   listProjects,
@@ -25,6 +25,7 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   const metas = await listProjects(await loadWorkspace(root))
   const { cacheDir } = await loadCliWorkspace(root)
   const cache = new Cache(cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   let stats
   let taskCount = 0
   try {

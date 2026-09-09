@@ -5,7 +5,7 @@
 // names the exact cache-key components that differ. Read-only over cache.db —
 // no config evaluation, no re-hash.
 
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { splitTaskId } from '../graph/index.js'
 import {
@@ -15,7 +15,7 @@ import {
 } from '../orchestrator/index.js'
 import { nearMatches, UserError } from '../util/index.js'
 import { findWorkspaceRoot } from '../workspace/index.js'
-import { loadCliWorkspace } from './workspace-config.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 
 interface WhyArgs {
   target?: string
@@ -139,6 +139,7 @@ export async function whyCmd(args: readonly string[]): Promise<number> {
 
   const root = await findWorkspaceRoot(process.cwd())
   const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const db = cache.dbHandle()
     const taskId = resolveTarget(cache, parsed.target)

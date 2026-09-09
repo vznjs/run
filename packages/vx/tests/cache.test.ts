@@ -1323,6 +1323,7 @@ describe('Cache schema/version recovery', () => {
     const c1 = new Cache(cacheDir)
     const projectDir = path.join(workspaceRoot, 'pkg')
     await mkdir(projectDir, { recursive: true })
+    expect(c1.schemaReset).toBeNull()
     try {
       await writeFile(path.join(projectDir, 'out.txt'), 'built')
       await c1.save({
@@ -1361,6 +1362,15 @@ describe('Cache schema/version recovery', () => {
     // row is gone; new writes succeed.
     const c2 = new Cache(cacheDir)
     try {
+      // The open that dropped the tables is the one that knows; the next
+      // open sees the current version and reports nothing.
+      expect(c2.schemaReset).toEqual({
+        from: 'unknown-future-version',
+        to: expect.stringMatching(/^v\d+$/),
+      })
+      const c3 = new Cache(cacheDir)
+      expect(c3.schemaReset).toBeNull()
+      c3.close()
       expect(c2.stats().runCountLast24h).toBe(0)
       // The Tier-3 tables are recreated as part of the gate.
       const db = c2.dbHandle()

@@ -655,6 +655,14 @@ hit replays it with pure SQL, never decompressing the artifact).
 
 ### SQLite tables
 
+`schema_meta.version` is the gate: an index written by another
+`SCHEMA_VERSION` is dropped whole — entries, history, memos — and
+recreated on the first open after an upgrade (pre-alpha: no migrations).
+That open says so once, on the run's status line or the verb's stderr
+(`[vx] cache index reset: schema v24 → v25 (vx upgraded); …`), so the
+all-miss run that follows is explained; the artifacts it orphaned are
+`vx cache prune`'s to reap.
+
 ```sql
 -- src/cache/cache.ts schema (SCHEMA_VERSION = 'v25')
 

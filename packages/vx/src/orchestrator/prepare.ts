@@ -12,6 +12,7 @@ import type { WorkspaceConfig } from '../config.js'
 import { mark, UserError } from '../util/index.js'
 import {
   Cache,
+  noteSchemaReset,
   type CacheLayer,
   type CachePolicy,
   FULL_CACHE_POLICY,
@@ -198,6 +199,7 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
     ? path.resolve(options.cwd, options.cacheDir)
     : resolveCacheDir(workspaceRoot, workspaceConfig)
   const localCache = new Cache(cacheDir, { read: policy.localRead, write: policy.localWrite })
+  noteSchemaReset(localCache, (m) => log.status(m))
   const workspaceFingerprint = await computeWorkspaceFingerprint(workspaceRoot)
   mark('open cache')
 

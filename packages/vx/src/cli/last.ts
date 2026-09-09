@@ -4,12 +4,12 @@
 // history in cache.db is the only replay surface, and this verb reads it.
 // Read-only — no config evaluation, no re-hash, no cache probe.
 
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { getInvocation, getRun, listInvocations } from '../orchestrator/index.js'
 import { UserError } from '../util/index.js'
 import { findWorkspaceRoot } from '../workspace/index.js'
-import { loadCliWorkspace } from './workspace-config.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 
 interface LastArgs {
   runId?: string
@@ -61,6 +61,7 @@ export async function lastCmd(args: readonly string[]): Promise<number> {
 
   const root = await findWorkspaceRoot(process.cwd())
   const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const db = cache.dbHandle()
 

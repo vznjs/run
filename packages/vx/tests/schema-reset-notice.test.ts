@@ -1,0 +1,103 @@
+// An upgrade that moves SCHEMA_VERSION drops every table — cache entries
+// and run history — on the next open. Silently, the run after it is an
+// all-miss run that looks like a bug; so the opener that did the drop
+// says so once, on the run's status line and on a verb's stderr.
+
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { Database } from 'bun:sqlite'
+import { run } from '../src/index.js'
+import { run as cli } from '../src/cli/index.js'
+
+let root: string
+const origCwd = process.cwd()
+
+function logger(lines: string[]) {
+  return {
+    runStart: () => undefined,
+    taskStart: () => undefined,
+    taskStdout: () => undefined,
+    taskStderr: () => undefined,
+    taskComplete: () => undefined,
+    runStatus: () => undefined,
+    runEnd: () => undefined,
+    status: (line: string) => {
+      lines.push(line)
+    },
+  }
+}
+
+async function runOnce(): Promise<string[]> {
+  const lines: string[] = []
+  const summary = await run({
+    cwd: root,
+    tasks: ['build'],
+    projects: ['app'],
+    log: logger(lines),
+    handleSignals: false,
+  })
+  expect(summary.ok).toBe(true)
+  return lines.filter((l) => l.includes('cache index reset'))
+}
+
+function pokeVersion(value: string): void {
+  const db = new Database(path.join(root, '.vx', 'cache', 'cache.db'))
+  db.prepare("UPDATE schema_meta SET value = ? WHERE key = 'version'").run(value)
+  db.close()
+}
+
+describe('a schema reset says so once', () => {
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), 'vx-schema-reset-'))
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'r', private: true }))
+    const app = path.join(root, 'packages', 'app')
+    await mkdir(path.join(app, 'src'), { recursive: true })
+    await writeFile(path.join(app, 'package.json'), JSON.stringify({ name: 'app' }))
+    await writeFile(path.join(app, 'src', 'index.js'), 'export {}\n')
+    await writeFile(
+      path.join(app, 'vx.config.mjs'),
+      `export default { tasks: { build: { exec: { command: 'true' },
+        cache: { inputs: { files: ['src/**'] }, outputs: { files: [] } } } } }\n`,
+    )
+    await Bun.spawn(['git', 'init', '-q'], { cwd: root }).exited
+  })
+
+  afterEach(async () => {
+    process.chdir(origCwd)
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('the run after an upgrade names both versions; the run after that is quiet', async () => {
+    expect(await runOnce()).toEqual([])
+    pokeVersion('v0')
+    const notices = await runOnce()
+    expect(notices).toHaveLength(1)
+    expect(notices[0]).toMatch(/^\[vx\] cache index reset: schema v0 → v\d+ \(vx upgraded\)/)
+    expect(notices[0]).toContain('vx cache prune')
+    // Control: the version now matches, so the next run says nothing.
+    expect(await runOnce()).toEqual([])
+  })
+
+  it('a reading verb says it on stderr', async () => {
+    expect(await runOnce()).toEqual([])
+    pokeVersion('v0')
+    process.chdir(root)
+    let stderr = ''
+    const orig = process.stderr.write.bind(process.stderr)
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk)
+      return true
+    }) as typeof process.stderr.write
+    try {
+      // The reset took the history with it, so `vx last` has nothing to
+      // show — and the notice, already on stderr, is what explains that.
+      await expect(cli(['last'])).rejects.toThrow(/no recorded runs yet/)
+    } finally {
+      process.stderr.write = orig
+    }
+    expect(stderr).toMatch(/^\[vx\] cache index reset: schema v0 → v\d+ \(vx upgraded\)/m)
+  })
+})

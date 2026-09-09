@@ -5,7 +5,7 @@
 // prune` pruned nothing, `vx watch` ignored the wrong path.
 
 import type { WorkspaceConfig } from '../config.js'
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { loadProjects, loadWorkspacePlugins } from '../orchestrator/index.js'
 import type { VxPlugin } from '../orchestrator/index.js'
 import {
@@ -45,6 +45,7 @@ export async function loadCliProjects(
 ): Promise<Map<string, ProjectEntry>> {
   const { plugins, cacheDir } = await loadCliWorkspace(workspaceRoot)
   const cache = new Cache(cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const loaded = await loadProjects({
       workspaceRoot,

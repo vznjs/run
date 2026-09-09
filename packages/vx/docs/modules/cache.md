@@ -386,12 +386,17 @@ Outputs` additionally refuses when the archive cannot produce an output
   modes lost at pack time, long entry names dropped at parse time).
 
 Bump `SCHEMA_VERSION` (independently — the gate drops + recreates
-tables) when the SQLite schema changes. A new `CacheKeyInput` field that
-is **NOT folded** (a pure side-channel like `captureInto` /
-`upstreamIds`) needs neither bump: the key is byte-identical. The Tier-3
-tables (`invocations`, `entry_inputs`) rolled `SCHEMA_VERSION` to `v22`
-but left `CACHE_VERSION` at `v24` for exactly this reason — they persist
-components already fed to `key()`.
+tables) when the SQLite schema changes. The open that drops them says
+so: `Cache.schemaReset` carries `{ from, to }` on that one open (null on
+every later one), and `noteSchemaReset` prints one line — on the run's
+status line, or a verb's stderr — `[vx] cache index reset: schema v24 →
+v25 (vx upgraded); every cached task misses once and re-saves, and
+\`vx cache prune\` reclaims the old artifacts`. An upgrade's all-miss
+run, and the `vx last` with nothing to show after it, are explained
+rather than silent (`tests/schema-reset-notice.test.ts`). A new `CacheKeyInput`field that
+is **NOT folded** (a pure side-channel like`captureInto`/`upstreamIds`) needs neither bump: the key is byte-identical. The Tier-3
+tables (`invocations`, `entry_inputs`) rolled `SCHEMA_VERSION`to`v22`but left`CACHE_VERSION`at`v24`for exactly this reason — they persist
+components already fed to`key()`.
 
 Bumping `CACHE_VERSION` invalidates every previously-stored entry.
 Pre-alpha tolerates this freely. See

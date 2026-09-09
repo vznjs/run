@@ -1,8 +1,8 @@
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { parseDecimalInt, parseSize } from '../util/index.js'
 import { findWorkspaceRoot } from '../workspace/index.js'
-import { loadCliWorkspace } from './workspace-config.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 import { formatBytes } from './format.js'
 
 // parseSize moved to `util` (the orchestrator's resource resolver needs it
@@ -91,6 +91,7 @@ async function pruneCmd(args: readonly string[]): Promise<number> {
   // edit of it — `vx run` and `vx cache prune` must operate on the same
   // directory or prune silently no-ops against the wrong path.
   const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const opts: { olderThanMs?: number; maxBytes?: number } = {}
     if (parsed.olderThanMs !== undefined) opts.olderThanMs = parsed.olderThanMs
