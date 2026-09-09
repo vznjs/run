@@ -819,6 +819,14 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     on top of the frozen config at run time. The owners read live now
     (they preferred the lock when present, which a default run never
     consults); the eval cache makes live as cheap.
+16. DONE: the sandbox request assembly (`sandboxRequestFor`, the
+    workspace-link scan, the bind pre-creation) moved out of
+    execute-task.ts into `orchestrator/sandbox-request.ts`, pure code
+    motion: none of it touches a key or a save, and nothing outside the
+    file referenced it. execute-task.ts 1,074 → 932 lines. The
+    remaining body is the cached path, whose save block is the next
+    candidate — it is stale-hit-critical, so it moves only with the
+    execute suites and the unsafe suite green on CI.
 
 ## In flight
 

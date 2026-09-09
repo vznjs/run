@@ -107,6 +107,13 @@ caches.
    exitCode, durationMs, captured stdout/stderr, hrtime spans, and
    (when Bun's resourceUsage returned them) `cpuMs` / `peakRssBytes`.
 
+## Sandbox request
+
+The `sandbox` half of the `ExecuteRequest` (grants, denials, the paths a
+bind needs pre-created) is built by
+[`sandbox-request.md`](./sandbox-request.md); `execute-task.ts` only
+asks for it when the task declares `exec.sandbox`.
+
 ## Hash derivation (`computeTaskHash`)
 
 The pieces folded into `cache.key(...)`:
