@@ -6,7 +6,7 @@ import { VERSION } from '../version.js'
 import { runCmd } from './run.js'
 import { printHelp } from './help.js'
 import { pluginCommandHelp, resolvePluginCommand } from './plugin-commands.js'
-import { editDistance, UserError } from '../util/index.js'
+import { nearest, UserError } from '../util/index.js'
 
 // Every verb but `run` is imported when invoked. `vx run` is the hot path
 // and nearly every invocation; the other verbs' modules are code that
@@ -159,14 +159,6 @@ const CORE_VERBS = [
  *  them loads the workspace, and this path is reached only when that
  *  lookup found nothing. */
 function didYouMeanVerb(verb: string): string {
-  let best: string | undefined
-  let bestD = 3
-  for (const v of CORE_VERBS) {
-    const d = editDistance(verb, v)
-    if (d < bestD) {
-      bestD = d
-      best = v
-    }
-  }
+  const best = nearest(verb, CORE_VERBS)
   return best === undefined ? '' : `. Did you mean ${best}?`
 }

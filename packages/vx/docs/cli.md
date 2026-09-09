@@ -1234,8 +1234,8 @@ build
   outputs.files: dist/**
 ```
 
-Unknown project / task names exit `1` with includes-match suggestions
-(`unknown project: "ap" — did you mean app?`).
+Unknown project / task names exit `1` with the same near-miss hint every verb gives (two edits, or a partial name)
+(`vx prune: no project named "ap" — did you mean app?`).
 
 Exit codes: `0` success; `1` parse error or unknown target.
 

@@ -28,7 +28,7 @@ import {
 import type { ProjectConfig } from '../config.js'
 import type { ContinueMode } from '../graph/index.js'
 import { type CachePolicy, FULL_CACHE_POLICY, parseCachePolicy } from '../cache/index.js'
-import { MAX_TIMEOUT_MS, parseDecimalInt, parseSize, editDistance } from '../util/index.js'
+import { MAX_TIMEOUT_MS, parseDecimalInt, parseSize, nearest } from '../util/index.js'
 import { formatGraphDot, formatPlanJson, formatPlanText } from './plan-format.js'
 
 export interface RunArgs {
@@ -822,32 +822,16 @@ function didYouMeanProject(
   unmatched: readonly string[],
   projects: Iterable<{ name: string }>,
 ): string {
-  let best: string | undefined
-  let bestD = 3
+  const names = [...projects].map((p) => p.name)
   for (const pattern of unmatched) {
-    const bare = pattern.replace(/^!|\.\.\.$|^\.\.\.|\^/g, '')
-    for (const p of projects) {
-      const d = editDistance(bare, p.name)
-      if (d < bestD) {
-        bestD = d
-        best = p.name
-      }
-    }
+    const best = nearest(pattern.replace(/^!|\.\.\.$|^\.\.\.|\^/g, ''), names)
+    if (best !== undefined) return `. Did you mean ${best}?`
   }
-  return best === undefined ? '' : `. Did you mean ${best}?`
+  return ''
 }
 
 /** `(did you mean --concurrency?)` for a flag within two edits of a documented one. */
 function didYouMeanFlag(flag: string): string {
-  const name = flag.replace(/=.*$/, '')
-  let best: string | undefined
-  let bestD = 3
-  for (const f of documentedFlags('run')) {
-    const d = editDistance(name, f)
-    if (d < bestD) {
-      bestD = d
-      best = f
-    }
-  }
-  return best === undefined || best === name ? '' : ` (did you mean ${best}?)`
+  const best = nearest(flag.replace(/=.*$/, ''), documentedFlags('run'))
+  return best === undefined ? '' : ` (did you mean ${best}?)`
 }

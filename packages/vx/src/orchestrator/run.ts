@@ -23,7 +23,7 @@ import {
   type TaskNode,
   type TaskOutcome,
 } from '../graph/index.js'
-import { mark, MAX_TIMEOUT_MS, printTimings, ulid, UserError, editDistance } from '../util/index.js'
+import { mark, MAX_TIMEOUT_MS, printTimings, ulid, UserError, nearest } from '../util/index.js'
 import { executeTask } from './execute-task.js'
 import { resolveResourceCosts } from './resources.js'
 import { computeTaskHash } from './task-hash.js'
@@ -1277,37 +1277,26 @@ function didYouMean(
   unresolved: readonly string[],
   projects: ReadonlyMap<string, ProjectEntry>,
 ): string {
-  const nearest = (name: string, candidates: Iterable<string>): string | undefined => {
-    let best: string | undefined
-    let bestD = 3
-    for (const c of candidates) {
-      const d = editDistance(name, c)
-      if (d < bestD) {
-        bestD = d
-        best = c
-      }
-    }
-    return best === name ? undefined : best
-  }
   const tasksOf = (p: ProjectEntry | undefined): string[] => Object.keys(p?.config.tasks ?? {})
   const allTasks = new Set<string>()
   for (const p of projects.values()) for (const t of tasksOf(p)) allTasks.add(t)
-  const hints: string[] = []
+  // A Set: two typos of the same task hint it once, not once per typo.
+  const hints = new Set<string>()
   for (const spec of unresolved) {
     const at = spec.indexOf('#')
     if (at < 0) {
       const t = nearest(spec, allTasks)
-      if (t !== undefined) hints.push(t)
+      if (t !== undefined) hints.add(t)
       continue
     }
     const [proj, task] = [spec.slice(0, at), spec.slice(at + 1)]
     if (!projects.has(proj)) {
       const p = nearest(proj, projects.keys())
-      if (p !== undefined && tasksOf(projects.get(p)).includes(task)) hints.push(`${p}#${task}`)
+      if (p !== undefined && tasksOf(projects.get(p)).includes(task)) hints.add(`${p}#${task}`)
       continue
     }
     const t = nearest(task, tasksOf(projects.get(proj)))
-    if (t !== undefined) hints.push(`${proj}#${t}`)
+    if (t !== undefined) hints.add(`${proj}#${t}`)
   }
-  return hints.length === 0 ? '' : ` Did you mean ${hints.join(', ')}?`
+  return hints.size === 0 ? '' : ` Did you mean ${[...hints].join(', ')}?`
 }

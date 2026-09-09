@@ -1,0 +1,29 @@
+// The one near-miss rule behind every "did you mean" hint (task names,
+// `pkg#task` halves, project names, flags, verbs, and the inspection verbs'
+// short lists). Each surface used to carry its own copy of "within two
+// edits", and `vx why` used a substring rule that found nothing for a typo.
+import { describe, expect, it } from 'bun:test'
+import { nearMatches, nearest } from '../src/util/index.js'
+
+describe('nearest', () => {
+  it('picks the closest candidate within two edits and never the name itself', () => {
+    expect(nearest('buidl', ['build', 'test', 'lint'])).toBe('build')
+    expect(nearest('build', ['build', 'test'])).toBeUndefined()
+    expect(nearest('deploy', ['build', 'test'])).toBeUndefined() // three edits and more: no guess
+  })
+  it('prefers the nearer of two candidates', () => {
+    expect(nearest('tset', ['test', 'tests'])).toBe('test')
+  })
+})
+
+describe('nearMatches', () => {
+  it('lists edit-distance hits first, then substring hits, up to the limit, deduped', () => {
+    expect(nearMatches('buld', ['build', 'build-docs', 'test'])).toEqual(['build'])
+    expect(nearMatches('bui', ['build', 'build-docs', 'test'])).toEqual(['build', 'build-docs'])
+    expect(nearMatches('app', ['app#build', 'app#test', 'other#lint', 'app#lint'], 2)).toEqual([
+      'app#build',
+      'app#test',
+    ])
+    expect(nearMatches('deploy', ['deploy', 'build', 'test'])).toEqual([]) // itself never; the rest too far
+  })
+})

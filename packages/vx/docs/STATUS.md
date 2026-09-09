@@ -643,6 +643,17 @@ test is telling the truth.
    seam gap). Zero cost without a `project` plugin: the `configPath`
    filter is unchanged there, so nothing new is loaded, fenced or
    seeded.
+2. DONE: one near-miss rule. A DX probe through the CLI's typo paths
+   found five copies of "within two edits" (task names, `pkg#task`
+   halves, project filters, flags, verbs) and two verbs (`why`, `prune`)
+   on a substring rule that found nothing for `vx why buld`; `vx run`'s
+   hint also repeated itself when two typos pointed at one spec
+   (`Did you mean app#build, app#build?`, pinned as-is). `nearest` /
+   `nearMatches` in util are the rule now; every surface calls them,
+   `why` matches a bare query against the task half and hints the
+   runnable id, hints are deduped. The probe's other answers were
+   right: scope errors before name errors at the root, `--cache` /
+   `--continue` / `--concurrency` values refused by name.
 
 ## In flight
 

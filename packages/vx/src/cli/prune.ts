@@ -49,7 +49,7 @@ import {
   loadWorkspace,
   listProjects,
 } from '../workspace/index.js'
-import { UserError } from '../util/index.js'
+import { nearMatches, UserError } from '../util/index.js'
 
 interface PruneWorkspaceArgs {
   project?: string
@@ -133,9 +133,7 @@ export async function pruneWorkspaceCmd(args: readonly string[]): Promise<number
 
   const target = byName.get(parsed.project)
   if (target === undefined) {
-    const names = [...byName.keys()].sort()
-    const q = parsed.project.toLowerCase()
-    const near = names.filter((n) => n.toLowerCase().includes(q)).slice(0, 3)
+    const near = nearMatches(parsed.project, [...byName.keys()].sort())
     throw new UserError(
       `vx prune: no project named "${parsed.project}"` +
         (near.length > 0 ? ` — did you mean ${near.join(', ')}?` : ''),

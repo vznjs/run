@@ -129,12 +129,17 @@ describe('vx why (e2e)', () => {
   )
 
   it(
-    'an unknown task errors with include-match suggestions',
+    'an unknown task errors with the same near-miss hint `vx run` gives',
     async () => {
       const r = await vx(root, ['why', 'app#buil'])
       expect(r.code).toBe(1)
       expect(r.err).toContain('no recorded runs')
       expect(r.err).toContain('did you mean app#build')
+      // A bare typo is matched against the TASK half and hinted as the
+      // runnable id — a substring match alone found nothing for `buld`.
+      const bare = await vx(root, ['why', 'buld'])
+      expect(bare.code).toBe(1)
+      expect(bare.err).toContain('did you mean app#build')
     },
     TIMEOUT,
   )

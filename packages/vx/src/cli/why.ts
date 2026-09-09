@@ -13,7 +13,7 @@ import {
   explainCacheKeyQuery as explainCacheKey,
   whyDidThisRerunQuery as whyDidThisRerun,
 } from '../orchestrator/index.js'
-import { UserError } from '../util/index.js'
+import { nearMatches, UserError } from '../util/index.js'
 import { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from '../workspace/index.js'
 
 interface WhyArgs {
@@ -59,13 +59,23 @@ export function parseWhyArgs(args: readonly string[]): WhyArgs {
   return out
 }
 
-/** Simple includes-match in both directions, case-insensitive. */
-function suggest(query: string, candidates: readonly string[]): string {
-  const q = query.toLowerCase()
-  const hits = candidates.filter((c) => {
-    const n = c.toLowerCase()
-    return n.includes(q) || q.includes(n)
-  })
+/**
+ * A bare query is a TASK name, so it is matched against the task half of
+ * every recorded id (the same rule `vx run` hints with) and the hint is
+ * the runnable `project#task`; an anchored query is matched whole.
+ */
+function suggest(query: string, ids: readonly string[]): string {
+  let hits: string[]
+  if (query.includes('#')) {
+    hits = nearMatches(query, ids)
+  } else {
+    const byTask = new Map<string, string[]>()
+    for (const id of ids) {
+      const task = splitTaskId(id)[1]
+      byTask.set(task, [...(byTask.get(task) ?? []), id])
+    }
+    hits = nearMatches(query, byTask.keys()).flatMap((t) => byTask.get(t) ?? [])
+  }
   return hits.length > 0 ? ` — did you mean ${hits.slice(0, 3).join(', ')}?` : ''
 }
 
