@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test'
@@ -171,6 +171,45 @@ describe('listProjects', () => {
     // A nameless manifest with no vx config contributes nothing to a run —
     // warning about it would be noise.
     expect(stderr).not.toContain('packages/quiet')
+  })
+
+  it('resolves the config file by CONFIG_FILENAMES precedence, skipping non-files', async () => {
+    await writeFile(path.join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
+    // ts wins over mjs when both exist.
+    await mkdir(path.join(dir, 'packages/both'), { recursive: true })
+    await writeFile(path.join(dir, 'packages/both/package.json'), '{"name":"both"}')
+    await writeFile(path.join(dir, 'packages/both/vx.config.ts'), 'export default {}')
+    await writeFile(path.join(dir, 'packages/both/vx.config.mjs'), 'export default {}')
+    // A DIRECTORY under the first name is not a config; the next name is.
+    await mkdir(path.join(dir, 'packages/dirnamed/vx.config.ts'), { recursive: true })
+    await writeFile(path.join(dir, 'packages/dirnamed/package.json'), '{"name":"dirnamed"}')
+    await writeFile(path.join(dir, 'packages/dirnamed/vx.config.mjs'), 'export default {}')
+    // A symlink to a file counts; a dangling one does not.
+    await mkdir(path.join(dir, 'packages/linked'), { recursive: true })
+    await writeFile(path.join(dir, 'packages/linked/package.json'), '{"name":"linked"}')
+    await writeFile(path.join(dir, 'shared.config.ts'), 'export default {}')
+    await symlink(
+      path.join(dir, 'shared.config.ts'),
+      path.join(dir, 'packages/linked/vx.config.ts'),
+    )
+    await mkdir(path.join(dir, 'packages/dangling'), { recursive: true })
+    await writeFile(path.join(dir, 'packages/dangling/package.json'), '{"name":"dangling"}')
+    await symlink(path.join(dir, 'missing.ts'), path.join(dir, 'packages/dangling/vx.config.ts'))
+    await writeFile(path.join(dir, 'packages/dangling/vx.config.js'), 'export default {}')
+    // No config at all.
+    await mkdir(path.join(dir, 'packages/none'), { recursive: true })
+    await writeFile(path.join(dir, 'packages/none/package.json'), '{"name":"none"}')
+
+    const ws = await loadWorkspace(dir)
+    const projects = await listProjects(ws)
+    const byName = new Map(
+      projects.map((p) => [p.name, p.configPath && path.relative(dir, p.configPath)]),
+    )
+    expect(byName.get('both')).toBe('packages/both/vx.config.ts')
+    expect(byName.get('dirnamed')).toBe('packages/dirnamed/vx.config.mjs')
+    expect(byName.get('linked')).toBe('packages/linked/vx.config.ts')
+    expect(byName.get('dangling')).toBe('packages/dangling/vx.config.js')
+    expect(byName.get('none')).toBeNull()
   })
 
   it('handles an empty pnpm-workspace.yaml gracefully', async () => {

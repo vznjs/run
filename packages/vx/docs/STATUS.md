@@ -763,7 +763,14 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    threading the discovery stat into `hashFiles` saves ~1,000 stats.
    REFUTED on the cheaper half (2026-09-09): making discovery's stat
    synchronous ties (interleaved, 8 reps: min 57.6 vs 62.5 ms, median
-   68 vs 67) because the async stats overlap the package.json reads;
+   68 vs 67) because the async stats overlap the package.json reads.
+   TAKEN another way the same day: on Linux each async stat is a
+   thread-pool round trip and a `.mjs` config pays four of them per
+   project, so one readdir per project dir replaces them there (12 ms
+   against 43 at the last name, a tie at the first; the macOS stat loop
+   stays, measured the winner there on 2026-09-03). Discover projects
+   65–79 → 29–34 ms; whole process interleaved both orders, 10 reps:
+   min 318 → 304 and 328 → 292 ms, median 368 → 325 and 358 → 320;
    (b) TAKEN 2026-09-09: the hit path's `output dirs` + `output stat`
    are ~2 stats per task and inherent to the proof, but they were
    thread-pool round trips; synchronous, the run graph stage halved
@@ -772,7 +779,9 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    (project, task) index; dropped (review entry). Remaining on the
    profile after both: discovery's async stat (42 ms native self time
    at 1,000 projects, the one lead (a) above leaves), and the history
-   reader's slice scan for plugin users (~1 ms per 1,000 rows). Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
+   reader's slice scan for plugin users (~1 ms per 1,000 rows); after
+   the readdir change, discovery's remaining cost is the manifest reads
+   themselves. Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
    projects 159 ms warm / 538 ms with restore, 100 projects 66 ms /
    104 ms — the sandbox and CI work touched nothing the warm path
    runs. Closing figures
