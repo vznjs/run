@@ -420,6 +420,21 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
       })
     : undefined
   const inputs: TaskInputs | undefined = described?.inputs
+  // A declared input set that resolves to NOTHING is the quiet stale hit:
+  // the key stops moving with this project's source and every later run
+  // is a hit. Almost always a glob written against the wrong directory
+  // (`lib/**` in a package that builds `src/`). Said once per miss, on the
+  // run's status line — the task itself succeeds.
+  const declaredInputs = [
+    ...(cacheCfg?.inputs.files ?? []),
+    ...(cacheCfg?.inputs.workspaceFiles ?? []),
+  ]
+  if (inputs !== undefined && declaredInputs.length > 0 && inputs.files.length === 0) {
+    log.status(
+      `[vx] ${node.id}: cache.inputs matched no files (${declaredInputs.join(', ')}) — ` +
+        `the key will not change when this project's source does`,
+    )
+  }
 
   // Sandbox is opt-in per task via `exec.sandbox: {}` (or `{...}`) in the
   // task config. No CLI flag, no workspace inheritance — the task config is
@@ -634,6 +649,17 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
       outputs: wsOutputs,
     })
     endResolve()
+    // The mirror of the input warning: declared outputs that resolve to
+    // nothing save an empty artifact, and the next hit "restores" it —
+    // the build that ran nowhere looks like a build that ran. `files: []`
+    // is a deliberate cached no-op and says nothing; a glob that matched
+    // nothing is a glob against the wrong directory.
+    if (outputs.length + wsOutputs.length > 0 && outputFiles.length + wsOutputFiles.length === 0) {
+      log.status(
+        `[vx] ${node.id}: cache.outputs matched no files (${[...outputs, ...wsOutputs].join(', ')}) — ` +
+          `an empty artifact is saved; a later hit restores nothing`,
+      )
+    }
     const endSave = span('miss: save')
     // Tier-3 input fingerprint: the digest rows captured by the pre-exec
     // describe above, persisted with the entry inside `cache.save`'s

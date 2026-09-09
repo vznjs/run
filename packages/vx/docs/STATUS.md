@@ -837,6 +837,15 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     so the words moved, not the code. CLAUDE.md still named
     `--verify=inputs`, removed 2026-09-04; it now names the sandbox as
     the way a task proves what it touches.
+18. DONE: a cache block whose globs match nothing is said out loud. A
+    DX probe: `inputs.files: ['nope/**']` cached silently (the key
+    never moves with the source — the quiet stale hit), and
+    `outputs.files: ['out/**']` on a task that wrote nothing saved an
+    empty artifact silently (a later hit "restores" a build that ran
+    nowhere). Both are now one status line on the miss that saved,
+    naming the task and the globs; a hit says nothing, `outputs: []`
+    (the deliberate cached no-op) says nothing, and the warm path is
+    untouched — the miss path already held both resolved lists.
 
 ## In flight
 

@@ -395,6 +395,14 @@ is on):
    fingerprint rows, and the `entry_inputs` component rows
    (`INSERT OR IGNORE`).
 
+A declared set that resolves to **nothing** is said on the run's
+status line, once, on the miss that saved: `cache.inputs matched no
+files (lib/**)` — the key would not change when the source does — and
+`cache.outputs matched no files (build/**)` — an empty artifact was
+saved and a later hit restores nothing. Both are almost always a glob
+against the wrong directory. `outputs.files: []` is a deliberate cached
+no-op and says nothing; a task with no `cache` block is never checked.
+
 If the task exits non-zero, **nothing is cached.** This is deliberate:
 
 - Caching a failure prevents retry flows. The next run gets the same
