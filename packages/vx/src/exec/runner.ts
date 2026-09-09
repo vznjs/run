@@ -153,6 +153,12 @@ export function signalExitCode(signal: string): number {
 }
 
 /**
+ * Grace after a timeout SIGTERM before escalating to SIGKILL — a child that
+ * ignores SIGTERM must still be bounded. Matches the persistent-shutdown grace.
+ */
+const TIMEOUT_SIGKILL_GRACE_MS = 2000
+
+/**
  * Arm a SIGTERM timeout on a spawned child. Returns a handle whose
  * `timedOut()` reports whether the timer fired — so the caller can
  * classify the resulting SIGTERM as a real failure rather than a
@@ -160,12 +166,6 @@ export function signalExitCode(signal: string): number {
  * on its own. A no-op (never fires, nothing to clear) when `timeoutMs`
  * is undefined.
  */
-/**
- * Grace after a timeout SIGTERM before escalating to SIGKILL — a child that
- * ignores SIGTERM must still be bounded. Matches the persistent-shutdown grace.
- */
-const TIMEOUT_SIGKILL_GRACE_MS = 2000
-
 export function armTimeout(
   proc: ReturnType<typeof Bun.spawn>,
   timeoutMs: number | undefined,
