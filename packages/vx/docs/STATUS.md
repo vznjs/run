@@ -668,6 +668,27 @@ Cache`, the handle a layer may wrap) is a type import. Next candidate
    class next needs touching. Warm path: a tie (interleaved against
    main, both orders, 8 reps: 216/231 vs 216/229 ms, 218/224 vs
    212/223), as three more module evaluations should be.
+4. DONE: the first-run walkthrough, repeated on a fresh Bun workspace
+   (two packages with scripts, no vx files). What held: the pre-init
+   run names `vx init`; init's dry run and report; the generated
+   config's TODO for the cache block; `show`, `info`, `last`. Two
+   things did not. `vx init` reported itself as `vx migrate` — on the
+   terminal and in the generated file's banner — because init is
+   migrate with the scripts source; both say the verb the user typed
+   now. And `vx why` on an UNCACHED task headlined "cache key changed
+   between the previous run and this one (inputs differ)": the task
+   has no cache block, so its key exists only for dependents to fold,
+   and with no declared outputs its own `out.txt` lands in the default
+   `**/*` input set and moves the key every run. The runs row could
+   not tell an uncached task from a miss, so `runs.cached` records it
+   (SCHEMA v25, analytics-only, key unchanged): `why` says the task
+   declares no cache block, the fingerprint-unavailable note names
+   pruning only when that is what happened, and `vx last` marks such
+   rows `no-cache` the way the terminal summary already did. Pinned
+   end to end for both; the walkthrough's remaining rough edge — a
+   fresh workspace with no `.gitignore` folds `dist/` into every
+   default input set until the user ignores it — is git's model, not a
+   bug, and the TODO comment already tells the user to declare outputs.
 
 ## In flight
 

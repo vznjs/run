@@ -127,9 +127,11 @@ export async function lastCmd(args: readonly string[]): Promise<number> {
       const idW = Math.max(...tasks.map((t) => `${t.project}#${t.task}`.length), 4)
       for (const t of failedFirst) {
         const id = `${t.project}#${t.task}`
+        // The terminal summary's own word for a task that runs every time
+        // by design; a reader must not take its row for a miss.
         lines.push(
           `  ${t.status.padEnd(17)} ${id.padEnd(idW)}  ${fmtMs(t.durationMs).padStart(8)}` +
-            `${t.hash !== '' ? `  ${t.hash}` : ''}`,
+            `${t.hash !== '' ? `  ${t.hash}` : ''}${t.cached === false ? '  no-cache' : ''}`,
         )
       }
     }

@@ -156,6 +156,42 @@ describe('vx why (e2e)', () => {
 })
 
 describe('parseWhyArgs', () => {
+  it(
+    'an UNCACHED task is reported as one — not as a cache decision — by why and last',
+    async () => {
+      const root = await makeWorkspace()
+      try {
+        const libDir = path.join(root, 'packages', 'lib')
+        await mkdir(path.join(libDir, 'src'), { recursive: true })
+        await writeFile(path.join(libDir, 'package.json'), JSON.stringify({ name: 'lib' }))
+        // No cache block, no declared outputs: the write lands in the default
+        // `**/*` input set, so the second run's key differs from the first —
+        // the shape that used to headline "cache key changed (inputs differ)".
+        await writeFile(
+          path.join(libDir, 'vx.config.mjs'),
+          `export default { tasks: { build: { exec: { command: 'echo built > out.txt' } } } }`,
+        )
+        await sh(root, ['git', 'add', '-A'])
+        expect((await vx(root, ['run', 'build', '--all'])).code).toBe(0)
+        expect((await vx(root, ['run', 'build', '--all'])).code).toBe(0)
+        const why = await vx(root, ['why', 'lib#build'])
+        expect(why.code).toBe(0)
+        expect(why.out).toContain('declares no `cache` block')
+        expect(why.out).not.toContain('inputs differ')
+        const last = await vx(root, ['last'])
+        expect(last.code).toBe(0)
+        const row = last.out.split('\n').find((l) => l.includes('lib#build'))
+        expect(row).toContain('no-cache')
+        // Control: the cached task's row carries no such marker.
+        const cachedRow = last.out.split('\n').find((l) => l.includes('app#build'))
+        expect(cachedRow).not.toContain('no-cache')
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+    TIMEOUT,
+  )
+
   it('parses target, --run and --format in both forms', () => {
     expect(parseWhyArgs(['app#build'])).toEqual({ target: 'app#build', format: 'pretty' })
     expect(parseWhyArgs(['build', '--run', 'r1'])).toEqual({

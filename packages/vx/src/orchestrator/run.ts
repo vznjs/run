@@ -917,6 +917,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
         ...(o.wallclockEndNs !== undefined ? { wallclockEndNs: o.wallclockEndNs } : {}),
         cacheHit: isCacheHit(o.status),
         ...(o.attempts !== undefined ? { attempts: o.attempts } : {}),
+        cached: o.node.config.cache !== undefined,
       })
       if (o.status === 'failed') failedCount++
       if (o.status === 'cache-hit') hitLocalCount++

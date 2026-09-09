@@ -183,6 +183,13 @@ export interface RunRecord {
   wallclockEndNs?: bigint
   cacheHit?: boolean // convenience for flamegraph color; derivable from status
   attempts?: number // >1 when the task retried; the direct within-run flaky signal
+  /**
+   * Whether the task declared a `cache` block. An uncached task executes
+   * on every run and its key exists only for dependents to fold, so a
+   * reader (`vx why`, `vx last`) must not present its re-run as a cache
+   * decision. Absent on rows written before the column existed.
+   */
+  cached?: boolean
 }
 
 /**

@@ -155,7 +155,13 @@ const CACHE_VERSION = 'vx-cache-v27'
 //        the memo simply stops answering wrongly, so an affected task's
 //        key moves from a WRONG value to the right one: it misses once,
 //        re-runs, re-caches. Self-healing, never a wrong hit.
-const SCHEMA_VERSION = 'v24'
+//   v25: runs.cached — whether the task declared a `cache` block. An
+//        uncached task's row looked like any executed miss, so `vx why`
+//        headlined "cache key changed (inputs differ)" for a task that
+//        runs every time by design, and `vx last` could not mark it the
+//        way the terminal summary does (`no-cache`). Analytics-only —
+//        the cache KEY is unchanged.
+const SCHEMA_VERSION = 'v25'
 
 /**
  * SQL predicate selecting `runs` rows that record an EXECUTION.
@@ -369,7 +375,10 @@ export class Cache implements CacheLayer {
         cache_hit           INTEGER,
         -- v23: attempts a retried task took (>1); NULL for a once-run task.
         -- The direct within-run flaky signal.
-        attempts            INTEGER
+        attempts            INTEGER,
+        -- v25: 1 when the task declared a cache block, 0 when it runs every
+        -- time by design; NULL on rows older than the column.
+        cached              INTEGER
       );
       -- Two indexes only, and both APPEND: every row of a run carries the
       -- same run_id and a started_at newer than everything before it, so
@@ -519,9 +528,9 @@ export class Cache implements CacheLayer {
         hash, project, task, status, exit_code, duration_ms, forward_args,
         started_at, ended_at,
         run_id, cpu_ms, peak_rss_bytes, wallclock_start_ns, wallclock_end_ns,
-        cache_hit, attempts
+        cache_hit, attempts, cached
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?, ?)
     `)
     this.insertInvocation = this.db.prepare(`
       INSERT INTO invocations(
@@ -1823,6 +1832,7 @@ function bindRun(run: RunRecord): SQLQueryBindings[] {
     run.wallclockEndNs !== undefined ? run.wallclockEndNs : null,
     run.cacheHit === undefined ? null : run.cacheHit ? 1 : 0,
     run.attempts ?? null,
+    run.cached === undefined ? null : run.cached ? 1 : 0,
   ]
 }
 

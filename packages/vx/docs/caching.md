@@ -678,7 +678,9 @@ CREATE TABLE runs (
   peak_rss_bytes      INTEGER,
   wallclock_start_ns  INTEGER,          -- bigint; serialized as SQLite INTEGER (signed 64-bit)
   wallclock_end_ns    INTEGER,
-  cache_hit           INTEGER           -- 0/1; convenience for flamegraph color
+  cache_hit           INTEGER,          -- 0/1; convenience for flamegraph color
+  attempts            INTEGER,          -- v23: attempts a retried task took (>1)
+  cached              INTEGER           -- v25: 1 = declared a cache block; 0 = runs every time
 );
 
 -- Two indexes, both append-only under a run's inserts: every row of a run
