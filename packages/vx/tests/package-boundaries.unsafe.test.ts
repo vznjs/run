@@ -153,6 +153,7 @@ describe('package boundaries', () => {
       'listProjectMetas',
       'listRuns',
       'loadProjectConfig',
+      'loadResolvedProjects',
       'loadWorkspace',
       'loadWorkspaceConfig',
       'mapTurboWorkspace',

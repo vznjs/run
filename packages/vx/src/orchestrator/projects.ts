@@ -16,7 +16,15 @@ import {
   type ProjectMeta,
 } from '../workspace/index.js'
 import type { WorkspaceConfig } from '../config.js'
-import { loadWorkspaceConfig } from '../workspace/index.js'
+import { Cache } from '../cache/index.js'
+import {
+  buildPackageGraph,
+  computeWorkspaceFingerprint,
+  listProjects,
+  loadWorkspace,
+  loadWorkspaceConfig,
+  resolveCacheDir,
+} from '../workspace/index.js'
 import { parseDependencySpec } from '../graph/index.js'
 import { applyConfigHooks, applyProjectHooks, hasHook } from './plugin-host.js'
 import type { VxPlugin } from './plugin.js'
@@ -186,4 +194,43 @@ function crossDepProjects(config: ProjectConfig): string[] {
     }
   }
   return out
+}
+
+/**
+ * The run path's view of a workspace's projects for a reader — `vx show`,
+ * the MCP server, an embedder: discovery, the plugin `config` and
+ * `project` stages, and the local cache opened only to serve cached
+ * evaluations, so a pure config costs a stat, not an evaluation. `scope`
+ * is every project or a list of names; no closure, no lock (a reader
+ * reads live, as a default run does). Plugin warnings go to `warn`.
+ */
+export async function loadResolvedProjects(
+  workspaceRoot: string,
+  opts: { scope?: 'all' | readonly string[]; warn?: (message: string) => void } = {},
+): Promise<Map<string, ProjectEntry>> {
+  const warn = opts.warn ?? ((): void => {})
+  const metas = await listProjects(await loadWorkspace(workspaceRoot))
+  const { workspaceConfig, plugins } = await loadWorkspacePlugins(workspaceRoot, warn)
+  const cacheDir = resolveCacheDir(workspaceRoot, workspaceConfig)
+  const cache = new Cache(cacheDir)
+  try {
+    const loaded = await loadProjects({
+      workspaceRoot,
+      cacheDir,
+      plugins,
+      projectMetas: metas,
+      packageGraph: buildPackageGraph([...metas]),
+      seeds: opts.scope ?? 'all',
+      closure: false,
+      lock: null,
+      evalCache: {
+        store: cache,
+        workspaceFingerprint: await computeWorkspaceFingerprint(workspaceRoot),
+      },
+      warn,
+    })
+    return loaded.projects
+  } finally {
+    cache.close()
+  }
 }

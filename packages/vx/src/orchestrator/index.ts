@@ -5,6 +5,7 @@ export { run, planRun } from './run.js'
 export { prepareRun, type PreparedRun } from './prepare.js'
 export {
   loadProjects,
+  loadResolvedProjects,
   loadWorkspacePlugins,
   type LoadedProjects,
   type LoadProjectsArgs,

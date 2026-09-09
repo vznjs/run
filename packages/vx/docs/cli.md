@@ -1425,14 +1425,16 @@ export function mcp(): VxPlugin {
 ```
 
 (`@vzn/vx-mcp` ships exactly this: declare `mcp()` and `vx mcp` serves
-the four read-only run-history tools to AI agents.) The dispatcher tries
-core's verbs first — a plugin can never shadow `vx run` — and consults
-plugins only for a word core does not know,
-loading the workspace config from the cwd to find them (outside a
-workspace the verb is simply unknown). The first plugin in declaration
-order that declares the verb runs it; its return value is the exit
-code, and a thrown `UserError` prints as cleanly as core's own. `vx help`
-lists every plugin verb under "Plugin commands", with the plugin's name.
+five read-only tools to AI agents — four over the run history, one
+over the resolved task catalog.) The dispatcher tries core's verbs
+first and consults plugins only for a word core does not know, loading
+the workspace config from the cwd to find them (outside a workspace the
+verb is simply unknown). A plugin verb that names a core verb, or one
+two plugins both declare, is refused when the workspace loads — such a
+verb could never run, or would hide the other plugin's. A plugin verb's
+return value is the exit code, and a thrown `UserError` prints as
+cleanly as core's own. `vx help` lists every plugin verb under "Plugin
+commands", with the plugin's name.
 
 ## Output format
 

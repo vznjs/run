@@ -917,6 +917,14 @@ function`); the seam now checks the returned shape once and refuses
     Cold A/B (the path it sits on), 1000 tasks, both orders, min of 4:
     3592 → 3490 ms and 3518 → 3701 — mixed by ±200 on a 3.5 s run,
     i.e. a tie inside the cold path's noise on this box.
+27. DONE: `@vzn/vx-mcp` gains `listTasks` — "what can I run here?" —
+    the one tool over configs rather than the cache: every project and
+    the tasks a run would see (command, `dependsOn`, cached,
+    persistent), resolved like `vx run` resolves them. It reads through
+    a new façade export, `loadResolvedProjects` (discovery, the
+    `config` and `project` stages, cached evaluations served), the same
+    view `vx show` prints; an embedder's task catalog is the other
+    consumer. The façade pin gained the name.
     Next-list 8(b) decided: `--max-size` keeps reading a bare integer
     as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
     byte), documented as `<bytes>`, and the zero bound is the guard;

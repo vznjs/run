@@ -84,7 +84,7 @@ describe('handleMessage', () => {
     expect(garbage.error.code).toBe(-32700)
   })
 
-  it('tools/list advertises the four tools with object schemas', async () => {
+  it('tools/list advertises the five tools with object schemas', async () => {
     const r = (await handleMessage(req(4, 'tools/list'), ctx)) as {
       result: { tools: Array<{ name: string; inputSchema: { type: string } }> }
     }
@@ -92,9 +92,35 @@ describe('handleMessage', () => {
       'explainCacheKey',
       'getCacheStats',
       'getRunHistory',
+      'listTasks',
       'whyDidThisRerun',
     ])
     for (const t of r.result.tools) expect(t.inputSchema.type).toBe('object')
+  })
+
+  it('listTasks answers what a run would see, and refuses an unknown project by name', async () => {
+    // The one tool over configs rather than the cache: an agent asking
+    // "what can I run here?" gets the resolved catalog, `vx show`'s view.
+    const r = (await handleMessage(
+      req(5, 'tools/call', { name: 'listTasks', arguments: {} }),
+      ctx,
+    )) as {
+      result: { content: Array<{ text: string }> }
+    }
+    const parsed = JSON.parse(r.result.content[0]!.text) as {
+      projects: Array<{ name: string; dir: string; tasks: unknown[] }>
+    }
+    expect(parsed.projects.map((p) => p.name)).toEqual(['a'])
+    expect(parsed.projects[0]!.dir).toBe(path.join(root, 'packages', 'a'))
+    expect(parsed.projects[0]!.tasks).toEqual([
+      { name: 'build', id: 'a#build', command: 'echo built', dependsOn: [], cached: true },
+    ])
+    const bad = (await handleMessage(
+      req(6, 'tools/call', { name: 'listTasks', arguments: { project: 'nope' } }),
+      ctx,
+    )) as { result: { isError?: boolean; content: Array<{ text: string }> } }
+    expect(bad.result.isError).toBe(true)
+    expect(bad.result.content[0]!.text).toContain('unknown project: nope')
   })
 
   it('tools/call returns text content; a tool refusal is an isError result, not a protocol error', async () => {
@@ -154,7 +180,7 @@ describe('vx mcp over stdio (the real entry point)', () => {
       .split('\n')
       .map((l) => JSON.parse(l) as { id: number; result: Record<string, unknown> })
     expect(replies.map((r) => r.id)).toEqual([1, 2, 3])
-    expect((replies[1]!.result['tools'] as unknown[]).length).toBe(4)
+    expect((replies[1]!.result['tools'] as unknown[]).length).toBe(5)
     const history = JSON.parse(
       (replies[2]!.result['content'] as Array<{ text: string }>)[0]!.text,
     ) as {

@@ -112,6 +112,12 @@ export {
   listProjects as listProjectMetas,
 } from './workspace/index.js'
 export type { ProjectMeta } from './workspace/index.js'
+// The run path's RESOLVED view — plugin `config` and `project` stages
+// applied, cached evaluations served — for a reader outside the CLI (the
+// MCP server's `listTasks`, an embedder's task catalog). What `vx show`
+// prints.
+export { loadResolvedProjects } from './orchestrator/index.js'
+export type { ProjectEntry } from './workspace/index.js'
 // The Turbo mapper `vx migrate` renders from and `@vzn/vx-turbo` runs live —
 // one mapping, so a repo reads the same under either.
 export { mapTurboWorkspace } from './workspace/index.js'
