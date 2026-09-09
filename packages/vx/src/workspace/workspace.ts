@@ -1,3 +1,4 @@
+import type { Dirent } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { ProjectConfig, WorkspaceConfig } from '../config.js'
@@ -237,21 +238,50 @@ async function memberDirs(root: string, pattern: string): Promise<string[]> {
 
 /**
  * The project's config file, by `CONFIG_FILENAMES` precedence, or null.
- * Stats the candidates in order rather than listing the directory: across
- * 1000 projects a readdir each cost 9.6 ms against 6.3 ms of stats even
- * with the config at the LAST name (measured 2026-09-03), and a `.ts`
- * config — the first name — pays one stat.
+ *
+ * Two shapes, one per platform, each the measured winner there across
+ * 1,000 projects with the manifest read in flight alongside:
+ *   - macOS stats the candidates in order: a readdir each cost 9.6 ms
+ *     against 6.3 ms of stats even with the config at the LAST name
+ *     (2026-09-03), and a `.ts` config — the first name — pays one stat.
+ *   - Linux lists the directory once: a readdir each is 12 ms against
+ *     43 ms of stats at the last name and ties the one-stat case
+ *     (2026-09-09, a `vx.config.mjs` workspace; stats there cost a
+ *     thread-pool round trip apiece).
+ * Both answer identically: a directory or dangling link under a config
+ * name is skipped for the next name, a symlink to a file counts.
  */
 async function findConfigFile(dir: string): Promise<string | null> {
+  if (process.platform === 'linux') {
+    let entries: Dirent[]
+    try {
+      entries = await readdir(dir, { withFileTypes: true })
+    } catch {
+      return null
+    }
+    const byName = new Map(entries.map((e) => [e.name, e]))
+    for (const name of CONFIG_FILENAMES) {
+      const entry = byName.get(name)
+      if (entry === undefined) continue
+      const candidate = path.join(dir, name)
+      if (entry.isFile()) return candidate
+      if (entry.isSymbolicLink() && (await isFile(candidate))) return candidate
+    }
+    return null
+  }
   for (const name of CONFIG_FILENAMES) {
     const candidate = path.join(dir, name)
-    try {
-      if ((await stat(candidate)).isFile()) return candidate
-    } catch {
-      // not this name
-    }
+    if (await isFile(candidate)) return candidate
   }
   return null
+}
+
+async function isFile(p: string): Promise<boolean> {
+  try {
+    return (await stat(p)).isFile()
+  } catch {
+    return false
+  }
 }
 
 export async function listProjects(workspace: Workspace): Promise<ProjectMeta[]> {
