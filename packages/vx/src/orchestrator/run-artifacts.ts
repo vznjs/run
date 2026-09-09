@@ -41,6 +41,11 @@ function taskEntry(o: TaskOutcome): Record<string, unknown> {
     exitCode: o.exitCode,
     durationMs: o.durationMs,
     hash: o.hash ?? null,
+    // A task with no `cache` block executes every run by design; without
+    // the flag a consumer computing a hit rate cannot tell a miss from a
+    // task that could never hit (its `hash` is still set — dependents fold
+    // it). Present only when true, so every other row is byte-identical.
+    ...(o.node.config.cache === undefined ? { noCache: true } : {}),
     ...(o.cpuMs !== undefined ? { cpuMs: o.cpuMs } : {}),
     ...(o.peakRssBytes !== undefined ? { peakRssBytes: o.peakRssBytes } : {}),
     // hrtime spans are bigints → emit as strings so JSON.parse on

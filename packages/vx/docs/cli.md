@@ -666,6 +666,11 @@ not finish on its own terms, so it joins no outcome bucket and no
 `total` — but it does make the run red, so it is listed separately with
 its signal exit code, and counted as `summary.aborted`.
 
+**`noCache: true`** marks a task that declares no `cache` block — it
+executes every run by design, so a hit rate should leave it out of the
+denominator. The key is present only when true; every other row is
+unchanged. Its `hash` is still set: dependents fold it.
+
 **`durationMs` is always what THIS run spent on the task.** For a cache
 hit that is the probe + restore, not the exec time the entry was stored
 with — so it is small even for an expensive task. The work a hit

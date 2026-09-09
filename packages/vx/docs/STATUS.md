@@ -768,10 +768,9 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    35 ms, no visible pause.
 
 7. **First-run DX follow-ups (candidates, from the 2026-09-04
-   walkthrough).** (a) `--summarize` task rows carry no cache word: a
-   consumer computing a hit rate cannot exclude uncached tasks; adding
-   `noCache: true` is additive but the payload is documented — decide,
-   then add with `docs/cli.md` § --summarize. (b) DONE 2026-09-04: `init` no longer makes `lint` wait for `build`
+   walkthrough).** (a) DONE 2026-09-09: `--summarize` task rows carry
+   `noCache: true` for a task with no `cache` block (present only when
+   true; documented in `docs/cli.md` § --summarize). (b) DONE 2026-09-04: `init` no longer makes `lint` wait for `build`
    (`test` / `typecheck` still do, the Turbo starter's convention). (c) watch still pays one redundant cycle on a
    task's first undeclared write (the bytes are unknown until seen);
    hashing what the cycle wrote before re-arming would zero it — only

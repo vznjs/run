@@ -175,6 +175,36 @@ describe('writeRunSummary', () => {
     expect(parsed.tasks[1]?.['peakRssBytes']).toBeUndefined()
   })
 
+  it('marks a task with no `cache` block `noCache: true`, and only that one', async () => {
+    const cached = makeNode('a', 'build', { exec: { command: 'noop' } })
+    cached.config = {
+      ...cached.config,
+      cache: { inputs: { files: ['src/**'] }, outputs: { files: [] } },
+    }
+    const out = await writeRunSummary({
+      target: path.join(tmp, 's.json'),
+      cacheDir,
+      cwd: tmp,
+      runId: 'x',
+      startedAtMs: 0,
+      endedAtMs: 1,
+      totalMs: 1,
+      ok: true,
+      outcomes: [
+        outcome({ node: cached, status: 'cache-hit', hash: 'h1' }),
+        outcome({ node: execNode('b', 'lint'), hash: 'h2' }),
+      ],
+    })
+    const parsed = JSON.parse(await readFile(out, 'utf8')) as {
+      tasks: Array<Record<string, unknown>>
+    }
+    // Present only when true: the cached row is byte-identical to before.
+    expect('noCache' in parsed.tasks[0]!).toBe(false)
+    expect(parsed.tasks[1]?.['noCache']).toBe(true)
+    // The uncached task still carries its key — dependents fold it.
+    expect(parsed.tasks[1]?.['hash']).toBe('h2')
+  })
+
   it("emits `hash: null` when an outcome's hash is missing", async () => {
     const out = await writeRunSummary({
       target: path.join(tmp, 's.json'),
