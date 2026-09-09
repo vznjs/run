@@ -16,7 +16,7 @@ delete stale lines rather than appending corrections.
 Concretely:
 
 1. **Performance is the first decision driver.** Every change to the run
-   path is measured (`bench/`), and a slower core is a regression even if
+   path is measured (`packages/vx-bench/`), and a slower core is a regression even if
    it is prettier. Targets: the fastest warm no-op run and the lowest
    scheduler/hash overhead of any JS-monorepo task runner.
 2. **Core is a pipeline with seams, not a product.** Core owns:
@@ -199,10 +199,11 @@ sections marked for the verb so no second list drifts and no other
 verb's flag is ever suggested (`--older-tha`under`run`gets no hint;
 found by probing);`editDistance`lives in`util/`. And the plugins
 guide's promise that its code is real is pinned:
-`tests/docs-snippets.test.ts`type-checks every block against the
-façade (13 of 14; the contract sketch is skipped by rule). The other
-six guides'`ts` blocks are prose excerpts by design — object
-fragments without a wrapper — and stay unchecked.
+`packages/vx-docs/tests/plugins-guide-snippets.test.ts`type-checks
+every block against the façade (the contract sketches are skipped by
+rule) — a pin that no task ran and that did not pass`--type-check`until 2026-09-09; see the review entry. The other six guides'`ts`
+blocks are prose excerpts by design — object fragments without a
+wrapper — and stay unchecked.
 
 **Audits with pins (each mutation fails exactly its pin).** Config-eval
 purity gate closed against `\u0070rocess`, `global`/`self` aliases and
@@ -212,9 +213,9 @@ dealer and an empty shard refused; sixteen dead `export`s and ten
 test-only barrel names removed; comparison.md re-verified against Turbo
 2.10.12 / Nx 23.2.0; two orphan site pages found and the sidebar
 coverage pinned; generated site pages self-describe. The core suite
-runs as four shards (`bun test --shard=<i>/4` since 2026-09-05; the
-descriptor tripwire test is kept for the day Bun fixes the ~2 pins per
-import that make one process hit the macOS cap).
+runs as eight shards (`bun test --shard=<i>/8`, Bun's own dealer since
+2026-09-05; the descriptor tripwire test is kept for the day Bun fixes
+the ~2 pins per import that make one process hit the macOS cap).
 
 **Stale-claim sweep (2026-09-03, evening).** Six live docs described
 a removed seam or a rejected approach as current: the fork map and the
@@ -487,6 +488,81 @@ true` inside a sandbox, which is how a suite that exercises the sandbox
   fixed 20 ms, which a loaded gate does not respect; it waits on the
   condition now.
 
+**Review pass (2026-09-09, a fresh session over the whole tree).** What
+the previous sessions left claiming more than the code did, fixed in
+place with pins:
+
+- The local executor and cache became core's floor on 2026-09-05
+  (d664ca5) and the docs never followed. The quickstart, the
+  introduction, every plugin README and six site guides imported the
+  removed local-executor and local-cache subpaths, so the first thing
+  a new user hit was an unresolved import. Every page, every plugin
+  doc comment, CLAUDE.md's layout and principle 7, and the vx init
+  template now say what plugin-host.ts does: the local executor is
+  the tail of every executor list, the local store the tail of every
+  cache chain.
+- The bench package did not run. run.ts and compare.ts resolved the
+  repo root one level short after the move under packages/, so every
+  bench spawned packages/packages/vx/src/bin.ts. Nothing had measured
+  the warm run since the move. Fixed; the site check still passes.
+- The plugin packages were never type-checked. Their lint was the bare
+  linter and the test runner is transpile-only. All seven now lint
+  with the type-aware and type-check flags, which found the otel and
+  github plugins still reading the verify and outputFp telemetry
+  fields removed with the verify feature, tests passing run-option
+  fields that do not exist (all, colors), the nx-cache put method
+  implementing the seam with one argument fewer, and the bench's
+  schedule-policy script importing the deleted predict module
+  (removed; its markdown stays as the record).
+- The docs site's tests ran nowhere (no task, not in CI's package job)
+  and both failed when run: the guide pin looked for oxlint in the
+  wrong node_modules, walked a symlinked node_modules for minutes, and
+  lacked the type-check flag (it accepted a string assigned to a
+  number); the sidebar pin counted hand-authored pages as generated.
+  With the check real the plugins guide had thirteen type errors. The
+  docs project's test task is under its ci group now.
+- Two stale-hit holes, both pinned differentially. (1) continue=always
+  saved a dependent built on a failed upstream's partial outputs under
+  the healthy key; the doc called it sound because the KEY is, but the
+  bytes were not. Reproduced end to end: the second run restored the
+  dependent's output holding the partial file of the failed run. A
+  task behind a failure, directly or through successes built on it,
+  runs but never saves (taintedUpstream on the execute args); a hit
+  still restores. (2) The config purity gate matched Function as an
+  identifier only, so reaching it through the constructor property,
+  with the impure body inside a string literal the strip removes, was
+  cached as pure. constructor and localeCompare (host locale) are
+  refused now.
+- Words that claimed too much. The landing page still sold the verify
+  flag; the sandboxing guide told the reader to let verify=inputs
+  arbitrate; the OTel guide described a fingerprint attribute the
+  plugin no longer emits; four design documents cited from source do
+  not exist; execute-task.ts explained a sandbox read as a proof
+  failure reported via the verdict; vx info recommended fsmonitor as
+  making the status walk near-free while this file records the A/B
+  that refuted it; vx why on a task with no cache block said the entry
+  was pruned when there never was one; cli.md filed the download flag
+  under vx why and the continue flag under the programmatic API. All
+  corrected; the eighteen docs links in the root README point under
+  packages/ again.
+- Perf, profiled rather than guessed (bun's cpu profiler plus the
+  bench's profile-summary script, 1000 projects warm, this 4-core
+  box): native stat is 21% of self time; the package graph's
+  transitive bitset closures cost 12 ms, built eagerly for both
+  directions and read by nobody on an unscoped run; 1,000 SQLite point
+  reads identifying config closures cost 7.7 ms; two awaited empty
+  runtime-input resolutions per task cost 3 ms. Closures are lazy, the
+  expansion is skipped once every project is seeded, a batched
+  hashFiles identifies a closure list with one query per 500 paths,
+  and a task with no runtime inputs skips the fan-out. Interleaved A/B
+  against an immutable worktree, 12 reps: min 319 to 299 ms, median
+  340 to 323; stage table, min of 6: open cache 20.2 to 8.8 ms, load
+  configs 34.6 to 23.2 ms. The docs site's Markdown stays outside
+  oxfmt on purpose (restored in the root ignore list): the formatter
+  rewrites code fragments in prose into multi-line objects, and moves
+  spaces into inline code spans at wrap points, which is also why this
+  entry carries no inline code.
+
 ## In flight
 
 **Open after the sandbox arc (2026-09-05).** Local `vx run ci --all` is
@@ -632,7 +708,19 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    re-run (see the 2026-09-03 watch entry).
 6. **Re-measure the warm run after each day's work** — the hot path is
    the product. `bun packages/vx-bench/run.ts 100 5` and `1000 5`; an interleaved
-   A/B against an immutable worktree settles any gap. Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
+   A/B against an immutable worktree settles any gap
+   (`scratchpad/ab.ts`-style: alternate arms, min and median of N).
+   Closing figures for 2026-09-09 on a noisy 4-core Linux container
+   (not the owner's box — compare against 2026-09-04 only by ratio):
+   `run.ts` medians before the day's perf commit, 100 projects 109 ms
+   warm / 180 ms restore, 1000 projects 281 / 1337; the commit's A/B is
+   in the review entry. LEADS from the profile, not taken: (a) each
+   `vx.config.ts` is stat'ed twice on the warm path — `findConfigFile`
+   in discovery and again for its identity in the config load;
+   threading the discovery stat into `hashFiles` saves ~1,000 stats;
+   (b) the hit path's `output dirs` + `output stat` are ~2 stats per
+   task and inherent to the proof; (c) `record history` is ~10 ms for
+   1,000 rows here. Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
    projects 159 ms warm / 538 ms with restore, 100 projects 66 ms /
    104 ms — the sandbox and CI work touched nothing the warm path
    runs. Closing figures
