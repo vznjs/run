@@ -126,8 +126,12 @@ describe('the tripwire that makes one definition stay one definition', () => {
       'SQL text. One survivor, and it is a DIFFERENT list (it includes `failed` — the latest-state filter, not the pass set).',
     ],
     [
+      'src/cache/layer.ts',
+      '`RunRecord.status` is a deliberate SUBSET of TaskStatus (no `aborted`, which is never recorded) — and `cache` cannot import `orchestrator` under the module boundary matrix, so it cannot reach the predicate at all.',
+    ],
+    [
       'src/cache/cache.ts',
-      '`RunRecord.status` is a deliberate SUBSET of TaskStatus (no `aborted`, which is never recorded), plus SQL text — and `cache` cannot import `orchestrator` under the module boundary matrix, so it cannot reach the predicate at all.',
+      'SQL text (`stats`): the hit set as a literal list, for the same boundary reason as layer.ts.',
     ],
   ])
 

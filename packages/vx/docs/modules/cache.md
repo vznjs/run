@@ -6,6 +6,20 @@ Compute cache keys, store cache entries, retrieve them, restore output
 files on hit, record run history. The on-disk format, SQLite schema,
 and key derivation logic live here.
 
+## Files (2026-09-09 split, pure moves)
+
+- `layer.ts` — the CONTRACT (`CacheLayer`) and every shape that crosses
+  it: `CacheKeyInput`, `CacheEntry`, `RunRecord`, `InvocationRecord`,
+  output fingerprint rows, stats and prune options, `CorruptArtifactError`.
+  No implementation.
+- `policy.ts` — `CachePolicy` (local/remote × read/write) and the
+  `--cache=<spec>` grammar.
+- `zstd.ts` — artifact framing: the declared-size gate against a
+  decompression bomb, the bounded one-call and streamed decoders.
+- `cache.ts` — the schema and its version notes, the `Cache` store, the
+  SQL binders. Re-exports the three above so `./cache.js` stays one
+  import path for the index, the sibling layers and the tests.
+
 ## Public surface
 
 ```ts

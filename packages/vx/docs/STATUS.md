@@ -654,6 +654,20 @@ test is telling the truth.
    runnable id, hints are deduped. The probe's other answers were
    right: scope errors before name errors at the root, `--cache` /
    `--continue` / `--concurrency` values refused by name.
+3. DONE: cache.ts split by concern, pure moves. The file was 2,640
+   lines, a thousand of them the contract and its records before the
+   class began. `layer.ts` holds the contract (`CacheLayer` and every
+   shape that crosses it), `policy.ts` the run-policy grammar, `zstd.ts`
+   the artifact framing; cache.ts keeps the schema, the store and the SQL
+   binders (1,850 lines) and re-exports the three, so no importer moved.
+   The one reference from the contract to the implementation (`local?:
+Cache`, the handle a layer may wrap) is a type import. Next candidate
+   inside the class, not taken yet: the file-hash memo, the output
+   fingerprints and the run history are each a cohesive slice over the
+   same handle — a composition split, behaviour-preserving, when the
+   class next needs touching. Warm path: a tie (interleaved against
+   main, both orders, 8 reps: 216/231 vs 216/229 ms, 218/224 vs
+   212/223), as three more module evaluations should be.
 
 ## In flight
 

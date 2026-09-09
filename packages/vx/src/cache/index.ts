@@ -1,6 +1,8 @@
 // Module contract. Cross-module imports must come through here; see
 // docs/design/module-isolation-2026-06.md and tests/module-boundaries.test.ts.
-// tar.ts is internal — artifact pack/extract is an implementation detail.
+// archive.ts / tar-stream.ts / zstd.ts are internal — artifact pack, extract
+// and framing are implementation details; the layer CONTRACT is layer.ts,
+// re-exported through cache.ts.
 
 export {
   Cache,
