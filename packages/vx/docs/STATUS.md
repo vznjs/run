@@ -621,6 +621,14 @@ place with pins:
   projects only, self-healing, no CACHE_VERSION bump. The warm path
   ties (a clean tree reaches neither the probe nor the fallback):
   interleaved both orders, 8 reps, within the box's noise either way.
+- The public schema's own comments, read against the loader and the
+  graph builder: cache on a persistent task is rejected, not silently
+  ignored; a persistent task's sandbox is enforced, not silently
+  skipped; overlapping workspace outputs are refused at graph build,
+  not left unpoliced; the plugins field cited a design document that
+  does not exist. schema.md carried the unpoliced claim too. The
+  plugin host's graph-stage comment blamed the last plugin as the one
+  whose edit broke the graph; the check runs once after all of them.
 
 ## In flight
 
