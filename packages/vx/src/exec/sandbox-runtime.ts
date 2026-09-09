@@ -553,12 +553,6 @@ export async function runSandboxed(args: SandboxedRunArgs): Promise<SandboxedRun
   // Linux container: exit 1, empty stderr). Linux detection is the strace
   // pass below, judged against the task's own baselines.
   let macViolations = process.platform === 'darwin' ? readMacViolations() : []
-  // The fail-exit gate keeps the warm path free — EXCEPT when the caller
-  // says a clean exit + empty store will be read as PROOF (verify=inputs):
-  // a leaky task that swallows its own read error exits 0, so without the
-  // settle window a late unified-log record becomes a FALSE PASS of the
-  // verify (measured locally 2026-08-24: 1/30 at idle, the same lossy
-  // channel as the fail-exit case).
   // No settle window: the store is read once, right after the child exits
   // (owner, 2026-09-05). It cost 300ms on EVERY clean sandboxed task — the
   // full budget, since a task with nothing to report can only prove that by

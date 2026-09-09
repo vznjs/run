@@ -103,7 +103,8 @@ export interface ExecuteArgs {
    * `VX_TASK_TIMEOUT`/workspace/`--timeout` fallback. Per-task
    * `exec.timeout` wins. Threaded as an option only — never hashed.
    */
-  timeout?: number /** Per-run memo for `git ls-files` (one entry per project dir). */
+  timeout?: number
+  /** Per-run memo for `git ls-files` (one entry per project dir). */
   gitFilesCache?: GitFilesCache
   /** Per-run memo for derived hashes (package.json bytes + task config). */
   hashCache?: HashCache
@@ -396,15 +397,10 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
     : undefined
   const inputs: TaskInputs | undefined = described?.inputs
 
-  // Sandbox is opt-in per task via `sandbox: {}` (or `sandbox: {...}`)
-  // in the task config. No CLI flag, no workspace inheritance — the
-  // task config is the single source of truth (a read outside the declared
-  // inputs is a
-  // proof failure, not a task failure — so it flags the RUN via the verdict,
-  // it does not flip the task's own exit code the way a user-declared sandbox
-  // violation does).
+  // Sandbox is opt-in per task via `exec.sandbox: {}` (or `{...}`) in the
+  // task config. No CLI flag, no workspace inheritance — the task config is
+  // the single source of truth, and a violation fails the task (below).
   const userSandbox = cfg.exec?.sandbox !== undefined
-  const useSandbox = userSandbox
   let violations: SandboxViolation[] = []
 
   // Cache miss path (or caching disabled), up to `1 + retries` attempts.
@@ -577,7 +573,7 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
       ...(cfgCacheable && !(policy.localRead || policy.remoteRead) ? { refresh: true } : {}),
       outputs: { files: outputs, workspaceFiles: wsOutputs },
     }
-    if (!useSandbox) return base
+    if (!userSandbox) return base
     // The sandbox derives NOTHING from `cache` (owner, 2026-09-05). Those
     // are two different questions: `cache.inputs` says what INVALIDATES the
     // task, `sandbox.allow` says what it may TOUCH. Deriving one from the
@@ -1012,14 +1008,6 @@ function expandHome(p: string): string {
   return p.startsWith('~') ? path.join(homedir(), p.slice(1)) : p
 }
 
-/**
- * Return the longest prefix of a glob that contains no wildcards. Used
- * to derive an allowWrite path from each `cache.outputs.files` entry:
- * `dist/**` → `dist`, `build/output.js` → `build/output.js`, `**` →
- * `.` (the project dir itself). bwrap binds at the directory level so
- * a file path covers writes to that file; a dir path covers writes
- * anywhere underneath.
- */
 /**
  * Build the child-process env for one task. Same arguments at every call site
  * (persistent + cached). Two `node_modules/.bin` directories are prepended to

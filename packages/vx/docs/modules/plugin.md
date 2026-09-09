@@ -35,6 +35,7 @@ behavior lives in the plugin package (vite-style), not in core.
   on them to drain buffers. (The older `eventSink` seam is gone since
   pipeline v2; `setup(ctx)` on the bus and `telemetry` are the two
   observe paths.)
-- **No defaults.** Core's own executor and cache are plugins under
-  `src/plugins/` (see plugins.md), declared like any other; a workspace
-  that declares no executor or no cache fails before any task runs.
+- **No defaults, one floor.** Core applies no plugin on its own; its
+  local executor and local cache are appended at the tail of every list
+  and chain (see plugin-host.md), so a workspace that declares nothing
+  runs and caches here.

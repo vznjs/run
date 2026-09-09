@@ -25,8 +25,9 @@ The sandbox derives nothing from `cache`, and that is deliberate.
 `cache.inputs` says what INVALIDATES a task; `sandbox.allow` says what it
 may TOUCH. When one was derived from the other, a path added for caching
 silently widened the sandbox, and a path the task genuinely needed had to
-be laundered through the cache key to get it. Declare both, and let
-`--verify=inputs` tell you when they disagree.
+be laundered through the cache key to get it. Declare both; a sandboxed
+task that reads a file its `cache.inputs` never named fails on the
+denial, which is where the two declarations meet.
 
 ```mermaid
 flowchart LR

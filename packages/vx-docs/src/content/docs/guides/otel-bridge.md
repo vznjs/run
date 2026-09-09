@@ -95,8 +95,7 @@ it maps cleanly onto Grafana / Tempo / Honeycomb / Datadog / Jaeger:
   (`miss`/`local`/`remote`), `vx.task.hash`, duration, CPU ms, peak RSS,
   retry count (`vx.task.attempts`) and the sandbox violation count
   (`vx.task.sandbox_violations`). A failed task sets the span
-  status to `ERROR` — and so does a task that exited 0 but whose verify
-  verdict proved its cache entry unsound.
+  status to `ERROR`.
 
 **Metrics per run** (when `metrics` is on): `vx.tasks.total`,
 `vx.tasks.failed`, `vx.tasks.cache_hits{source=local|remote}`, and the
@@ -149,10 +148,9 @@ other's tasks, and a task span names its own run, workspace and run
 start, so a task that arrives ahead of its header is stored anyway and
 converges on the same row when the header lands.
 
-The one thing a collector can still cost you is attribute limits. The
-output fingerprint's per-file map is the largest attribute and the first
-to be truncated — which costs a cross-machine diff its detail, never its
-verdict, because detection keys on the fixed-width tree digest.
+The one thing a collector can still cost you is attribute limits: the
+task log records (`vx.log.*`) are the largest attributes and the first to
+be truncated, and each carries its full length so a cut is visible.
 
 ## Build your own analytics
 
