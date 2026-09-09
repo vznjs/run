@@ -12,7 +12,7 @@ behavior lives in the plugin package (vite-style), not in core.
 | Capability             | Consulted by        | Contract                                                                               |
 | ---------------------- | ------------------- | -------------------------------------------------------------------------------------- |
 | `executor(ctx)`        | `plugin-host.ts`    | return a `TaskExecutor` or decline; ALL kept in order, first accepting runs            |
-| `config(ws, ctx)`      | `prepareRun`, first | edit the workspace config in place before anything is derived from it                  |
+| `config(ws, ctx)`      | every verb, first   | edit the workspace config in place before anything is derived from it — `cacheDir` too |
 | `project(cfg, ctx)`    | per loaded config   | add/remove/edit a project's tasks in place; core re-validates after the last plugin    |
 | `graph(nodes, ctx)`    | after graph build   | edit `deps`/`requested`/resources in place; dangling deps and cycles are refused       |
 | `key(task, ctx)`       | per task, at hash   | `{ name: value }` material folded into the key and named in `vx why`                   |

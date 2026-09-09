@@ -22,11 +22,10 @@ import {
   listProjects,
   loadProjectConfig,
   loadWorkspace,
-  loadWorkspaceConfig,
-  resolveCacheDir,
   WORKSPACE_FINGERPRINT_FILES,
   type ProjectMeta,
 } from '../workspace/index.js'
+import { loadCliWorkspace } from './workspace-config.js'
 
 /** Wait this long after the last filesystem event before re-running. */
 const DEBOUNCE_MS = 150
@@ -342,8 +341,7 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
     workspaceWide: swept.workspaceWide,
     outputs: swept.outputs,
     // The RESOLVED cache dir, not the `.vx` literal — see `makeWatchIgnore`.
-    cacheDir:
-      opts.cacheDir ?? resolveCacheDir(workspaceRoot, await loadWorkspaceConfig(workspaceRoot)),
+    cacheDir: opts.cacheDir ?? (await loadCliWorkspace(workspaceRoot)).cacheDir,
   })
 }
 

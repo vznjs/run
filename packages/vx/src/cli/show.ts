@@ -10,14 +10,14 @@ import type { ProjectConfig, TaskConfig } from '../config.js'
 import { Cache } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { nearMatches, relPosix, UserError } from '../util/index.js'
-import { loadProjects, loadWorkspacePlugins } from '../orchestrator/index.js'
+import { loadProjects } from '../orchestrator/index.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 import {
   buildPackageGraph,
   computeWorkspaceFingerprint,
   findWorkspaceRoot,
   listProjects,
   loadWorkspace,
-  resolveCacheDir,
   type ProjectEntry,
   type ProjectMeta,
 } from '../workspace/index.js'
@@ -133,11 +133,7 @@ async function resolveProjects(
   metas: readonly ProjectMeta[],
   scope: 'all' | string[],
 ): Promise<Map<string, ProjectEntry>> {
-  const warn = (m: string): void => {
-    process.stderr.write(`${m}\n`)
-  }
-  const { workspaceConfig, plugins } = await loadWorkspacePlugins(root, warn)
-  const cacheDir = resolveCacheDir(root, workspaceConfig)
+  const { plugins, cacheDir } = await loadCliWorkspace(root)
   const cache = new Cache(cacheDir)
   try {
     const loaded = await loadProjects({
@@ -150,7 +146,7 @@ async function resolveProjects(
       closure: false,
       lock: null,
       evalCache: { store: cache, workspaceFingerprint: await computeWorkspaceFingerprint(root) },
-      warn,
+      warn: warnToStderr,
     })
     return loaded.projects
   } finally {

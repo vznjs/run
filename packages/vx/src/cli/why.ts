@@ -14,7 +14,8 @@ import {
   whyDidThisRerunQuery as whyDidThisRerun,
 } from '../orchestrator/index.js'
 import { nearMatches, UserError } from '../util/index.js'
-import { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from '../workspace/index.js'
+import { findWorkspaceRoot } from '../workspace/index.js'
+import { loadCliWorkspace } from './workspace-config.js'
 
 interface WhyArgs {
   target?: string
@@ -137,8 +138,7 @@ export async function whyCmd(args: readonly string[]): Promise<number> {
   }
 
   const root = await findWorkspaceRoot(process.cwd())
-  const cacheDir = resolveCacheDir(root, await loadWorkspaceConfig(root))
-  const cache = new Cache(cacheDir)
+  const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
   try {
     const db = cache.dbHandle()
     const taskId = resolveTarget(cache, parsed.target)

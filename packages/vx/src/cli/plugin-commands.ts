@@ -8,7 +8,8 @@
 // before this is asked, so a plugin cannot shadow `run`.
 
 import type { VxPlugin, PluginCommand, CommandContext } from '../orchestrator/index.js'
-import { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from '../workspace/index.js'
+import { findWorkspaceRoot } from '../workspace/index.js'
+import { loadCliWorkspace } from './workspace-config.js'
 
 export interface ResolvedPluginCommand {
   plugin: VxPlugin
@@ -39,17 +40,13 @@ async function workspacePlugins(
   } catch {
     return null
   }
-  let config
+  let ws
   try {
-    config = await loadWorkspaceConfig(workspaceRoot)
+    ws = await loadCliWorkspace(workspaceRoot)
   } catch (err) {
     return { loadError: err instanceof Error ? err.message : String(err) }
   }
-  return {
-    workspaceRoot,
-    cacheDir: resolveCacheDir(workspaceRoot, config),
-    plugins: (config?.plugins ?? []) as readonly VxPlugin[],
-  }
+  return { workspaceRoot, cacheDir: ws.cacheDir, plugins: ws.plugins }
 }
 
 /**

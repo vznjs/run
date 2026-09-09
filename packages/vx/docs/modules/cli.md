@@ -58,6 +58,15 @@ See:
   `vx last`, `vx prune`, `vx upgrade`: documented in
   [`../cli.md`](../cli.md); no separate module doc.
 
+## Workspace loading
+
+Every verb that opens the cache or lists plugin verbs resolves the
+workspace through `cli/workspace-config.ts:loadCliWorkspace`: the
+workspace config with the plugin `config` stage applied, the plugin
+list, and the cache dir derived from the staged config. The stage
+shapes `cacheDir`, so a verb reading the file raw would open a
+directory the run never used. Plugin warnings go to stderr.
+
 ## What this does NOT do
 
 - No global flags (no `--debug`, no `--quiet`, no `--color`). Color

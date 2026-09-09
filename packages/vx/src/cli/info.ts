@@ -5,7 +5,8 @@
 import { Cache } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
-import { loadProjects, loadWorkspacePlugins } from '../orchestrator/index.js'
+import { loadProjects } from '../orchestrator/index.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 import {
   buildPackageGraph,
   computeWorkspaceFingerprint,
@@ -14,7 +15,6 @@ import {
   loadProjectConfig,
   loadWorkspace,
   lockfilePath,
-  resolveCacheDir,
   type ProjectMeta,
 } from '../workspace/index.js'
 import { formatBytes } from './format.js'
@@ -26,11 +26,7 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   }
   const root = await findWorkspaceRoot(process.cwd())
   const metas = await listProjects(await loadWorkspace(root))
-  const warn = (m: string): void => {
-    process.stderr.write(`${m}\n`)
-  }
-  const { workspaceConfig, plugins } = await loadWorkspacePlugins(root, warn)
-  const cacheDir = resolveCacheDir(root, workspaceConfig)
+  const { plugins, cacheDir } = await loadCliWorkspace(root)
   const cache = new Cache(cacheDir)
   let stats
   let taskCount = 0
@@ -51,7 +47,7 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
         closure: false,
         lock: null,
         evalCache: { store: cache, workspaceFingerprint: await computeWorkspaceFingerprint(root) },
-        warn,
+        warn: warnToStderr,
       })
       for (const p of loaded.projects.values())
         taskCount += Object.keys(p.config.tasks ?? {}).length

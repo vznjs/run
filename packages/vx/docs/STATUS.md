@@ -780,6 +780,16 @@ but found end of file`, nothing else, because Bun's `BuildMessage`
     the mapper can see are listed once; the `vx migrate` renderer's
     opaque preset spread stays as written, so a generated config can
     still repeat one — the user's file to tidy.
+12. DONE: the `config` stage reaches every verb. The stage is documented
+    to shape `cacheDir`, and `vx run` honoured that — while `vx last`,
+    `vx why`, `vx cache prune`, `vx watch` and plugin verbs resolved
+    the directory from the raw file, so a plugin that moved the cache
+    left `last` with no runs and `prune` pruning nothing (the very
+    no-op the prune code's own comment warned about). One CLI loader
+    (`cli/workspace-config.ts:loadCliWorkspace`) applies the stage
+    and derives the directory from the result; every verb goes
+    through it. Pinned end to end with a plugin that moves the cache:
+    `last`, `why`, `info` and `prune` all find the run.
 
 ## In flight
 
