@@ -14,7 +14,7 @@ import {
 } from '../src/workspace/fingerprint.js'
 import type { ProjectMeta } from '../src/workspace/workspace.js'
 import { listProjects, loadWorkspace } from '../src/workspace/index.js'
-import { workspaceGlobOwners } from '../src/cli/run.js'
+import { workspaceGlobOwners } from '../src/cli/select.js'
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
   // -c commit.gpgsign=false defends against environments (CI sandboxes,

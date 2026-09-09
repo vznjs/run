@@ -901,6 +901,15 @@ function`); the seam now checks the returned shape once and refuses
     with the same warning a throwing hook gets. `graph` was already
     right: a missing edge target and a cycle both name the plugin. The
     plugins guide gained a "What core refuses" list for items 23–24.
+25. DONE: `cli/run.ts` composed: what a run is asked to run (the
+    `--filter` resolution, `--affected`'s orphan owners, the cwd
+    project, the interactive picker) is `cli/select.ts`; run.ts keeps
+    argument parsing, option resolution, the verb and the summary
+    (837 → 659 lines). Pure code motion. Day-end warm A/B against
+    main (c0b20ca), 1000 projects, interleaved both orders: min
+    296/304 and 302/295, med 310/313 and 325/320; at 20 reps 310/313.
+    Within this box's run-to-run jitter (the baseline itself moved
+    296 → 310 between runs) and no `VX_TIMING` stage moved.
 
 ## In flight
 
