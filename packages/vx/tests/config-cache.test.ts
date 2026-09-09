@@ -136,6 +136,11 @@ describe('configEvalKey', () => {
     "global['proc' + 'ess'].env.HOME",
     "self['proc' + 'ess'].env.HOME",
     'Temporal.Now.instant().epochMilliseconds',
+    // `Function` reached through a PROPERTY name (the deny-list matched the
+    // identifier only), with the impure code inside a literal it strips;
+    // and the one string method whose answer depends on the host locale.
+    "({}).constructor.constructor('return process.env.HOME')()",
+    "['b', 'a'].sort((x, y) => x.localeCompare(y))[0]",
   ])('refuses to cache a config that mentions %s', async (expr) => {
     const cfg = await write(
       'packages/r/vx.config.mjs',

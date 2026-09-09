@@ -95,9 +95,12 @@ const MAX_CLOSURE_FILES = 32
 // `global` and `self` are live objects in Bun (aliases of `globalThis`), so
 // a computed `global['proc' + 'ess']` reaches process without ever
 // spelling it; `Temporal` is a clock. All three were CACHED AS PURE before
-// they were listed (2026-09-03).
+// they were listed (2026-09-03). `constructor` reaches `Function` through a
+// property name (`({}).constructor.constructor('return process')()`, the
+// body hidden in a literal the strip removes) and `localeCompare` answers
+// by the host locale; both listed 2026-09-09.
 const IMPURE_RE =
-  /\b(?:process|Bun|globalThis|global|self|fetch|Date|Temporal|Intl|crypto|performance|navigator|require|eval|Function|await|toLocale\w*)\b|import\s*\.\s*meta|Math\s*\.\s*random|\bimport\s*\(/
+  /\b(?:process|Bun|globalThis|global|self|fetch|Date|Temporal|Intl|crypto|performance|navigator|require|eval|Function|constructor|localeCompare|await|toLocale\w*)\b|import\s*\.\s*meta|Math\s*\.\s*random|\bimport\s*\(/
 
 // Static `import … from '…'` / `export … from '…'` / `import '…'` forms.
 // `[^;'"]*?` spans newlines, so multi-line specifier lists match.
