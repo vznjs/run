@@ -575,8 +575,32 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       })
     }
 
+    // Under `continueMode: 'always'` a task runs although an upstream failed.
+    // Its key is the healthy one (pure-input hashing) but its bytes are not,
+    // so the taint is tracked here and the task's save withheld — and it
+    // propagates through every success built on it, or a grand-dependent
+    // would cache the same partial tree one hop later. Only this mode ever
+    // executes a task behind a failure; the other modes skip it, so the
+    // warm path of a default run carries no check.
+    const taintOn = options.continueMode === 'always'
+    const tainted = new Set<string>()
+    const isTainted = (upstream: TaskOutcome[]): boolean =>
+      taintOn &&
+      upstream.some(
+        // A restore-tier task may run before its deps and see holes here;
+        // it never saves anyway (a hit restores), so a hole is not taint.
+        (u) =>
+          u !== undefined &&
+          (u.status === 'failed' ||
+            u.status === 'aborted' ||
+            u.status === 'skipped' ||
+            tainted.has(u.node.id)),
+      )
+
     const buildExecuteArgs = (node: TaskNode, upstream: TaskOutcome[], reuseProbe = true) => {
       const probe = reuseProbe ? shortCircuit.preProbed.get(node.id) : undefined
+      const taint = isTainted(upstream)
+      if (taint) tainted.add(node.id)
       return {
         node,
         upstream,
@@ -600,6 +624,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
         gitFilesCache,
         hashCache,
         ...(probe !== undefined ? { preProbed: probe } : {}),
+        ...(taint ? { taintedUpstream: true } : {}),
       }
     }
 

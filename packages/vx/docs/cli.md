@@ -1558,8 +1558,13 @@ down with it:
   tasks finish naturally; everything not yet started (cache restores
   included) completes as skipped.
 - **`always`** (bare `--continue`): dependents run even when an
-  upstream failed. Sound under pure-input hashing — a failed upstream
-  still carries its input key, so dependents derive exactly the keys a
-  healthy run derives.
+  upstream failed — to surface every failure in one pass. A task
+  downstream of a failure (directly, or through successes built on it)
+  runs and cleans its outputs as usual but is **never saved**: under
+  pure-input hashing its key is the one a healthy run derives, while its
+  bytes were built on a partial tree, so caching it would hand the next
+  clean run a stale hit. A cache hit still restores (that artifact came
+  from a healthy run), and the next run without the failure rebuilds the
+  rest.
 
 The mode rides the wire, so distributed runs honor it.

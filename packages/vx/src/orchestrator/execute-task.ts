@@ -120,6 +120,16 @@ export interface ExecuteArgs {
    * Absent → probe lazily, exactly as today (unstable / unclassified).
    */
   preProbed?: { hash: string; hit: CacheEntry | null }
+  /**
+   * `continueMode: 'always'` let this task run although an upstream —
+   * directly or through a chain of successes — failed or aborted. It still
+   * cleans its outputs and runs, and a cache HIT still restores (a hit is a
+   * healthy run's bytes), but its own result is never saved: the key it
+   * derives is the one a healthy run derives (pure-input hashing), while
+   * the bytes were built on a partial tree, so a save here is the next
+   * clean run's stale hit.
+   */
+  taintedUpstream?: boolean
 }
 
 /**
@@ -261,6 +271,9 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
   const remoteOnly = args.remoteOnly === true
   const willRead = !remoteOnly && cfgCacheable && (policy.localRead || policy.remoteRead)
   const willWrite = !remoteOnly && cfgCacheable && (policy.localWrite || policy.remoteWrite)
+  // `willWrite` governs output hygiene (clean before exec); the save itself
+  // is also withheld from a task downstream of a failure (see `taintedUpstream`).
+  const willSave = willWrite && args.taintedUpstream !== true
 
   // Retain only what is read back. `cache.save` below is the single consumer
   // of `result.stdout`, and it runs only when this task will WRITE an entry;
@@ -272,7 +285,7 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
   // Deferral is decided at plan time and only ever set for a remote-placed,
   // eligibility-cleared task; it suppresses this machine's clean AND save.
   const deferralRequested = args.download === 'deferred'
-  const capture: CaptureConfig = { stdout: willWrite, stderr: false }
+  const capture: CaptureConfig = { stdout: willSave, stderr: false }
 
   const outputs = cacheCfg?.outputs.files ?? []
   const wsOutputs = cacheCfg?.outputs.workspaceFiles ?? []
@@ -629,7 +642,7 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
 
   const wallclockEndNs = process.hrtime.bigint() - args.runStartHrTimeNs
 
-  if (effectiveExitCode === 0 && willWrite && deferralRequested) {
+  if (effectiveExitCode === 0 && willSave && deferralRequested) {
     // The outputs never landed here: no artifact, no rows. A partial local
     // record (a row with no artifact) is exactly the corrupt-entry shape
     // `restoreOutputs` refuses, so writing none is the only clean answer.
@@ -648,7 +661,7 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
         },
       })
     }
-  } else if (effectiveExitCode === 0 && willWrite) {
+  } else if (effectiveExitCode === 0 && willSave) {
     const endResolve = span('miss: resolve outputs')
     const outputFiles = await resolveOutputs({
       projectDir: node.projectDir,
