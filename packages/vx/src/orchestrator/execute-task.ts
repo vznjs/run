@@ -19,6 +19,7 @@ import {
   runPersistent,
   resolveSandboxConfig,
   shellQuote,
+  wrapSandboxedCommand,
   signalExitCode,
   type CaptureConfig,
   type ExecuteRequest,
@@ -194,13 +195,25 @@ async function executePersistentTask(args: ExecuteArgs): Promise<TaskOutcome> {
   // regex matcher sees the unmodified output. When it's absent the
   // task is "ready on spawn" — we can safely append forwardArgs in
   // the same way runCommand does.
+  const plainCommand =
+    step.persistent.readyWhen !== undefined
+      ? step.command
+      : effectiveForwardArgs.length > 0
+        ? step.command + ' ' + effectiveForwardArgs.map(shellQuote).join(' ')
+        : step.command
+  // A persistent task declaring `exec.sandbox` runs inside it like any
+  // other: the same grants, the same walls. What it cannot have is the
+  // violation REPORT — that reads the trace after the child exits, and a
+  // server exits when the run tears it down. Enforced, not reported.
+  // (Until 2026-09-09 the block was accepted and silently ignored.)
+  let command = plainCommand
+  if (step.sandbox !== undefined) {
+    const sb = await sandboxRequestFor(node, step.sandbox, args.workspaceRoot)
+    command = (await wrapSandboxedCommand({ command: plainCommand, cwd: node.projectDir, ...sb }))
+      .wrapped
+  }
   const persistentOpts: Parameters<typeof runPersistent>[0] = {
-    command:
-      step.persistent.readyWhen !== undefined
-        ? step.command
-        : effectiveForwardArgs.length > 0
-          ? step.command + ' ' + effectiveForwardArgs.map(shellQuote).join(' ')
-          : step.command,
+    command,
     cwd: node.projectDir,
     env,
     onStdout: (chunk) => log.taskStdout(node, chunk),
@@ -587,57 +600,7 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
       outputs: { files: outputs, workspaceFiles: wsOutputs },
     }
     if (!userSandbox) return base
-    // The sandbox derives NOTHING from `cache` (owner, 2026-09-05). Those
-    // are two different questions: `cache.inputs` says what INVALIDATES the
-    // task, `sandbox.allow` says what it may TOUCH. Deriving one from the
-    // other coupled them in both directions — a declaration added for
-    // caching silently widened the sandbox, and a path the task needed had
-    // to be laundered through the cache key to get it. A sandboxed task
-    // declares its own reads and writes.
-    //
-    // `node_modules` is the one grant core still makes, and it is not
-    // cache-derived: it is where the task's own PATH gets its `.bin`
-    // entries, and denying it made the sandbox unusable for anything that
-    // imports a dependency (`bun build --compile` died with only
-    // `error: An unknown error occurred (Unexpected)`; owner call
-    // 2026-09-04).
-    const depDirs = [
-      path.join(node.projectDir, 'node_modules'),
-      path.join(args.workspaceRoot, 'node_modules'),
-    ]
-    // A workspace dependency is a SYMLINK in `node_modules` pointing at a
-    // sibling project, so granting `node_modules` grants a link whose
-    // target is outside it. That target is a dependency, not a reach-out:
-    // no project config should have to name a sibling to import what its
-    // own `package.json` depends on (owner, 2026-09-05).
-    depDirs.push(...(await linkedDeps(depDirs)))
-    // bwrap cannot --bind a path that does not exist: the bind silently
-    // becomes a no-op and writes to it appear to succeed but never land.
-    // Pre-create what the task said it will write.
-    await prepareOutputsForBind(node.projectDir, cfg.exec?.sandbox?.allow?.write ?? [])
-    return {
-      ...base,
-      sandbox: {
-        // Only what the task declared, plus node_modules. Write paths are
-        // readable too: a task that writes `dist/x` expects to read it back
-        // (`tsc --incremental` re-reads .tsbuildinfo).
-        baseAllowRead: depDirs,
-        baseAllowWrite: [],
-        // Enforcement anchors at the WORKSPACE ROOT: a task may not leave
-        // its project, so every sibling and every root file is denied.
-        // Reporting is a different question — see `reportWithin` below.
-        baseDenyRead: [args.workspaceRoot],
-        // …but only denials INSIDE the project are worth reporting. A task
-        // bumping into the wall is the sandbox working, not a finding: the
-        // walk `bun build --compile` makes from `/` down to its cwd lists
-        // every directory on the way (traced 2026-09-05) and no config can
-        // declare that away. What DOES matter is an undeclared touch of the
-        // project's own files — that is the one that breaks the cache key,
-        // because the key folds this project's inputs.
-        reportWithin: node.projectDir,
-        config: resolveSandboxConfig(cfg.exec?.sandbox ?? {}, node.projectDir),
-      },
-    }
+    return { ...base, sandbox: await sandboxRequestFor(node, step.sandbox!, args.workspaceRoot) }
   }
 
   const wallclockEndNs = process.hrtime.bigint() - args.runStartHrTimeNs
@@ -758,6 +721,65 @@ async function executeCachedTask(args: ExecuteArgs): Promise<TaskOutcome> {
           sandboxViolationLines: finalViolations.map((v) => v.line),
         }
       : {}),
+  }
+}
+
+/**
+ * The sandbox half of an `ExecuteRequest` for one task, shared by the
+ * cached path (through the executor) and the persistent path (spawned here).
+ *
+ * The sandbox derives NOTHING from `cache` (owner, 2026-09-05). Those are
+ * two different questions: `cache.inputs` says what INVALIDATES the task,
+ * `sandbox.allow` says what it may TOUCH. Deriving one from the other
+ * coupled them in both directions — a declaration added for caching
+ * silently widened the sandbox, and a path the task needed had to be
+ * laundered through the cache key to get it. A sandboxed task declares
+ * its own reads and writes.
+ *
+ * `node_modules` is the one grant core still makes, and it is not
+ * cache-derived: it is where the task's own PATH gets its `.bin` entries,
+ * and denying it made the sandbox unusable for anything that imports a
+ * dependency (`bun build --compile` died with only `error: An unknown
+ * error occurred (Unexpected)`; owner call 2026-09-04).
+ */
+async function sandboxRequestFor(
+  node: TaskNode,
+  sandbox: NonNullable<ExecConfig['sandbox']>,
+  workspaceRoot: string,
+): Promise<NonNullable<ExecuteRequest['sandbox']>> {
+  const depDirs = [
+    path.join(node.projectDir, 'node_modules'),
+    path.join(workspaceRoot, 'node_modules'),
+  ]
+  // A workspace dependency is a SYMLINK in `node_modules` pointing at a
+  // sibling project, so granting `node_modules` grants a link whose
+  // target is outside it. That target is a dependency, not a reach-out:
+  // no project config should have to name a sibling to import what its
+  // own `package.json` depends on (owner, 2026-09-05).
+  depDirs.push(...(await linkedDeps(depDirs)))
+  // bwrap cannot --bind a path that does not exist: the bind silently
+  // becomes a no-op and writes to it appear to succeed but never land.
+  // Pre-create what the task said it will write.
+  await prepareOutputsForBind(node.projectDir, sandbox.allow?.write ?? [])
+  return {
+    // Only what the task declared, plus node_modules. Write paths are
+    // readable too: a task that writes `dist/x` expects to read it back
+    // (`tsc --incremental` re-reads .tsbuildinfo).
+    baseAllowRead: depDirs,
+    baseAllowWrite: [],
+    // Enforcement anchors at the WORKSPACE ROOT: a task may not leave
+    // its project, so every sibling and every root file is denied.
+    // Reporting is a different question — see `reportWithin` below.
+    baseDenyRead: [workspaceRoot],
+    // …but only denials INSIDE the project are worth reporting. A task
+    // bumping into the wall is the sandbox working, not a finding: the
+    // walk `bun build --compile` makes from `/` down to its cwd lists
+    // every directory on the way (traced 2026-09-05) and no config can
+    // declare that away. What DOES matter is an undeclared touch of the
+    // project's own files — that is the one that breaks the cache key,
+    // because the key folds this project's inputs.
+    reportWithin: node.projectDir,
+    config: resolveSandboxConfig(sandbox, node.projectDir),
   }
 }
 

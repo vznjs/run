@@ -117,6 +117,55 @@ describe.skipIf(!available)(`sandbox-runtime`, () => {
     await rm(fixture.root, { recursive: true, force: true })
   })
 
+  // ─── Persistent tasks ──────────────────────────────────────────
+
+  // A dev server declaring `exec.sandbox` gets the same walls as a one-shot
+  // task. Until 2026-09-09 the block was accepted and ignored — the config
+  // claimed a guarantee the code did not provide. The server here reports
+  // what it could read of a WORKSPACE-ROOT file (outside the project, so
+  // denied) before announcing readiness; the control is the same task with
+  // no block, which reads it.
+  const persistentProbe = (sandbox: boolean): string => `
+    export default {
+      tasks: {
+        dev: {
+          exec: {
+            command: '(cat ../../secret.txt && echo LEAKED) 2>/dev/null || echo DENIED; echo Listening; sleep 30',
+            persistent: { readyWhen: 'Listening' },
+            timeout: 15000,
+            ${sandbox ? "sandbox: { allow: { read: ['**/*'] } }," : ''}
+          },
+        },
+      },
+    }
+  `
+
+  it(
+    'a persistent task runs inside its sandbox: a read outside the project is denied',
+    async () => {
+      await writeFile(path.join(fixture.root, 'secret.txt'), 'top secret\n')
+      await addProject(fixture.root, 'srv', { files: {}, config: persistentProbe(true) })
+      const r = await run({ cwd: fixture.root, tasks: ['dev'], log: collectingLogger(fixture) })
+      expect(r.outcomes[0]?.status).toBe('success')
+      const out = fixture.log.join('\n')
+      expect(out).toContain('DENIED')
+      expect(out).not.toContain('LEAKED')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'CONTROL: the same server with no sandbox block reads the file',
+    async () => {
+      await writeFile(path.join(fixture.root, 'secret.txt'), 'top secret\n')
+      await addProject(fixture.root, 'srv', { files: {}, config: persistentProbe(false) })
+      const r = await run({ cwd: fixture.root, tasks: ['dev'], log: collectingLogger(fixture) })
+      expect(r.outcomes[0]?.status).toBe('success')
+      expect(fixture.log.join('\n')).toContain('LEAKED')
+    },
+    TIMEOUT,
+  )
+
   // ─── Activation ─────────────────────────────────────────────────
 
   it(

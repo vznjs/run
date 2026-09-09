@@ -606,12 +606,14 @@ from …/node_modules/astro/dist/cli/index.js` — astro's OWN
    the per-call one — the probe dies on
    `socket(1, 1, 0): Operation not permitted`. Arming it from the union
    at `initSandbox`, as `allowedDomains` already is, is the way in.
-4. **Persistent tasks silently ignore `exec.sandbox`.** `runPersistent`
-   has no sandbox path, so `vx-docs`'s `dev` and `preview` declare a
-   block that does nothing — a config claiming a guarantee the code does
-   not provide. Either wrap them (blocked on 3 for anything that serves)
-   or refuse the block at load. Refusing is honest today; wrapping is
-   right once 3 lands.
+4. DONE 2026-09-09: persistent tasks run inside their `exec.sandbox`.
+   `wrapSandboxedCommand` is the enforcement half of `runSandboxed` on
+   its own and the persistent path spawns through it; the violation
+   report stays one-shot only, since it reads the trace after exit and a
+   server exits at teardown. `vx-docs`'s `dev` and `preview` blocks mean
+   what they say now. Pinned in the unsafe suite: a sandboxed server that
+   reads a workspace-root file sees the denial, the same server without
+   the block reads it.
 5. **macOS violation reporting is lossy while any violation fails the
    task.** The unified log drops records under load, so the same task can
    pass or fail run to run. Enforcement is unaffected — the OS denied the
@@ -720,7 +722,10 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    in the review entry. LEADS from the profile, not taken: (a) each
    `vx.config.ts` is stat'ed twice on the warm path — `findConfigFile`
    in discovery and again for its identity in the config load;
-   threading the discovery stat into `hashFiles` saves ~1,000 stats;
+   threading the discovery stat into `hashFiles` saves ~1,000 stats.
+   REFUTED on the cheaper half (2026-09-09): making discovery's stat
+   synchronous ties (interleaved, 8 reps: min 57.6 vs 62.5 ms, median
+   68 vs 67) because the async stats overlap the package.json reads;
    (b) the hit path's `output dirs` + `output stat` are ~2 stats per
    task and inherent to the proof; (c) `record history` is ~10 ms for
    1,000 rows here. Closing figures for 2026-09-04 (load 5.7, best of 5): 1000

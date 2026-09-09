@@ -15,6 +15,7 @@ export {
   resetSandbox,
   resolveSandboxConfig,
   runSandboxed,
+  wrapSandboxedCommand,
   type DeniedCall,
   type ResolvedSandboxConfig,
   type SandboxViolation,
