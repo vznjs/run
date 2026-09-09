@@ -982,8 +982,9 @@ function`); the seam now checks the returned shape once and refuses
     `bun bin.ts` overstates the shipped wall time by about that much;
     the 1000-project figures are dominated by work the transpile does
     not touch. When a small-workspace number matters, time the
-    bytecode binary (`scratchpad/abbin.ts` did; `vx-bench` has no
-    binary option yet — add one before quoting it). Inside the
+    bytecode binary: `VX_BIN=<binary> bun packages/vx-bench/run.ts`
+    (added the same day; 20 projects, median of 3: warm 109 → 64 ms,
+    restore 134 → 83, cold 203 → 143 through the binary). Inside the
     binary's 71 ms on two packages: startup 25–30 (the runtime's own),
     the early `git ls-files` spawn 9, the per-run git context spawn
     (commit + branch for the invocations row) ~4, the status walk, and

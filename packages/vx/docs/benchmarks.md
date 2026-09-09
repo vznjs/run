@@ -238,3 +238,5 @@ imports, no `process.env`), and a correctness-critical heuristic isn't
 worth ~200 ms. Configs are programs: they re-run, they don't cache.
 `vx run --frozen` is the sound version of that win for CI — it loads the
 committed `vx-lock.json` with zero evaluation (~10–21% off the warm path).
+
+**Source vs binary.** The runner invokes `bun packages/vx/src/bin.ts` by default, which pays ~40 ms of transpile per run that the `--bytecode` release binary does not (2026-09-09: 114 vs 71 ms on a two-package workspace; 20 projects warm 109 vs 64 ms). Set `VX_BIN=<path>` to time the shipped binary instead.

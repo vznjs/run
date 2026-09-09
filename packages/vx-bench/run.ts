@@ -1,6 +1,7 @@
 // Reproducible local benchmark for the table in docs/benchmarks.md.
 //
 //   bun packages/vx-bench/run.ts [projects=100] [reps=3]
+//   VX_BIN=dist/vx-linux-x64 bun packages/vx-bench/run.ts 100 5   # the shipped binary
 //
 // Measures three conditions over the synthetic workspace from
 // bench/generate.ts, reporting the median of `reps` runs each:
@@ -10,9 +11,12 @@
 //                    path; the steady-state dev loop)
 //   warm-restore   — outputs deleted, cache intact (full extract path)
 //
-// vx is invoked as a real subprocess (`bun src/bin.ts run build -r`)
-// so process startup, discovery, and config evaluation are included —
-// the same costs a user pays.
+// vx is invoked as a real subprocess (`bun src/bin.ts run build --all`,
+// or `$VX_BIN run build --all`) so process startup, discovery, and config
+// evaluation are included — the same costs a user pays. The source path
+// pays ~40 ms of transpile per run that the `--bytecode` release binary
+// does not (measured 2026-09-09 on a two-package workspace: 114 vs
+// 71 ms), so a small-workspace number should be taken through VX_BIN.
 
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
@@ -21,6 +25,11 @@ import path from 'node:path'
 const projects = Number(process.argv[2] ?? 100)
 const reps = Number(process.argv[3] ?? 3)
 const vxRoot = path.resolve(import.meta.dir, '..', '..')
+const vxBin = process.env['VX_BIN']
+const vxCmd: string[] =
+  vxBin !== undefined && vxBin !== ''
+    ? [path.resolve(vxBin)]
+    : [process.execPath, path.join(vxRoot, 'packages', 'vx', 'src', 'bin.ts')]
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b)
@@ -30,13 +39,7 @@ function median(xs: number[]): number {
 async function vxRun(cwd: string): Promise<number> {
   const t0 = Bun.nanoseconds()
   const p = Bun.spawn({
-    cmd: [
-      process.execPath,
-      path.join(vxRoot, 'packages', 'vx', 'src', 'bin.ts'),
-      'run',
-      'build',
-      '--all',
-    ],
+    cmd: [...vxCmd, 'run', 'build', '--all'],
     cwd,
     stdout: 'pipe',
     stderr: 'pipe',
