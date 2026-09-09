@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Database } from 'bun:sqlite'
 import { describe, expect, it } from 'bun:test'
-import { Cache, type RunRecord } from '../src/cache/index.js'
+import { Cache, type InvocationRecord, type RunRecord } from '../src/cache/index.js'
 import { EmptyHistoryProvider, LocalHistoryProvider } from '../src/orchestrator/index.js'
 
 function mkRun(args: {
@@ -31,6 +31,47 @@ function mkRun(args: {
     wallclockStartNs: BigInt(args.startedAt) * 1_000_000n,
     wallclockEndNs: BigInt(args.startedAt + args.durationMs) * 1_000_000n,
     cacheHit: args.cacheHit ?? false,
+  }
+}
+
+/** A minimal invocation header; the window is counted in these. */
+function mkInvocation(runId: string, startedAt: number): InvocationRecord {
+  return {
+    runId,
+    command: 'vx run test',
+    requestedTasks: JSON.stringify(['test']),
+    cachePolicy: 'lR,lW',
+    concurrency: 1,
+    flow: null,
+    startedAt,
+    endedAt: startedAt + 10,
+    totalDurationMs: 10,
+    taskCount: 1,
+    failedCount: 0,
+    hitCount: 0,
+    hitLocalCount: 0,
+    hitRemoteCount: 0,
+    exitOk: true,
+    commitSha: null,
+    branch: null,
+    dirty: null,
+    ci: false,
+    ciProvider: null,
+    host: null,
+    os: null,
+    arch: null,
+    vxVersion: '0.0.0',
+    tags: '{}',
+  }
+}
+
+/** One invocation per row, so each row is its own slot in the window. */
+function recordAsInvocations(cache: Cache, rows: readonly RunRecord[]): void {
+  for (const row of rows) {
+    cache.recordRunBundle({
+      runs: [{ ...row, runId: `inv-${row.startedAt}` }],
+      invocation: mkInvocation(`inv-${row.startedAt}`, row.startedAt),
+    })
   }
 }
 
@@ -239,6 +280,190 @@ describe('LocalHistoryProvider', () => {
       expect(build.runs).toBe(5)
       expect(build.hitRate).toBeCloseTo(1 / 5, 5)
       expect(test.runs).toBe(2)
+    } finally {
+      cache.close()
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+  })
+
+  it('windows on the last `recent` INVOCATIONS, not the whole table', async () => {
+    const cache = makeCache()
+    try {
+      // Five invocations, one row each; the oldest two carry the outliers
+      // (a failure and a slow success) that a whole-table read would count.
+      recordAsInvocations(cache, [
+        mkRun({
+          hash: 'a',
+          project: 'pkg',
+          task: 'test',
+          status: 'failed',
+          durationMs: 9000,
+          startedAt: 1000,
+        }),
+        mkRun({
+          hash: 'b',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 9000,
+          startedAt: 2000,
+        }),
+        mkRun({
+          hash: 'c',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 100,
+          startedAt: 3000,
+        }),
+        mkRun({
+          hash: 'd',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 100,
+          startedAt: 4000,
+        }),
+        mkRun({
+          hash: 'e',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 100,
+          startedAt: 5000,
+        }),
+      ])
+      const db = (cache as unknown as { db: Database }).db
+      const windowed = (await new LocalHistoryProvider(db, 3).loadFor(['pkg#test'])).get(
+        'pkg#test',
+      )!
+      expect(windowed.runs).toBe(3)
+      expect(windowed.successRate).toBe(1)
+      expect(windowed.p99DurationMs).toBe(100)
+      // Control: a window wide enough to reach the outliers sees them.
+      const wide = (await new LocalHistoryProvider(db, 5).loadFor(['pkg#test'])).get('pkg#test')!
+      expect(wide.runs).toBe(5)
+      expect(wide.successRate).toBeCloseTo(4 / 5, 5)
+      expect(wide.p99DurationMs).toBe(9000)
+      // The unit is the INVOCATION: two later runs that never touched the
+      // task still take two of the three slots, leaving it one row — a
+      // per-pair "last 3 rows" read would report three.
+      recordAsInvocations(cache, [
+        mkRun({
+          hash: 'x',
+          project: 'other',
+          task: 'lint',
+          status: 'success',
+          durationMs: 1,
+          startedAt: 6000,
+        }),
+        mkRun({
+          hash: 'y',
+          project: 'other',
+          task: 'lint',
+          status: 'success',
+          durationMs: 1,
+          startedAt: 7000,
+        }),
+      ])
+      const crowded = (await new LocalHistoryProvider(db, 3).loadFor(['pkg#test'])).get('pkg#test')!
+      expect(crowded.runs).toBe(1)
+    } finally {
+      cache.close()
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+  })
+
+  it('takes the flakiness signal from the same window as the rates', async () => {
+    const cache = makeCache()
+    try {
+      // Key K failed and then passed — the definitional flake — but both rows
+      // sit outside a 2-invocation window; inside it, one failure on its own
+      // key is a legitimate break.
+      recordAsInvocations(cache, [
+        mkRun({
+          hash: 'K',
+          project: 'pkg',
+          task: 'test',
+          status: 'failed',
+          durationMs: 10,
+          startedAt: 1000,
+        }),
+        mkRun({
+          hash: 'K',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 10,
+          startedAt: 2000,
+        }),
+        mkRun({
+          hash: 'L',
+          project: 'pkg',
+          task: 'test',
+          status: 'failed',
+          durationMs: 10,
+          startedAt: 3000,
+        }),
+        mkRun({
+          hash: 'M',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 10,
+          startedAt: 4000,
+        }),
+      ])
+      const db = (cache as unknown as { db: Database }).db
+      expect(
+        (await new LocalHistoryProvider(db, 2).loadFor(['pkg#test'])).get('pkg#test')!.failureMode,
+      ).toBe('stable')
+      // Control: the whole history sees K's mixed outcome.
+      expect(
+        (await new LocalHistoryProvider(db, 4).loadFor(['pkg#test'])).get('pkg#test')!.failureMode,
+      ).not.toBe('stable')
+    } finally {
+      cache.close()
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+  })
+
+  it('answers for every requested pair in the slice and nothing else', async () => {
+    const cache = makeCache()
+    try {
+      recordAsInvocations(cache, [
+        mkRun({
+          hash: 'a',
+          project: 'pkg',
+          task: 'build',
+          status: 'success',
+          durationMs: 10,
+          startedAt: 1000,
+        }),
+        mkRun({
+          hash: 'b',
+          project: 'pkg',
+          task: 'test',
+          status: 'success',
+          durationMs: 10,
+          startedAt: 2000,
+        }),
+        mkRun({
+          hash: 'c',
+          project: 'other',
+          task: 'build',
+          status: 'success',
+          durationMs: 10,
+          startedAt: 3000,
+        }),
+      ])
+      const db = (cache as unknown as { db: Database }).db
+      const table = await new LocalHistoryProvider(db, 10).loadFor([
+        'pkg#build',
+        'other#build',
+        'nope#x',
+      ])
+      expect([...table.keys()].sort()).toEqual(['other#build', 'pkg#build'])
     } finally {
       cache.close()
       rmSync(cacheDir, { recursive: true, force: true })

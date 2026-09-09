@@ -670,9 +670,13 @@ CREATE TABLE runs (
   cache_hit           INTEGER           -- 0/1; convenience for flamegraph color
 );
 
-CREATE INDEX runs_hash       ON runs(hash);
+-- Two indexes, both append-only under a run's inserts: every row of a run
+-- carries the same run_id and a started_at newer than everything before it.
+-- There is deliberately NO (project, task) index — it scattered every run's
+-- rows over one B-tree leaf per pair (a 1,000-hit warm run's record stage
+-- went 57–79 ms → 14–19 ms without it) while its readers gained nothing;
+-- the history reader bounds its scan by rowid instead (see history.md).
 CREATE INDEX runs_started_at ON runs(started_at);
-CREATE INDEX runs_project    ON runs(project, task);
 CREATE INDEX runs_run_id     ON runs(run_id);
 
 -- Every non-group, non-aborted outcome of a run gets a row, so

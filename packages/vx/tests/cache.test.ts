@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import type { Database } from 'bun:sqlite'
 import {
   Cache,
   type CacheKeyInput,
@@ -1487,6 +1488,36 @@ describe('Cache.recordRunBundle (Tier 3)', () => {
       expect(cache.stats().runCountLast24h).toBe(2)
     } finally {
       cache.close()
+    }
+  })
+
+  it('keeps exactly the two append-only indexes on runs and sheds the dropped ones', async () => {
+    // A (project, task) index scattered every run's inserts over one leaf
+    // per pair (record stage 57–79 ms vs 14–19 ms at 1,000 hits); the
+    // history reader bounds its scan by rowid instead. Any index added here
+    // must be append-only under a run's inserts, and the DROPs must still
+    // clear a database created before they left.
+    const indexesOnRuns = (db: Database): string[] =>
+      (
+        db
+          .query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'runs'")
+          .all() as { name: string }[]
+      )
+        .map((r) => r.name)
+        .sort()
+    const cache = new Cache(cacheDir)
+    try {
+      expect(indexesOnRuns(cache.dbHandle())).toEqual(['runs_run_id', 'runs_started_at'])
+      cache.dbHandle().exec('CREATE INDEX runs_project ON runs(project, task)')
+      cache.dbHandle().exec('CREATE INDEX runs_ended ON runs(ended_at)')
+    } finally {
+      cache.close()
+    }
+    const reopened = new Cache(cacheDir)
+    try {
+      expect(indexesOnRuns(reopened.dbHandle())).toEqual(['runs_run_id', 'runs_started_at'])
+    } finally {
+      reopened.close()
     }
   })
 

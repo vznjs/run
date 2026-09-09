@@ -18,18 +18,22 @@ const SCHEDULE_HISTORY_PLUGIN = 'vx/schedule-history'
 const DEFAULT_DURATION_MS = 1000
 
 export interface ScheduleHistoryOptions {
-  /** How many recent runs per task to learn from. Default 20. */
+  /** How many recent invocations to learn from. Default 20. */
   readonly window?: number
 }
+
+// The provider's own default (50) serves `--dry` predictions; an ordering
+// hint needs less and reads a 2.5× smaller slice of the run history.
+const DEFAULT_WINDOW = 20
 
 export function scheduleHistoryPlugin(options: ScheduleHistoryOptions = {}): VxPlugin {
   return {
     name: SCHEDULE_HISTORY_PLUGIN,
     async schedule(nodes, ctx) {
-      const provider =
-        options.window === undefined
-          ? new LocalHistoryProvider(ctx.localCache.dbHandle())
-          : new LocalHistoryProvider(ctx.localCache.dbHandle(), options.window)
+      const provider = new LocalHistoryProvider(
+        ctx.localCache.dbHandle(),
+        options.window ?? DEFAULT_WINDOW,
+      )
       let table: HistoryTable
       try {
         table = await provider.loadFor([...nodes.keys()])

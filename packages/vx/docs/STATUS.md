@@ -562,6 +562,44 @@ place with pins:
   rewrites code fragments in prose into multi-line objects, and moves
   spaces into inline code spans at wrap points, which is also why this
   entry carries no inline code.
+- Two warm-path costs the profile put on the hit path and on the
+  record stage, both taken the same day. (1) The up-to-date proof of a
+  hit stat'ed its recorded directories and output files through the
+  promise API, one thread-pool round trip each, and the scheduler's
+  concurrency is the worker count, so 1,000 hits on four workers
+  serialized those round trips: the run graph stage was 100 ms of a
+  175 ms run. A wider admission for the restore tier was probed first
+  and refuted (32 ties, 128 is worse): the cost was per-task CPU, not
+  waiting. Synchronous stat for the handful of paths a hit checks
+  (the 2026-09-02 measurement that chose the async form predates the
+  directory short-circuit, when a hit walked its whole tree): run
+  graph 100 to 54 ms, whole process 422 to 368 ms interleaved. The
+  artifact-existence probes on the entry reads went the same way
+  (1,000 probes: 7.5 to 2.9 ms). (2) The record stage wrote each run's
+  1,000 rows through a (project, task) index, and every pair's entries
+  sit on their own B-tree leaf once the table holds a few hundred runs
+  per pair, so each insert dirtied a page: 57 to 79 ms at 166k rows
+  against 14 to 19 ms without it, and growing with the table. A page
+  cache four times larger and mmap were both measured as no help. The
+  index served the history reader, and that reader was measured at 550
+  ms for a full 1,000-pair set with the index or without (the ranking
+  window sorts the pairs' rows either way). Both dropped, with the
+  ended-at index that only the retention prune read: the reader now
+  aggregates one rowid slice covering the last N invocations (rows are
+  appended one contiguous block per invocation, so no sort, no
+  ranking), 550 to 50 ms at window 50, and the schedule-history plugin
+  reads the 20-invocation window its doc always claimed. The
+  flakiness signal comes from the same window, keyed on one shared
+  SQL fragment with the all-time query vx why uses. vx why on an exact
+  id probes newest-first and stops at the first row. Whole-process
+  A/B at 1,000 projects with a 166k-row history, each arm on its own
+  workspace copy (the arms fight over one database: HEAD recreates
+  the index every run and the new code drops it), both orders, 10
+  reps: min 418 to 334 ms, median 443 to 355; the other order 441 to
+  340 and 540 to 386. Restore and cold runs tie both ways. The bench
+  harness cannot see the second half (it starts from an empty history
+  table) and its rows swing 15% between reps on this box, so its
+  figures are not the record here.
 
 ## In flight
 
@@ -726,9 +764,15 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    REFUTED on the cheaper half (2026-09-09): making discovery's stat
    synchronous ties (interleaved, 8 reps: min 57.6 vs 62.5 ms, median
    68 vs 67) because the async stats overlap the package.json reads;
-   (b) the hit path's `output dirs` + `output stat` are ~2 stats per
-   task and inherent to the proof; (c) `record history` is ~10 ms for
-   1,000 rows here. Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
+   (b) TAKEN 2026-09-09: the hit path's `output dirs` + `output stat`
+   are ~2 stats per task and inherent to the proof, but they were
+   thread-pool round trips; synchronous, the run graph stage halved
+   (review entry); (c) TAKEN 2026-09-09: `record history` was ~10 ms
+   on an empty table and 57–79 ms at 166k rows because of the
+   (project, task) index; dropped (review entry). Remaining on the
+   profile after both: discovery's async stat (42 ms native self time
+   at 1,000 projects, the one lead (a) above leaves), and the history
+   reader's slice scan for plugin users (~1 ms per 1,000 rows). Closing figures for 2026-09-04 (load 5.7, best of 5): 1000
    projects 159 ms warm / 538 ms with restore, 100 projects 66 ms /
    104 ms — the sandbox and CI work touched nothing the warm path
    runs. Closing figures

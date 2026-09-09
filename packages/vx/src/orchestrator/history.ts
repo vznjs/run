@@ -2,9 +2,10 @@
 // uses for predictive priority and `vx info --history` surfaces.
 //
 // The data has been in cache.db.runs since schema v11; what's new is
-// surfacing it. A single SQL CTE per run pulls the last N rows per
-// (project, task) pair; the result becomes a read-only snapshot for
-// the run's lifetime. Loaded once at prepareRun; never mutated mid-run.
+// surfacing it. One SQL statement per call pulls the last N executed rows
+// per (project, task) pair out of a rowid-bounded slice of the table; the
+// result becomes a read-only snapshot for the run's lifetime. Loaded once
+// by the `schedule` stage (or `--dry`); never mutated mid-run.
 //
 // Two providers:
 //   LocalHistoryProvider  — reads cache.db directly (zero-config).
@@ -13,7 +14,7 @@
 
 import type { Database } from 'bun:sqlite'
 import { EXECUTED_RUNS_SQL } from '../cache/index.js'
-import { classifyFailureMode } from './failure-mode.js'
+import { failureModeOf, mixedOutcomeKeysSql } from './failure-mode.js'
 import type { FailureMode } from './failure-mode.js'
 
 const DEFAULT_RECENT = 50
@@ -30,8 +31,8 @@ export interface TaskHistory {
   successRate: number
   /** Cache hit rate over the recent window ([0, 1]). */
   hitRate: number
-  /** Failure mode classification. Shares `classifyFailureMode` with
-   *  the run-history readers so the two surfaces cannot disagree. */
+  /** Failure mode classification over the same window (`failureModeOf`,
+   *  the one rule `vx why`'s all-time query also applies). */
   failureMode: FailureMode
 }
 
@@ -56,136 +57,123 @@ export class LocalHistoryProvider implements HistoryProvider {
     private readonly recent: number = DEFAULT_RECENT,
   ) {}
 
+  /**
+   * The window is the last `recent` INVOCATIONS, read as one rowid slice.
+   *
+   * `runs` has no (project, task) index: it cost every run a scattered
+   * B-tree write per task (2026-09-09, 1,000 warm hits: the record stage
+   * 57–79 ms with it, 14–19 ms without) and bought this reader nothing —
+   * ranking every pair's rows newest-first (`ROW_NUMBER` over a partition)
+   * sorted the whole table either way, 230 ms at 116k rows. Rows are
+   * appended in time order, one contiguous block per invocation, so the
+   * rows of the newest `recent` invocations are exactly `id >= MIN(id)` of
+   * the `recent`-th newest header — a primary-key range, no sort, plain
+   * aggregates, and at most one row per pair per invocation, so "the last
+   * `recent` invocations" IS the last `recent` runs for a pair that runs
+   * every time and whatever fewer it has for one that runs less often. A
+   * hint for ordering and prediction, not a ledger; `vx why` / `vx last`
+   * read by `run_id` and stay exact.
+   */
   async loadFor(taskIds: readonly string[]): Promise<HistoryTable> {
     const out = new Map<string, TaskHistory>()
     if (taskIds.length === 0) return out
 
-    // Split `project#task` into (project, task) pairs so the WHERE filters on a
-    // ROW-VALUE `IN (VALUES …)` the `runs(project, task)` index can SEARCH
-    // (seek) — filtering on the concatenated `project || '#' || task`
-    // expression forced a full index SCAN instead. Split on the FIRST `#`:
-    // task names never contain `#`, and a project name (a package name) never
-    // does either.
-    const pairs = (taskIds as string[]).map(splitTaskId)
-    const tupleParams = pairs.flat()
-    const tuplePlaceholders = pairs.map(() => '(?,?)').join(',')
-
-    // One CTE per call: rank rows per (project, task) descending by
-    // started_at, keep the top `recent`, aggregate. Cache-hit rows
-    // (cache_hit = 1) are excluded from the duration percentiles so
-    // p50/p99 reflect work the runner actually did. successRate +
-    // hitRate are computed over ALL recent rows.
-    //
-    // `skipped` rows are excluded from the window entirely: a skip is a task
-    // the run never executed, so it neither belongs in a success/hit RATE nor
-    // deserves to occupy one of the `recent` slots — a task whose upstream
-    // keeps breaking would otherwise push its own real history out of view.
-    const sql = `
-      WITH recent AS (
-        SELECT
-          project,
-          task,
-          status,
-          duration_ms,
-          cache_hit,
-          attempts,
-          ROW_NUMBER() OVER (PARTITION BY project, task ORDER BY started_at DESC) AS rn
-        FROM runs
-        WHERE (project, task) IN (VALUES ${tuplePlaceholders})
-          AND ${EXECUTED_RUNS_SQL}
+    const floorRow = this.db
+      .query(
+        `SELECT MIN(id) AS id FROM runs WHERE run_id =
+           (SELECT run_id FROM invocations ORDER BY started_at DESC LIMIT 1 OFFSET ?)`,
       )
+      .get(this.recent - 1) as { id: number | null }
+    // Fewer invocations than the window (or none): the whole table is the window.
+    const floor = floorRow.id ?? 0
+
+    // `skipped` rows are excluded: a skip is a task the run never executed,
+    // so it belongs in no success/hit RATE and no duration. Percentiles are
+    // over the executed-success rows of the slice — work the runner actually
+    // did — while the rates count every executed row.
+    const sql = `
       SELECT
         project,
         task,
         COUNT(*) AS total,
         SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) AS successes,
         SUM(CASE WHEN cache_hit = 1 THEN 1 ELSE 0 END) AS hits,
-        SUM(CASE WHEN cache_hit IS NULL OR cache_hit = 0 THEN 1 ELSE 0 END) AS executed,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failures,
-        SUM(CASE WHEN attempts > 1 THEN 1 ELSE 0 END) AS retried
-      FROM recent
-      WHERE rn <= ${this.recent}
+        SUM(CASE WHEN attempts > 1 THEN 1 ELSE 0 END) AS retried,
+        GROUP_CONCAT(CASE WHEN (cache_hit IS NULL OR cache_hit = 0) AND status = 'success'
+                          THEN duration_ms END) AS ds
+      FROM runs
+      WHERE id >= ? AND ${EXECUTED_RUNS_SQL}
       GROUP BY project, task
     `
-
     type Row = {
       project: string
       task: string
       total: number
       successes: number
       hits: number
-      executed: number
       failures: number
       retried: number
+      ds: string | null
     }
-    const rows = this.db.query(sql).all(...tupleParams) as Row[]
+    // Every pair in the slice is grouped (the slice is bounded, so this is
+    // cheap) and the asked-for ones are picked out here — a per-row IN-list
+    // probe in SQL cost more than the grouping it would have saved.
+    const wanted = new Set(taskIds)
+    const rows = (this.db.query(sql).all(floor) as Row[]).filter((r) =>
+      wanted.has(`${r.project}#${r.task}`),
+    )
 
-    // Percentiles need a row-wise read (percentile_cont isn't in SQLite), but
-    // ONE windowed query pulls the last `recent` EXECUTED+SUCCESS durations for
-    // EVERY task at once — the old per-task `percentilesFor` was an N+1 (one
-    // query per task on top of the counts CTE). Same per-task window (last
-    // `recent` executed-success rows by started_at DESC), grouped in JS.
-    const durationsByTask = this.durationsFor(taskIds)
+    // The flakiness signal needs per-key outcomes, which the aggregate above
+    // folded away — one more pass over the slice, only for the pairs whose
+    // verdict actually depends on it (failed, and no retry already proving
+    // nondeterminism); a green history never pays for it.
+    const mixed = this.mixedOutcomeKeys(
+      floor,
+      rows.filter((r) => (r.failures || 0) > 0 && (r.retried || 0) === 0),
+    )
 
     for (const row of rows) {
       const key = `${row.project}#${row.task}`
       const total = row.total || 0
-      const failureMode = classifyFailureMode(this.db, row.project, row.task, {
-        total,
-        failures: row.failures || 0,
-        retried: row.retried || 0,
-      })
-      const durations = durationsByTask.get(key)
+      const counts = { total, failures: row.failures || 0, retried: row.retried || 0 }
+      const durations = row.ds === null ? undefined : row.ds.split(',').map(Number)
+      if (durations !== undefined) durations.sort((a, b) => a - b)
       out.set(key, {
         runs: total,
         p50DurationMs: durations ? pickPercentile(durations, 0.5) : undefined,
         p99DurationMs: durations ? pickPercentile(durations, 0.99) : undefined,
         successRate: total > 0 ? (row.successes || 0) / total : 0,
         hitRate: total > 0 ? (row.hits || 0) / total : 0,
-        failureMode,
+        failureMode: failureModeOf(counts, () => mixed.get(key) ?? 0),
       })
     }
     return out
   }
 
-  /**
-   * The last `recent` executed-success `duration_ms` values per `project#task`,
-   * ASCENDING (ready for percentile picking), in ONE windowed query for the
-   * whole task set. A `project#task` with no executed-success rows is absent.
-   */
-  private durationsFor(taskIds: readonly string[]): Map<string, number[]> {
-    const pairs = (taskIds as string[]).map(splitTaskId)
-    const sql = `
-      SELECT project, task, duration_ms FROM (
-        SELECT project, task, duration_ms,
-          ROW_NUMBER() OVER (PARTITION BY project, task ORDER BY started_at DESC) AS rn
-        FROM runs
-        WHERE (project, task) IN (VALUES ${pairs.map(() => '(?,?)').join(',')})
-          AND (cache_hit IS NULL OR cache_hit = 0)
-          AND status = 'success'
+  /** Mixed-outcome key count per `project#task`, over the slice, for `pairs` only. */
+  private mixedOutcomeKeys(
+    floor: number,
+    pairs: readonly { project: string; task: string }[],
+  ): Map<string, number> {
+    const out = new Map<string, number>()
+    if (pairs.length === 0) return out
+    const placeholders = pairs.map(() => '(?,?)').join(',')
+    const rows = this.db
+      .query(
+        `SELECT project, task, COUNT(*) AS n FROM (${mixedOutcomeKeysSql(
+          'runs',
+          ` AND id >= ? AND (project, task) IN (VALUES ${placeholders})`,
+        )}) GROUP BY project, task`,
       )
-      WHERE rn <= ${this.recent}`
-    const rows = this.db.query(sql).all(...pairs.flat()) as {
+      .all(floor, ...pairs.flatMap((p) => [p.project, p.task])) as {
       project: string
       task: string
-      duration_ms: number
+      n: number
     }[]
-    const out = new Map<string, number[]>()
-    for (const r of rows) {
-      const key = `${r.project}#${r.task}`
-      const list = out.get(key)
-      if (list) list.push(r.duration_ms)
-      else out.set(key, [r.duration_ms])
-    }
-    for (const list of out.values()) list.sort((a, b) => a - b)
+    for (const r of rows) out.set(`${r.project}#${r.task}`, r.n)
     return out
   }
-}
-
-/** Split a `project#task` id on its FIRST `#` (task names contain no `#`). */
-function splitTaskId(id: string): [string, string] {
-  const i = id.indexOf('#')
-  return i < 0 ? [id, ''] : [id.slice(0, i), id.slice(i + 1)]
 }
 
 function pickPercentile(sorted: number[], q: number): number {

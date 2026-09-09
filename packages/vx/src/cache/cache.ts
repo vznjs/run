@@ -31,7 +31,7 @@
 
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
 import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
-import { lstat, mkdir, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { relPosix, UserError, xxh3, xxh3hex, span } from '../util/index.js'
 import {
@@ -1143,15 +1143,25 @@ export class Cache implements CacheLayer {
         -- The direct within-run flaky signal.
         attempts            INTEGER
       );
-      -- runs_hash had no reader: every consumer of runs.hash looks the row
-      -- up by run_id or (project, task) first. Dropped 2026-09-03 — it cost
-      -- 1,000 warm-run inserts 11.5 → 3.9 ms; the DROP sheds it from
-      -- existing databases (a schema-meta bump is for stored shapes, and
-      -- an index is not one).
+      -- Two indexes only, and both APPEND: every row of a run carries the
+      -- same run_id and a started_at newer than everything before it, so
+      -- 1,000 inserts touch a handful of leaf pages. The dropped ones did
+      -- not — the DROPs shed them from existing databases (a schema-meta
+      -- bump is for stored shapes, and an index is not one):
+      --   runs_hash (2026-09-03) had no reader; 11.5 → 3.9 ms per 1,000.
+      --   runs_project (project, task) (2026-09-09) scattered every run's
+      --     rows over one leaf per pair: the record stage of a 1,000-hit
+      --     warm run was 57–79 ms with it and 14–19 ms without, at 166k
+      --     rows, and it bought its readers nothing — the history reader
+      --     now scans a rowid slice (history.ts), vx why walks
+      --     started_at newest-first and stops at the first match.
+      --   runs_ended (2026-09-09) served only the retention DELETE, which
+      --     prunes on started_at now (a row ends after it starts, so the
+      --     30-day window moves by at most one task's duration).
       DROP INDEX IF EXISTS runs_hash;
+      DROP INDEX IF EXISTS runs_project;
+      DROP INDEX IF EXISTS runs_ended;
       CREATE INDEX IF NOT EXISTS runs_started_at ON runs(started_at);
-      CREATE INDEX IF NOT EXISTS runs_project    ON runs(project, task);
-      CREATE INDEX IF NOT EXISTS runs_ended      ON runs(ended_at);
       CREATE INDEX IF NOT EXISTS runs_run_id     ON runs(run_id);
       -- Per-file (mtime, size, content_hash) cache. Lets Cache.key()
       -- skip the content-hash on inputs whose stat hasn't changed
@@ -1732,7 +1742,7 @@ export class Cache implements CacheLayer {
 
     // Verify the tar artifact actually exists. The DB and the
     // filesystem can drift if someone manually deletes the cache dir.
-    if (!(await Bun.file(this.tarPath(hash)).exists())) return null
+    if (!existsSync(this.tarPath(hash))) return null
 
     // Deferred: per-hit UPDATEs cost ~60 ms across 2000+ probes on a
     // full-cache run. Hashes are collected and flushed as ONE batched
@@ -1773,7 +1783,7 @@ export class Cache implements CacheLayer {
       )
     }
     if (rows.length === 0) return out
-    const present = await Promise.all(rows.map((r) => Bun.file(this.tarPath(r.hash)).exists()))
+    const present = rows.map((r) => existsSync(this.tarPath(r.hash)))
     const live = rows.filter((_r, i) => present[i])
     const liveHashes = live.map((r) => r.hash)
     const fileRows = this.loadOutputFilesBatch(liveHashes)
@@ -1793,7 +1803,7 @@ export class Cache implements CacheLayer {
     if (!this.read) return null
     const row = this.selectEntry.get(hash) as EntryRow | undefined
     if (!row) return null
-    return (await Bun.file(this.tarPath(hash)).exists()) ? 'local' : null
+    return existsSync(this.tarPath(hash)) ? 'local' : null
   }
 
   // Local cache has no slower layer to warm from — prefetch is a no-op.
@@ -1839,33 +1849,34 @@ export class Cache implements CacheLayer {
     // current; the on-disk tree under projectDir is whatever it was,
     // and nothing was supposed to land there.
     if (expected.length === 0) return true
-    // Promise-form stat, deliberately: statSync is ~2 µs against ~13 µs in
-    // isolation, but this runs under the scheduler's concurrency and the
-    // async form keeps the stats on the thread pool in parallel — the sync
-    // version measured slower on a 1000-hit warm run (2026-09-02).
-    const results = await Promise.all(
-      expected.map(async (e) => {
-        try {
-          const s = await stat(path.join(projectDir, e.path))
-          return (
-            s.size === e.size &&
-            (s.mode & 0o777) === (e.mode & 0o777) &&
-            // MILLISECOND comparison (sub-ms tolerance for the float
-            // round-trip through utimes). Save rows carry stat-ms and
-            // restoreOutputs re-syncs restored files to the row value,
-            // so equality holds exactly in steady state; legacy
-            // second-precision rows converge on their first restore.
-            // Residual blind spot: a same-size edit landing in the SAME
-            // millisecond as the recorded write, or a deliberately
-            // forged mtime (touch -r) — the trade every mtime-based
-            // skip check accepts.
-            Math.abs(s.mtimeMs - e.mtimeMs) < 1
-          )
-        } catch {
-          return false
-        }
-      }),
-    )
+    // statSync, deliberately. The async form measured faster on 2026-09-02,
+    // when a hit walked its whole output tree; since the directory
+    // short-circuit (`outputDirsCurrent`) a warm hit stats a handful of
+    // paths, and each async stat costs a thread-pool round trip the
+    // scheduler cannot overlap away (its concurrency is the worker count).
+    // Re-measured 2026-09-09, 1,000 warm hits, interleaved A/B: the run
+    // graph stage 100 → 54 ms, the whole process 422 → 368 ms.
+    const results = expected.map((e) => {
+      try {
+        const s = statSync(path.join(projectDir, e.path))
+        return (
+          s.size === e.size &&
+          (s.mode & 0o777) === (e.mode & 0o777) &&
+          // MILLISECOND comparison (sub-ms tolerance for the float
+          // round-trip through utimes). Save rows carry stat-ms and
+          // restoreOutputs re-syncs restored files to the row value,
+          // so equality holds exactly in steady state; legacy
+          // second-precision rows converge on their first restore.
+          // Residual blind spot: a same-size edit landing in the SAME
+          // millisecond as the recorded write, or a deliberately
+          // forged mtime (touch -r) — the trade every mtime-based
+          // skip check accepts.
+          Math.abs(s.mtimeMs - e.mtimeMs) < 1
+        )
+      } catch {
+        return false
+      }
+    })
     return results.every(Boolean)
   }
 
@@ -1953,16 +1964,14 @@ export class Cache implements CacheLayer {
   /** True iff every recorded directory exists with its recorded mtime (ms). Same forged-mtime trade as the file check. */
   async outputDirsCurrent(projectDir: string, rows: readonly OutputDirRow[]): Promise<boolean> {
     if (rows.length === 0) return false
-    const results = await Promise.all(
-      rows.map(async (r) => {
-        try {
-          const st = await stat(path.join(projectDir, r.path))
-          return st.isDirectory() && Math.abs(st.mtimeMs - r.mtimeMs) < 1
-        } catch {
-          return false
-        }
-      }),
-    )
+    const results = rows.map((r) => {
+      try {
+        const st = statSync(path.join(projectDir, r.path))
+        return st.isDirectory() && Math.abs(st.mtimeMs - r.mtimeMs) < 1
+      } catch {
+        return false
+      }
+    })
     return results.every(Boolean)
   }
 
@@ -2515,8 +2524,8 @@ export class Cache implements CacheLayer {
     // table would grow unbounded on a long-lived checkout.
     try {
       const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
-      this.db.prepare('DELETE FROM runs WHERE ended_at < ?').run(cutoff)
-      this.db.prepare('DELETE FROM invocations WHERE ended_at < ?').run(cutoff)
+      this.db.prepare('DELETE FROM runs WHERE started_at < ?').run(cutoff)
+      this.db.prepare('DELETE FROM invocations WHERE started_at < ?').run(cutoff)
       // A config that has not been loaded in 30 days was edited (its key
       // moved) or its project left; either way the row is dead weight.
       this.db.prepare('DELETE FROM config_evals WHERE created_at < ?').run(cutoff)
