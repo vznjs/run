@@ -112,6 +112,16 @@ export {
   listProjects as listProjectMetas,
 } from './workspace/index.js'
 export type { ProjectMeta } from './workspace/index.js'
+// The Turbo mapper `vx migrate` renders from and `@vzn/vx-turbo` runs live —
+// one mapping, so a repo reads the same under either.
+export { mapTurboWorkspace } from './workspace/index.js'
+export type {
+  MapTurboOptions,
+  TurboGlobal,
+  TurboMappedProject,
+  TurboMappedTask,
+  TurboMapping,
+} from './workspace/index.js'
 
 // Plugin API — the run-level extension points. Behavior capabilities
 // (executor / cache) change WHAT/HOW work runs; the observe-only `telemetry`

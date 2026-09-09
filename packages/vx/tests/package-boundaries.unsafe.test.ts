@@ -155,6 +155,7 @@ describe('package boundaries', () => {
       'loadProjectConfig',
       'loadWorkspace',
       'loadWorkspaceConfig',
+      'mapTurboWorkspace',
       'markSurfacedDeps',
       'parseCachePolicy',
       'parseDecimalInt',

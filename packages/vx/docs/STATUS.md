@@ -693,6 +693,15 @@ Cache`, the handle a layer may wrap) is a type import. Next candidate
    uses. Two heads went red before any vx step ran: `apt-get update`
    exited 100 on a hash-sum mismatch from the runner image's Chrome
    repository. The step drops every source but Ubuntu's own first.
+6. DONE: `@vzn/vx-turbo`, the zero-migration plugin the widened
+   `project` stage was for (Next 3). The Turbo mapper left the CLI for
+   `workspace/turbo.ts` — `cli/migrate-turbo.ts` is the renderer now,
+   120 lines over a shared mapping the migrate suite proves unchanged
+   — and the plugin is one `project` hook over it. Two things the
+   first pins taught: the stage hands core an object it edits in place
+   and the mapping outlives a run, so each fill is a copy; and a
+   fixture without a `.gitignore` folds `dist/` into a sibling task's
+   default inputs, the same finding as the walkthrough's.
 
 ## In flight
 
@@ -815,11 +824,17 @@ from …/node_modules/astro/dist/cli/index.js` — astro's OWN
      loaded as `{ tasks: {} }` for the stage to fill (pinned: a
      scripts-to-tasks plugin gives a config-less package a task that
      plans and runs; with no `project` plugin the package stays
-     invisible, as before). What remains is the plugin itself: a
-     `@vzn/vx-turbo` package reusing the mapper's IR without the preset
-     splices, ~150 lines, with the migrate suite's fixtures as its
-     tests. Not built: `vx migrate` is one command and a second source
-     of task truth is a maintenance surface; decide with the owner.
+     invisible, as before). DONE the same day: `@vzn/vx-turbo`. The
+     mapper moved out of the CLI into `workspace/turbo.ts` (one mapping,
+     two consumers — `vx migrate` renders it with preset splices, the
+     plugin runs it live with the globals inlined), the façade exports
+     it, and the plugin fills the `project` stage from it, never
+     overwriting a written config. Pinned end to end over the migrate
+     suite's Turbo fixture: plan shape, edges, cache blocks, inlined
+     globals, second-run hits, `cache: false` uncached, hand-written
+     config wins, gaps warned once. The maintenance-surface worry is
+     answered by the shared mapper: there is one source of task truth
+     for Turbo, and the plugin is 90 lines over it.
 4. **The shipped binary's second core.** A compiled `vx` loading a
    `vx.workspace.ts` that imports `@vzn/vx` pulls a second copy of core
    from `node_modules` (~12 ms) on every run — and makes a binary user

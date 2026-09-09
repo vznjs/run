@@ -37,3 +37,11 @@ export {
   type ProjectEntry,
   type ProjectMeta,
 } from './workspace.js'
+export {
+  mapTurboWorkspace,
+  type MapTurboOptions,
+  type TurboGlobal,
+  type TurboMappedProject,
+  type TurboMappedTask,
+  type TurboMapping,
+} from './turbo.js'

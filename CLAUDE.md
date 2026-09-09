@@ -58,6 +58,7 @@ packages/vx-github      GitHub Actions job summary + Checks API plugin
 packages/vx-mcp         `vx mcp` — MCP server for AI agents (commands seam, no SDK)
 packages/vx-turbo-cache Turbo `/v8/artifacts` remote cache plugin (self-hosted or Vercel)
 packages/vx-nx-cache    Nx self-hosted remote cache plugin (`/v1/cache`)
+packages/vx-turbo       zero-migration Turbo plugin: turbo.json + scripts → tasks via the `project` stage
 packages/vx-docs        Astro Starlight site; packages/vx/docs is imported by scripts/import-docs.ts
 packages/vx-bench       synthetic workspace generator + runners (vx / turbo / nx)
 packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, schema, modules/, design/
