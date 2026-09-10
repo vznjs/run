@@ -2157,10 +2157,12 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    process semantics are not the claim — about 14 s of file time,
    ~1 s of wall on twelve shards; do it only if a box with many cores
    shows the wall pinned by them. The gate on four cores is 15.7 s.
-   (c) The darwin CI job runs four sequential slices; parallel would
-   halve it, but the sandbox canary there is class-gated because
-   `sandbox-exec` misbehaved under load once — measure the canary
-   under parallel slices before changing the loop.
+   (c) DONE 2026-09-10: the darwin CI job's four slices run side by
+   side (3 min 8 s sequential before). The canary step runs AFTER the
+   test step and the sandbox suites are class-gated there, so the load
+   lands on nothing `sandbox-exec` enforces; the canary stays the gate
+   that would say otherwise. Record the parallel number from the first
+   green run beside this line.
    (d) `executeCachedTask` (execute-task.ts, ~440 lines) is dense
    policy — probe, hash, clean, exec, save — with no clean seam left
    after the hit and miss paths moved out; leave it whole.

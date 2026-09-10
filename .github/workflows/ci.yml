@@ -308,16 +308,33 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # The whole core suite in four sequential slices (Bun's own dealer; the
-      # `test.bun.shard-*` tasks deal twelve by weight, but sequential slices
-      # sum to the same time whatever the deal). Several processes, not one,
-      # is the point on macOS: `bun test` pins descriptors per imported
-      # module and the process cap is 10 240, which the whole suite in one
-      # process does not clear.
+      # The whole core suite in four slices, run SIDE BY SIDE (Bun's own
+      # dealer; the `test.bun.shard-*` tasks deal twelve by weight, but four
+      # slices on a three-core runner sum to the same work whatever the
+      # deal). Several processes, not one, is the point on macOS: `bun test`
+      # pins descriptors per imported module and the process cap is 10 240,
+      # which the whole suite in one process does not clear. Sequential,
+      # the four slices took 3 min 8 s (2026-09-10); the sandbox suites are
+      # class-gated here and the canary below runs after this step, so the
+      # load lands on nothing that sandbox-exec enforces. Each slice writes
+      # its own log and the logs print in order once all four are done, so
+      # a failure reads as one suite's output, not four interleaved.
       - name: bun test (core, darwin)
         run: |
           cd packages/vx
-          for i in 1 2 3 4; do bun test --shard=$i/4 || exit 1; done
+          pids=()
+          for i in 1 2 3 4; do
+            bun test --shard=$i/4 > "$RUNNER_TEMP/slice-$i.log" 2>&1 &
+            pids+=($!)
+          done
+          fail=0
+          for i in 1 2 3 4; do
+            wait "${pids[$((i - 1))]}" || fail=1
+            echo "::group::bun test --shard=$i/4"
+            cat "$RUNNER_TEMP/slice-$i.log"
+            echo "::endgroup::"
+          done
+          exit $fail
 
       # DATA COLLECTION, not a gate: the sandbox suites are class-gated on
       # darwin CI because sandbox-exec misbehaves under load here — including
