@@ -12,7 +12,7 @@ import type { ProjectConfig, TaskConfig, VxPlugin } from '@vzn/vx'
 import { listProjectMetas, loadWorkspace, type ProjectMeta } from '@vzn/vx'
 import { mapTurboWorkspace, type TurboMapping } from './turbo-map.js'
 
-const PLUGIN_NAME = 'vzn/turbo'
+const PLUGIN_NAME = 'vx/turbo'
 
 /** The TODO a persistent task carries in `vx migrate`'s report, in the plugin's voice. */
 const PERSISTENT_NOTE =

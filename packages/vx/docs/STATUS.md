@@ -1738,6 +1738,14 @@ migrate` was 1,475 lines of core that knew Turbo's and Nx's file
     when the shards do, ~70 s of the same work. Measure it on the next
     green run and record the number here.
 
+**Plugin names, one convention (2026-09-10).** `vx info` listed the
+repo's own plugins as `vzn/otel`, `@vzn/vx-github`, `vx/mcp` and
+`vx/schedule-history` — three spellings across four lines, and the same
+names head every plugin warning. Six of nine first-party plugins already
+said `vx/<thing>`; the other three (`vzn/otel`, `vzn/turbo`,
+`@vzn/vx-github`) now do too. No first-party plugin fills `key`, where
+the name is folded into the material, so nothing re-keys.
+
 **The guide pin under the sandboxed gate (2026-09-10, after item 67).**
 CI's Linux job went red on 15136a6 in `@vzn/vx-docs#test`: the plugins
 guide's type-check pin exited 1 with no diagnostic line captured. The
