@@ -585,11 +585,11 @@ export class Cache implements CacheLayer {
     this.configEvals.putConfigEval(key, json)
   }
   // --- input file hashes: delegated to `FileHashStore` (see file-hashes.ts) ---
-  async hashFile(filePath: string): Promise<string> {
-    return await this.files.hashFile(filePath)
+  hashFile(filePath: string): Promise<string> {
+    return this.files.hashFile(filePath)
   }
-  async hashFiles(paths: readonly string[]): Promise<Map<string, string>> {
-    return await this.files.hashFiles(paths)
+  hashFiles(paths: readonly string[]): Promise<Map<string, string>> {
+    return this.files.hashFiles(paths)
   }
   async key(input: CacheKeyInput): Promise<string> {
     // Seed-chained xxHash3: each step folds one field into the
@@ -794,11 +794,15 @@ export class Cache implements CacheLayer {
   }
 
   // --- output fingerprints: delegated to `OutputIndex` (see output-index.ts) ---
+  // The slices' proofs and hashes are returned as the slice's own promise —
+  // no `async` wrapper, no `return await`: each of those added a promise and
+  // a microtask hop per call, and a 1,000-hit warm run pays the proofs
+  // 2,000 times (measured 2026-09-10: +3 ms on `classify + probe`).
   loadOutputFilesBatch(hashes: readonly string[]): Map<string, OutputFileRow[]> {
     return this.outputs.loadOutputFilesBatch(hashes)
   }
-  async isOutputsCurrent(projectDir: string, expected: readonly OutputFileRow[]): Promise<boolean> {
-    return await this.outputs.isOutputsCurrent(projectDir, expected)
+  isOutputsCurrent(projectDir: string, expected: readonly OutputFileRow[]): Promise<boolean> {
+    return this.outputs.isOutputsCurrent(projectDir, expected)
   }
   outputsPath(hash: string): string {
     return this.tarPath(hash)
@@ -814,8 +818,8 @@ export class Cache implements CacheLayer {
   loadOutputDirsBatch(hashes: readonly string[]): Map<string, OutputDirRow[]> {
     return this.outputs.loadOutputDirsBatch(hashes)
   }
-  async outputDirsCurrent(projectDir: string, rows: readonly OutputDirRow[]): Promise<boolean> {
-    return await this.outputs.outputDirsCurrent(projectDir, rows)
+  outputDirsCurrent(projectDir: string, rows: readonly OutputDirRow[]): Promise<boolean> {
+    return this.outputs.outputDirsCurrent(projectDir, rows)
   }
   async restoreOutputs(hash: string, projectDir: string, workspaceRoot?: string): Promise<void> {
     // In-process extraction — no fork+exec on the hot path
