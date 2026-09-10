@@ -1342,6 +1342,21 @@ vx-cache-v27 · index schema v25` — the two constants a bug report
     behaviour; do it file by file when a suite is touched for another
     reason, not as one commit.
 
+**Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
+pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
+sampled): 28% in the discovery closure (`workspace.ts:303` — the
+per-package readdir + manifest read, async continuation attributed to
+the closure), 11% `JSON.parse` of manifests, 5% `listProjects`, then
+the staged load and the eval-cache keys at 1–3% each. Warm `vx run`
+(228 ms sampled): `statSync` 9% (the two output proofs, 2,000 stats,
+chosen sync by the 2026-09-09 A/B: 100 → 54 ms on the run-graph
+stage), `findConfigFile` 5%, `bun:sqlite` query 3.5%, package graph
+2.5%, `hashProjectPackageJson` 2.4%, then a long tail under 2%. No
+new hot spot: every frame over 2% is a measured decision already
+recorded (discovery 8(e), the proofs' sync stats, the manifest hash).
+The next warm-path gain is structural (8(e)'s stat-keyed discovery
+memo), not a frame.
+
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca
 worktree: main min 225 / med 242 ms vs head 231 / 246 in one order,
