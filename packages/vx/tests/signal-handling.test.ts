@@ -6,7 +6,7 @@
 // because that's exactly where stacking handlers would hurt
 // (watch loop, bun test).
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
@@ -61,13 +61,22 @@ async function addProject(root: string, name: string, config: string): Promise<s
   return dir
 }
 
-async function waitForFile(file: string, timeoutMs: number): Promise<void> {
+// The shell's `echo $$ > pid.txt` truncates the file before it writes it;
+// a read that lands between sees '' and Number('') is 0, and kill(0, 0)
+// probes the caller's own process group — alive forever. Under an
+// eight-shard gate that window was hit once. Wait for the number, not the
+// file.
+async function waitForPid(file: string, timeoutMs: number): Promise<number> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (await Bun.file(file).exists()) return
-    await Bun.sleep(50)
+    const f = Bun.file(file)
+    if (await f.exists()) {
+      const pid = Number((await f.text()).trim())
+      if (Number.isInteger(pid) && pid > 0) return pid
+    }
+    await Bun.sleep(20)
   }
-  throw new Error(`timed out waiting for ${file}`)
+  throw new Error(`timed out waiting for a pid in ${file}`)
 }
 
 const silentLogger: Logger = {
@@ -110,8 +119,7 @@ describe('signal handling during vx run (e2e)', () => {
         stderr: 'pipe',
       })
       const pidFile = path.join(dir, 'pid.txt')
-      await waitForFile(pidFile, 10_000)
-      const pid = Number((await readFile(pidFile, 'utf8')).trim())
+      const pid = await waitForPid(pidFile, 10_000)
       expect(isAlive(pid)).toBe(true)
 
       proc.kill('SIGTERM')
@@ -153,8 +161,7 @@ describe('signal handling during vx run (e2e)', () => {
         stderr: 'pipe',
       })
       const pidFile = path.join(dir, 'pid.txt')
-      await waitForFile(pidFile, 10_000)
-      const pid = Number((await readFile(pidFile, 'utf8')).trim())
+      const pid = await waitForPid(pidFile, 10_000)
       expect(isAlive(pid)).toBe(true)
 
       proc.kill('SIGTERM')
@@ -187,8 +194,7 @@ describe('signal handling during vx run (e2e)', () => {
         stderr: 'pipe',
       })
       const pidFile = path.join(dir, 'pid.txt')
-      await waitForFile(pidFile, 10_000)
-      const pid = Number((await readFile(pidFile, 'utf8')).trim())
+      const pid = await waitForPid(pidFile, 10_000)
 
       proc.kill('SIGINT')
       const code = await proc.exited
