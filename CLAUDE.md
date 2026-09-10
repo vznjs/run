@@ -53,7 +53,8 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/workspace/        discovery, config eval (+ config-cache.ts), config-schema.ts (what a config
                         may say), package graph, --filter/--affected, lockfile
   src/graph/            task graph + two-tier scheduler
-  src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (git enumeration)
+  src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (glob
+                        resolution, boundaries) + git-inputs (the git enumeration it trusts)
   src/exec/             runner (Bun.spawn), env isolation, sandbox, local-executor (the floor)
   src/plugins/          core's own plugins: schedule-history
   src/util/             incl. timing.ts (`VX_TIMING=1` stage table)

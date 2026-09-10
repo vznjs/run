@@ -1280,6 +1280,18 @@ undefined?` whenever nothing was within two edits — `nearest`
     head 231 vs main 224 in the other — a tie inside jitter, the sign
     flipping with the order, as a pure move should read.
 
+48. DONE (pure motion, the sibling of 47): `cache/inputs.ts` was 1,257
+    lines holding two concerns — which files a task declared (globs,
+    boundaries, outputs, runtime values) and how git is asked about
+    them (`GitFilesCache`, the `ls-files` / `status` / `check-attr`
+    parsers, the start/apply enumeration). The git half is
+    `cache/git-inputs.ts` (636 lines); the resolver keeps 627. Nothing
+    crossed between them but the cache class and two calls — the only
+    mentions of the resolver on the git side were comments. The
+    `cache/index.ts` contract is unchanged; the resolver re-exports the
+    cache for the tests that reach it there. Module doc, index row and
+    CLAUDE.md layout updated.
+
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca
 worktree: main min 225 / med 242 ms vs head 231 / 246 in one order,

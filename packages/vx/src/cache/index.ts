@@ -30,14 +30,16 @@ export { type Digest } from './digest.js'
 export {
   cleanOutputs,
   cleanWorkspaceOutputs,
+  resolveInputs,
+  resolveOutputs,
+  resolveWorkspaceOutputs,
+} from './inputs.js'
+export {
   GitFilesCache,
   applyGitEnumeration,
   gitPathspecs,
   startGitEnumeration,
   type GitEnumeration,
-  resolveInputs,
-  resolveOutputs,
-  resolveWorkspaceOutputs,
-} from './inputs.js'
+} from './git-inputs.js'
 export { LayeredCache, type RemoteCacheLayer } from './layered-cache.js'
 export { ChainedCache } from './chained-cache.js'
