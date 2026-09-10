@@ -1583,6 +1583,20 @@ worst.
     for the three set by hand this once; the next `--weigh` refresh
     replaces them.
 
+**Two warm-path probes refuted after item 61 (2026-09-10).** Cold
+config evaluation, measured by deleting `config_evals` and
+`config_closures` on the warm 1,000-project copy: the `load configs`
+stage reads 584 ms cold against 26 ms warm — 0.58 ms per config through
+the worker, so a 2,000-project first run pays about a second there and
+no batching lead exists; `scale-graph`'s 9.5 s `beforeAll` is its
+generator, git and warm plan, not evaluation. And the accumulated
+`output dirs` counter (52 ms over 1,000 proofs, 52 µs each for one or
+two `statSync` calls) is not a cost to chase: an accumulated span
+measures wall time between its start and end, and under the
+scheduler's concurrency that window holds other tasks' work, so the
+per-call figure over-counts. The rule for the stage table: stage rows
+are exclusive and comparable; accumulated rows are upper bounds.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

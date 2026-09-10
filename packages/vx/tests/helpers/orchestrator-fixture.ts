@@ -1,5 +1,6 @@
 // The orchestrator end-to-end fixture, shared by the two halves of the
-// suite (`orchestrator.test.ts`, `orchestrator-run.test.ts`): a workspace
+// suite (`orchestrator.test.ts`, `orchestrator-run.test.ts`) and the
+// remote-cache suite (`orchestrator-remote.test.ts`): a workspace
 // with a git repo, a logger that records status lines and per-task bodies,
 // the two policy shapes the CLI flags resolve to, and a stamp command whose
 // output changes on every real execution.
@@ -58,8 +59,8 @@ export const silentLogger = (fixture: Fixture): Logger => {
   }
 }
 
-export async function makeWorkspace(): Promise<Fixture> {
-  const root = await makeWorkspaceRoot({ prefix: 'nxt-e2e-' })
+export async function makeWorkspace(prefix = 'nxt-e2e-'): Promise<Fixture> {
+  const root = await makeWorkspaceRoot({ prefix })
   return { root, log: [], err: [] }
 }
 

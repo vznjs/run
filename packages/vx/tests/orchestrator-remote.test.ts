@@ -12,9 +12,13 @@ import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, spyOn } from 'bun:test'
 import { localWorkspaceSource } from './helpers/local-workspace.js'
-import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
+import {
+  addProject,
+  makeWorkspace as makeFixture,
+  silentLogger,
+  TIMEOUT,
+} from './helpers/orchestrator-fixture.js'
 import { Cache, LayeredCache, type RemoteCacheLayer } from '../src/cache/index.js'
-import type { Logger } from '../src/orchestrator/index.js'
 import { planRun, prepareRun, run } from '../src/orchestrator/index.js'
 
 /**
@@ -22,41 +26,6 @@ import { planRun, prepareRun, run } from '../src/orchestrator/index.js'
  * `vx.workspace.mjs` (loaded from a temp dir) can import `LayeredCache`.
  */
 const cacheModuleSpecifier = new URL('../src/cache/index.ts', import.meta.url).href
-
-interface Fixture {
-  root: string
-  log: string[]
-  err: string[]
-}
-
-const TIMEOUT = 30_000
-
-const silentLogger = (fixture: Fixture): Logger => {
-  const buffers = new Map<string, string>()
-  return {
-    status(line) {
-      fixture.log.push(line)
-    },
-    taskStdout(node, chunk) {
-      buffers.set(node.id, (buffers.get(node.id) ?? '') + chunk)
-    },
-    taskStderr(node, chunk) {
-      fixture.err.push(chunk.trimEnd())
-      buffers.set(node.id, (buffers.get(node.id) ?? '') + chunk)
-    },
-    taskComplete(node, outcome) {
-      const body = buffers.get(node.id) ?? ''
-      buffers.delete(node.id)
-      fixture.log.push(`task ${node.id} ${outcome.status}`)
-      if (body.trim().length > 0) fixture.log.push(body.trimEnd())
-    },
-  }
-}
-
-async function makeWorkspace(): Promise<Fixture> {
-  const root = await makeWorkspaceRoot({ prefix: 'vx-remote-e2e-' })
-  return { root, log: [], err: [] }
-}
 
 /**
  * A stub HTTP artifact ENDPOINT + the RemoteCacheLayer speaking to it —
@@ -191,7 +160,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     'a run served entirely from the remote layer reports ok: true',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       try {
         await addProject(fixture.root, 'app', {
@@ -231,7 +200,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     'planRun (--dry) predicts hit-remote via HEAD — no artifact download, no local ingest',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       try {
         await addProject(fixture.root, 'app', {
@@ -280,7 +249,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
     async () => {
       // Point at a fully-broken remote: GET, PUT, and the prefetch
       // probe all 500. Nothing may escalate to a run failure.
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const broken = startArtifactEndpoint({ failAll: true })
       try {
         await addProject(fixture.root, 'app', {
@@ -315,7 +284,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     'a remote-served run issues AT MOST ONE GET per task key (prefetch + execute share it)',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       // Two independent (no-dep) tasks so both prefetch + execute, and
       // both are stable keys (no upstream outputs feed their inputs).
       for (const name of ['a', 'b']) {
@@ -369,7 +338,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     'a batch-capable remote is probed ONCE and fetches only the hits',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       // Two independent stable-key tasks; seed only ONE remotely so the
       // other is a genuine remote miss on the warm run.
       for (const name of ['a', 'b']) {
@@ -428,7 +397,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
       // output `generated.txt`), so its key is preliminary until codegen
       // runs — it must NOT be prefetched, but the lazy read-through must
       // still produce a correct remote hit on the warm run.
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       try {
         await addProject(fixture.root, 'pkg', {
@@ -481,7 +450,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     '--no-cache issues no remote GET (no prefetch, no read-through)',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       try {
         await addProject(fixture.root, 'app', {
@@ -509,7 +478,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     '--dry reads the same clamped policy the run will use',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       try {
         await addProject(fixture.root, 'app', {
@@ -554,7 +523,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     'closes the cache handle when the run throws mid-way',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       // `recordRunBundle` is the one unguarded call between the last task
       // finishing and the normal close. A throw there (SQLITE_BUSY past the
@@ -591,7 +560,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
   it(
     'local:,remote:rw uploads to remote even with local writes disabled (packs bytes in memory)',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       try {
         await addProject(fixture.root, 'app', {
@@ -641,7 +610,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
       // policy string docs/cli.md documents. The gate means "don't serve
       // hits from the PRE-EXISTING local cache", not "discard what you just
       // downloaded".
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const remote = startArtifactEndpoint()
       const policy = { localRead: false, localWrite: false, remoteRead: true, remoteWrite: true }
       try {
@@ -683,7 +652,7 @@ describe('orchestrator e2e: injected remote cache (stub HTTP layer)', () => {
 
 describe('orchestrator: local-only runs never prefetch', () => {
   it('a run with no remote cache configured invokes no prefetch', async () => {
-    const fixture = await makeWorkspace()
+    const fixture = await makeFixture('vx-remote-e2e-')
     try {
       await addProject(fixture.root, 'app', {
         files: { 'src/in.txt': 'v1' },
@@ -748,7 +717,7 @@ describe('orchestrator: injected RemoteCacheLayer (RunOptions.remoteCache)', () 
   it(
     'an in-memory layer (no HTTP anywhere) serves the full remote-hit path',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const mem = memoryLayer()
       try {
         await addProject(fixture.root, 'app', {
@@ -785,7 +754,7 @@ describe('orchestrator: injected RemoteCacheLayer (RunOptions.remoteCache)', () 
   it(
     'explicit injection WINS over a workspace-declared cache plugin (never consulted)',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const mem = memoryLayer()
       try {
         // A cache plugin that would ABORT the run if consulted: the
@@ -871,7 +840,7 @@ describe('cache layer: hasRemote is the remote-layer signal', () => {
   it(
     'a pass-through decorator with no remote does NOT claim a remote layer',
     async () => {
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       try {
         await writeFile(path.join(fixture.root, 'vx.workspace.mjs'), PASSTHROUGH_PLUGIN)
         await addProject(fixture.root, 'app', {
@@ -899,7 +868,7 @@ describe('cache layer: hasRemote is the remote-layer signal', () => {
       // every exec for a save that goes NOWHERE — `--no-cache`'s documented
       // "leave the tree alone" contract, broken by a decorator that has no
       // remote at all.
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       try {
         await writeFile(path.join(fixture.root, 'vx.workspace.mjs'), PASSTHROUGH_PLUGIN)
         const dir = await addProject(fixture.root, 'app', {
@@ -938,7 +907,7 @@ describe('cache layer: hasRemote is the remote-layer signal', () => {
       // up-front classify instead, which is awaited BEFORE any task is
       // scheduled — and no drain, leaving background uploads in flight when
       // close() fires.
-      const fixture = await makeWorkspace()
+      const fixture = await makeFixture('vx-remote-e2e-')
       const g = globalThis as Record<string, unknown>
       try {
         await addProject(fixture.root, 'app', {
