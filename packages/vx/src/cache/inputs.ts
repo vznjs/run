@@ -23,11 +23,23 @@ import { lstatSync } from 'node:fs'
 import { realpath, rm } from 'node:fs/promises'
 import type { CacheInputs } from '../config.js'
 import { UserError } from '../util/index.js'
-import { GitFilesCache, populateGitFilesCache, runGitLsFiles } from './git-inputs.js'
+import { GitFilesCache, runGitLsFiles } from './git-inputs.js'
 
-// The git side lives in git-inputs.ts; re-exported so a reader that reaches
-// the resolver for it (the tests do) keeps working.
-export { GitFilesCache, populateGitFilesCache }
+// The git side lives in git-inputs.ts; its whole public surface is
+// re-exported here so a reader that reaches the resolver for it (the
+// tests do, by deep import) keeps working.
+export {
+  GitFilesCache,
+  populateGitFilesCache,
+  runGitLsFiles,
+  startGitEnumeration,
+  applyGitEnumeration,
+  gitPathspecs,
+  parseCheckAttrOutput,
+  autocrlfConverts,
+  parseFlaggedOutput,
+  type GitEnumeration,
+} from './git-inputs.js'
 
 // vx-lock.json is committed (so git enumerates it) but it's vx's own
 // frozen-config metadata — never a task input. Excluded globally so a
