@@ -107,6 +107,13 @@ caches.
    exitCode, durationMs, captured stdout/stderr, hrtime spans, and
    (when Bun's resourceUsage returned them) `cpuMs` / `peakRssBytes`.
 
+## The hit
+
+A confirmed hit is materialised by `hit-restore.ts` (`restoreHit`):
+the two proofs that let a current tree skip the restore, clean +
+restore otherwise, the git marking, the stdout replay, the outcome.
+Moved out on 2026-09-10 as pure code motion; re-exported from here.
+
 ## The save
 
 What a miss leaves behind — outputs resolved, artifact and rows saved,

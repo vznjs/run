@@ -118,8 +118,8 @@ describe('the tripwire that makes one definition stay one definition', () => {
   // duplicate — so adding one is a deliberate entry here, not a silent copy.
   const MAY_INLINE: ReadonlyMap<string, string> = new Map([
     [
-      'src/orchestrator/execute-task.ts',
-      'PRODUCES the status — it picks local vs remote, so it must name both.',
+      'src/orchestrator/hit-restore.ts',
+      'PRODUCES the status — the hit path picks local vs remote, so it must name both (the line moved here from execute-task.ts on 2026-09-10).',
     ],
     [
       'src/orchestrator/metrics.ts',

@@ -1606,6 +1606,22 @@ worst.
     "nothing affected" and exited 0 without reaching the run's own
     refusal — the third pin.
 
+63. DONE (pure motion, the mirror of item 16): the hit path —
+    `restoreHit` and its args, 179 lines: the two proofs, clean +
+    restore, the git marking, the stdout replay, the outcome — left
+    `execute-task.ts` for `hit-restore.ts`, beside `miss-save.ts`
+    (the miss path, item 16). `execute-task.ts` re-exports both names,
+    so the direct-drive pins and the short-circuit keep their import.
+    892 → 716 lines; `hit-restore.ts` 202. Stale-hit-critical by the
+    same rule as the miss path, and pinned by the same suites
+    (`execute-task`, `stale-hit`, `output-dirs`, `local-shortcircuit`,
+    `orchestrator-run`), all green before and after. The status
+    vocabulary tripwire caught the move: the one line that PRODUCES a
+    hit's status (local vs remote) went with the path, so its allowlist
+    entry moved from `execute-task.ts` to `hit-restore.ts` — the
+    tripwire doing its job. Warm path under the clean protocol, twenty
+    reps both orders: 231 → 231 and 250 → 243 by median, a tie.
+
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and
 `config_closures` on the warm 1,000-project copy: the `load configs`
