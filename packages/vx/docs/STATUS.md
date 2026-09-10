@@ -2170,8 +2170,10 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    side (3 min 8 s sequential before). The canary step runs AFTER the
    test step and the sandbox suites are class-gated there, so the load
    lands on nothing `sandbox-exec` enforces; the canary stays the gate
-   that would say otherwise. Record the parallel number from the first
-   green run beside this line.
+   that would say otherwise. Measured on 2a2e693: the test step 73 s,
+   the job 1 min 36 s, the canary 20/20 — the PR's CI wall went from
+   ~3 min 10 s to under 2 min, and the Linux gate is the longest job
+   again.
    (d) `executeCachedTask` (execute-task.ts, ~440 lines) is dense
    policy — probe, hash, clean, exec, save — with no clean seam left
    after the hit and miss paths moved out; leave it whole.
