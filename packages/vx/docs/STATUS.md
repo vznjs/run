@@ -493,11 +493,11 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    save, record output dirs, mark git outputs) as its own module —
    stale-hit-critical, so only with the execute suites and CI's
    unsafe job green, and behind a differential pin that a moved line
-   would fail. (b) `vx cache prune --max-size 10` reads a bare number
-   as 10 BYTES and evicts everything; `--older-than 5` refuses a bare
-   number. Decide: refuse unitless sizes there (the zero bound is
-   already refused for the same reason), or keep the documented
-   `<bytes>` and say so louder. (c) Anything else that reads config
+   would fail. (b) DONE 2026-09-10: `vx cache prune --max-size 10` is refused
+   with the unit it wanted (`10M, 10G`); `10B` still passes, and
+   `parseSize` keeps its bare-bytes contract for the computed
+   `--memory` budgets. The zero guard speaks first for every zero
+   spelling, as its pins require. (c) Anything else that reads config
    files raw: only `vx lock` remains, on purpose (it freezes the
    file's own evaluation). Grep for `loadProjectConfig(` before
    adding a fourth consumer of the staged load. (d) `logger.ts` (716)

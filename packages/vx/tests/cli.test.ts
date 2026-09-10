@@ -1516,6 +1516,16 @@ describe('parsePruneArgs', () => {
     expect(r.olderThanMs!).toBeGreaterThanOrEqual(before - 7 * 86_400_000 - 5)
   })
 
+  it('refuses a bare number for --max-size: it would read as bytes and evict the cache', () => {
+    // `parseSize('10')` is 10 bytes — right for a computed `--memory`
+    // budget, catastrophic as a cache cap. The explicit `10B` still passes.
+    const r = parsePruneArgs(['--max-size', '10'])
+    expect(r.error).toMatch(/10 bytes/)
+    expect(r.error).toMatch(/10M, 10G/)
+    expect(parsePruneArgs(['--max-size', '10B']).maxBytes).toBe(10)
+    expect(parsePruneArgs(['--max-size', '10M']).maxBytes).toBe(10 * 1024 * 1024)
+  })
+
   it('parses --max-size', () => {
     expect(parsePruneArgs(['--max-size', '1G']).maxBytes).toBe(1024 ** 3)
   })

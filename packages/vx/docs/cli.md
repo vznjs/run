@@ -21,7 +21,7 @@ bun src/bin.ts --version
 # Core
 vx run [OPTIONS] [TASK | PKG#TASK ...] [-- forwarded-args...]
 vx watch [OPTIONS] TASK [-- forwarded-args...]
-vx cache prune [--older-than <duration>] [--max-size <bytes>]
+vx cache prune [--older-than <duration>] [--max-size <size>]
 vx lock [--check]
 vx init [--dry] [--force]
 vx show [PROJECT[#TASK] | TASK] [--format pretty|json]
@@ -972,7 +972,9 @@ Both flags take either form: `--older-than 30d` or `--older-than=30d`.
 
 **Size units**: `K`, `M`, `G`, `T` (powers of 1024), case-insensitive.
 Optional `B` suffix is accepted. Examples: `500M`, `1G`, `100K`, `2T`,
-`500MB`, `1gb`.
+`500MB`, `1gb`. A bare number is refused here: `--max-size 10` would
+read as ten bytes and evict nearly everything, and nobody means that —
+write `10G`, or `10B` when bytes really are the unit.
 
 **A zero bound is rejected.** `--max-size 0` and `--older-than 0d` would
 evict every entry in the cache, which is far more often a

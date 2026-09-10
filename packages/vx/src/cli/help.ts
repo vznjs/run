@@ -9,7 +9,7 @@ export function helpText(pluginCommands: readonly string[] = []): string {
     'Usage:',
     '  vx run [OPTIONS] [TASK | PKG#TASK] [-- forwarded-args...]',
     '  vx watch [OPTIONS] TASK [-- forwarded-args...]',
-    '  vx cache prune [--older-than <duration>] [--max-size <bytes>]',
+    '  vx cache prune [--older-than <duration>] [--max-size <size>]',
     '  vx lock [--check]',
     '  vx init [--dry] [--force]',
     '  vx upgrade [tag]',
