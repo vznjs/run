@@ -290,7 +290,7 @@ never branches on layering.
 1. **`bin.ts`** spawns with the user's argv. Forwards everything
    after the binary name to the cli module's `run`.
 2. **`cli/index.ts`** dispatches by subcommand: `run`, `watch`,
-   `cache`, `lock`, `migrate`, `upgrade`, `show`, `info` (+ `stats`
+   `cache`, `lock`, `init`, `upgrade`, `show`, `info` (+ `stats`
    alias), `mcp`, `help`, `version`.
 3. **`cli/run.ts:parseRunArgs`** parses the argv into a `RunArgs`
    object (including the 4-axis cache policy from `--cache` /

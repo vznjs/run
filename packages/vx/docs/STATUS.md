@@ -1672,6 +1672,34 @@ worst.
     (a run never loaded the plugin unless declared); the core package
     is one directory and one export smaller.
 
+66. DONE (adoption tooling leaves core — the owner's directive: core
+    slim and fast, everything else a package built around it): `vx
+migrate` was 1,475 lines of core that knew Turbo's and Nx's file
+    formats (`cli/migrate*.ts`, `workspace/turbo.ts`). Three moves:
+    (a) the Turbo mapper is `@vzn/vx-turbo`'s (it runs the mapping
+    live; `mapTurboWorkspace` and its types are exported from there,
+    and the façade no longer carries them); (b) the Turbo and Nx
+    migrations are `@vzn/vx-migrate` — `bunx @vzn/vx-migrate` with its
+    own bin, so it runs before any vx file exists, which a `commands`
+    plugin verb could not (a plugin verb needs a workspace file that
+    declares it); it depends on `@vzn/vx-turbo` for the mapping and on
+    core for everything else; (c) what stays in core is the SEAM
+    every adoption tool shares — `workspace/migration.ts`:
+    `MigrationPlan`, the TypeScript emission, the overwrite guard, the
+    writes, the report, exported from the façade as `applyMigration`
+    with `quoteTsLiteral` and the persistent-name rule — and `vx init`
+    (package.json scripts, `workspace/migrate-scripts.ts`), core's own
+    mapper over it, now a 90-line verb (`cli/init.ts`). `vx migrate`
+    prints the pointer and exits 1 (pinned), `vx init` names the
+    package when a `turbo.json` or an Nx workspace sits beside the
+    scripts unread. The suites split the same way: `tests/init.test.ts`
+    keeps the scripts, empty-workspace, guard and pointer pins;
+    `packages/vx-migrate/tests` holds the Turbo and Nx end-to-end pins
+    through the package's own bin. Design note:
+    `docs/design/adoption-tooling-2026-09.md`. Core after: no other
+    runner's format anywhere in `src/`; the façade gained the seam
+    and lost the mapper.
+
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and
 `config_closures` on the warm 1,000-project copy: the `load configs`

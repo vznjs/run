@@ -213,6 +213,8 @@ jobs:
         run: cd packages/vx-turbo && bun test
       - name: bun test (packages/vx-schedule-history)
         run: cd packages/vx-schedule-history && bun test
+      - name: bun test (packages/vx-migrate)
+        run: cd packages/vx-migrate && bun test
 
       # NativeLink gives the EXECUTION half a real scheduler + worker. Its
       # official image is distroless — no /bin/sh — so a worker inside it

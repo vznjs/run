@@ -47,13 +47,15 @@ export async function run(argv: readonly string[]): Promise<number> {
       return await (await import('./cache.js')).cacheCmd(rest)
     case 'lock':
       return await (await import('./lock.js')).lockCmd(rest)
-    case 'migrate':
-      return await (await import('./migrate.js')).migrateCmd(rest)
+    case 'migrate': {
+      // The Turbo and Nx mappers left core (2026-09-10); the verb points
+      // at the package so a remembered command still lands somewhere.
+      const { MIGRATE_MOVED } = await import('./init.js')
+      process.stderr.write(`${MIGRATE_MOVED}\n`)
+      return 1
+    }
     case 'init':
-      // A workspace from nowhere: package.json scripts are the source.
-      return await (
-        await import('./migrate.js')
-      ).migrateCmd(['--from', 'scripts', ...rest], { init: true })
+      return await (await import('./init.js')).initCmd(rest)
     case 'upgrade':
       return await (await import('./upgrade.js')).upgradeCmd(rest)
     case 'show':
@@ -118,7 +120,7 @@ export async function run(argv: readonly string[]): Promise<number> {
 export { detectFlow, parseRunArgs, resolveRunOptions, type RunArgs } from './run.js'
 export { parsePruneArgs, parseDuration, parseSize } from './cache.js'
 export { parseLockArgs, type LockArgs } from './lock.js'
-export { parseMigrateArgs, type MigrateArgs } from './migrate.js'
+export { parseInitArgs, type InitArgs } from './init.js'
 export { parseShowArgs, type ShowArgs } from './show.js'
 export { parseWhyArgs } from './why.js'
 export { parseLastArgs } from './last.js'

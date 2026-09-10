@@ -119,15 +119,22 @@ export type { ProjectMeta } from './workspace/index.js'
 // prints.
 export { loadResolvedProjects } from './orchestrator/index.js'
 export type { ProjectEntry } from './workspace/index.js'
-// The Turbo mapper `vx migrate` renders from and `@vzn/vx-turbo` runs live —
-// one mapping, so a repo reads the same under either.
-export { mapTurboWorkspace } from './workspace/index.js'
+// The migration seam: how a generated config is planned, rendered, guarded
+// and written. `vx init` (package.json scripts) uses it in core;
+// `@vzn/vx-migrate` (Turbo, Nx) and any other adoption tool use it from here.
+export {
+  applyMigration,
+  migrateScripts,
+  PERSISTENT_TASK_NAMES,
+  PERSISTENT_TODO,
+  quoteTsLiteral,
+} from './workspace/index.js'
 export type {
-  MapTurboOptions,
-  TurboGlobal,
-  TurboMappedProject,
-  TurboMappedTask,
-  TurboMapping,
+  ApplyMigrationArgs,
+  GeneratedProject,
+  GeneratedTask,
+  MigrationPlan,
+  RawExpr,
 } from './workspace/index.js'
 
 // Plugin API — the run-level extension points. Behavior capabilities

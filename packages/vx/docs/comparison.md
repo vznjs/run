@@ -224,7 +224,7 @@ upstream repos.
    compose: a shared preset imported and spread into each config IS the
    global-inputs/global-env mechanism (same rationale as the rejected
    named-inputs machinery — a schema field would duplicate the language).
-   The `vx migrate` Turbo path already emits a generated `vx-preset.ts`
+   The `@vzn/vx-migrate` Turbo path already emits a generated `vx-preset.ts`
    for exactly this. Not a gap; will not be added.
    - Turbo `globalEnv`, `globalPassThroughEnv`.
 
@@ -303,7 +303,7 @@ upstream repos.
   fail-on-violation).
 - Root-anchored inputs/outputs (`workspaceFiles`) and runtime-command
   inputs (`runtime` / `workspaceRuntime`).
-- `vx lock` / `vx run --frozen`, `vx migrate`, `vx show`.
+- `vx lock` / `vx run --frozen`, `vx init` / `@vzn/vx-migrate`, `vx show`.
 - **The plugin pipeline (2026-09-02).** One `VxPlugin` hooks every
   stage — `config`, `project`, `graph`, `key`, `schedule` — beside the
   `executor` / `cache` / `telemetry` capabilities and `commands` (new
@@ -405,7 +405,7 @@ Things `@vzn/vx` does that the others don't:
 - **`vx lock` / `--frozen`.** Configs are programs; the lock freezes
   the resolved objects for CI reproducibility, with a full
   re-evaluation audit (`vx lock --check`). No analog in Turbo/Nx.
-- **`vx migrate`.** One command generates per-package `vx.config.ts`
+- **`bunx @vzn/vx-migrate`.** One command generates per-package `vx.config.ts`
   from `turbo.json` or an Nx project graph, with TODO comments for
   everything unmappable.
 - **A versioned telemetry contract + plugin seam.** `TelemetryRecord`
