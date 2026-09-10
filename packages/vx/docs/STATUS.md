@@ -408,6 +408,12 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    the product. `bun packages/vx-bench/run.ts 100 5` and `1000 5`; an interleaved
    A/B against an immutable worktree settles any gap
    (`scratchpad/ab.ts`-style: alternate arms, min and median of N).
+   Closing figures for 2026-09-10 (the same container, `run.ts`
+   medians of 5, after the three package moves and the CI work): 100
+   projects 118 ms warm / 182 restore / 394 cold; 1,000 projects 229 /
+   1,206 / 2,758. No core warm-path change landed today — the moves
+   ran nothing on `vx run` — and the figures sit on yesterday's within
+   the box's jitter.
    Closing figures for 2026-09-09 on a noisy 4-core Linux container
    (late, after the improvement loop's 25 items): head vs main
    (c0b20ca), 1000 projects, both orders, min 296/304 and 302/295 ms,
