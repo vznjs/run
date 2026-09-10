@@ -1742,6 +1742,15 @@ migrate` was 1,475 lines of core that knew Turbo's and Nx's file
     that contention: the same work on four cores, which no order
     removes.
 
+**Shard weights refreshed (2026-09-10, after items 65–67).** Three
+suites moved to packages and `init.test.ts` shrank, so the deal was
+running on stale numbers: twelve shards side by side on this four-core
+box read 11.8–14.6 s (wall 14.7 s). Re-weighed from that run's JUnit
+(`--weigh`), the same files deal to 13.5 s each by the new weights
+against 14.6 s for the old deal's heaviest — the wall follows the
+heaviest shard, so about a second. The weights are what a twelve-way
+run on four cores measures, the condition the gate runs under.
+
 **Plugin names, one convention (2026-09-10).** `vx info` listed the
 repo's own plugins as `vzn/otel`, `@vzn/vx-github`, `vx/mcp` and
 `vx/schedule-history` — three spellings across four lines, and the same
