@@ -1584,9 +1584,13 @@ worst.
     `orchestrator.test.ts` and `orchestrator-run.test.ts`, the fixture
     in `helpers/orchestrator-fixture.ts`; 62 cases before and after).
     The heaviest file is now `scale-graph` at 11.5 s, which is one
-    perf pin's generator and warm plan and does not split. Weights
-    for the three set by hand this once; the next `--weigh` refresh
-    replaces them.
+    perf pin's generator and warm plan and does not split. The table
+    was refreshed from a twelve-shard JUnit run the same day: under
+    twelve-way oversubscription on four cores every file reads slower
+    than alone (`output-memory` 8.5 s against 4.5 s by itself,
+    167 s of file time against 140 s under eight), which is the right
+    weight for the deal on the box that runs it — the deal balances
+    relative load, and the absolute figures are this box's.
 
 62. DONE (the one review finding accepted as-is, closed after all): a
     `--frozen` run reads its configs from the lock, but the `--affected`
