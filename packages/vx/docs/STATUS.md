@@ -1275,7 +1275,10 @@ undefined?` whenever nothing was within two edits — `nearest`
     loader re-exports it so the tests that reach it there keep
     working. Nothing crossed between the halves but the two calls.
     Module doc, index row and CLAUDE.md layout updated; the doc-index
-    law names the new file.
+    law names the new file. Warm A/B, 1,000 projects, twelve reps,
+    both orders, base c0b20ca: main med 230 vs head 227 in one order,
+    head 231 vs main 224 in the other — a tie inside jitter, the sign
+    flipping with the order, as a pure move should read.
 
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca
