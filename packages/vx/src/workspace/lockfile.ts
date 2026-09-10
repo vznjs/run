@@ -14,7 +14,7 @@
 import path from 'node:path'
 import type { ProjectConfig } from '../config.js'
 import { relPosix, UserError } from '../util/index.js'
-import { validateProjectConfig } from './project-loader.js'
+import { validateProjectConfig } from './config-schema.js'
 
 export const LOCKFILE_NAME = 'vx-lock.json'
 export const LOCKFILE_VERSION = 1

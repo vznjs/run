@@ -1265,6 +1265,18 @@ undefined?` whenever nothing was within two edits — `nearest`
     off the recorded one explicitly, so the claim never rides on a
     second boundary.
 
+47. DONE (pure motion): `project-loader.ts` was 1,022 lines, and 742
+    of them were not loading — the validators for every config level,
+    the field sets, the glob and timeout rules, the sandbox grant
+    shapes. They are `workspace/config-schema.ts` now, with the loader
+    at 281 lines deciding how a file is evaluated and the schema
+    deciding what it may say. The `workspace/index.ts` contract is
+    unchanged; `lockfile.ts` imports the validator from the schema; the
+    loader re-exports it so the tests that reach it there keep
+    working. Nothing crossed between the halves but the two calls.
+    Module doc, index row and CLAUDE.md layout updated; the doc-index
+    law names the new file.
+
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca
 worktree: main min 225 / med 242 ms vs head 231 / 246 in one order,

@@ -50,7 +50,8 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/orchestrator/     run() pipeline, execute-task (+ miss-save, sandbox-request), task-hash,
                         projects.ts (the staged config load every reader shares), plugin
                         stages + seams, events, logger
-  src/workspace/        discovery, config eval (+ config-cache.ts), package graph, --filter/--affected, lockfile
+  src/workspace/        discovery, config eval (+ config-cache.ts), config-schema.ts (what a config
+                        may say), package graph, --filter/--affected, lockfile
   src/graph/            task graph + two-tier scheduler
   src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (git enumeration)
   src/exec/             runner (Bun.spawn), env isolation, sandbox, local-executor (the floor)
