@@ -1556,7 +1556,12 @@ worst.
     `olderThanMs: 1` the aged indexed entry was evictable, an eviction
     deletes the row before the file, and the other prune's scan fell
     between the two and counted the file as an orphan. The pin now
-    prunes with nothing evictable (a year), and asserts it.
+    prunes with nothing evictable (a year), and asserts it. Darwin read
+    `2` again with nothing evicted (0d70abe, 569dd17), which the
+    reasoning above cannot produce; the pin now asserts one object —
+    each prune's count, the bytes, and every artifact the directory
+    still holds — so the next darwin run says which prune counted
+    what, instead of a bare `2`.
 
 60. DONE (twelve shards from one template): the eight shard tasks were
     eight copies of a twenty-line block, and eight was the count for
