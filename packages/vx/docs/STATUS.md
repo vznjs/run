@@ -1655,6 +1655,16 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    move when a file INSIDE it is rewritten in place, so the key would
    have to be the manifest's own stat — one stat per package, which is
    most of the cost already. Do it only with a measured design.
+   Measured 2026-09-10 on the pre-warmed 1,000-project copy, min of
+   seven, all in flight: today's per-package I/O (readdir + manifest
+   read + `JSON.parse`) is 8.6 ms; the memo's key (a stat of the
+   directory — entries added or removed — and a stat of the manifest)
+   is 3.3 ms async, 2.8 ms sync. But the memo must hand plugins and the
+   package graph the whole manifest, so it stores the parsed JSON and
+   parses it back — the `JSON.parse` share stays — and reads 1,000
+   rows from SQLite (~1 ms). Net ≈ 3–4 ms of a 230 ms run for a second
+   staleness surface (directory mtimes across platforms). REFUTED as
+   not worth it; revisit only if discovery's share grows.
    (f) `--cache-dir` is a `vx run` flag only: a run under it leaves
    `vx last` / `vx why` / `vx cache prune` reading the default
    directory. `defineWorkspace({ cacheDir })` is the durable way and
