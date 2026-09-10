@@ -1323,7 +1323,9 @@ undefined?` whenever nothing was within two edits — `nearest`
     costs the warm path; the earlier readings under items 46–48 were
     taken with reused copies and are superseded by this one. Rule
     (CLAUDE.md): arms on different `SCHEMA_VERSION`s never share a
-    workspace copy.
+    workspace copy. Under the same protocol `vx show` at 1,000
+    projects reads main min 132 / med 138 ms vs head 102 / 105 — the
+    staged load's cached evaluations (item 13), re-measured.
 
 50. DONE (DX, one row): `vx info` prints `cache versions: keys
 vx-cache-v27 · index schema v25` — the two constants a bug report
