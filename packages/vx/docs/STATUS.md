@@ -580,7 +580,11 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    CLI-spawning suites (~250 cases at 91 ms) to in-process calls where
    process semantics are not the claim — about 14 s of file time,
    ~1 s of wall on twelve shards; do it only if a box with many cores
-   shows the wall pinned by them. The gate on four cores is 15.7 s.
+   shows the wall pinned by them. The gate on four cores is 15.7 s;
+   the whole test graph under the REAL sandbox as an unprivileged user
+   (twelve shards, the unsafe suite, eleven package suites) reads
+   44 s, three reps 24/24 on 1bce329 — no flake at twelve-way
+   concurrency behind bwrap.
    (c) DONE 2026-09-10: the darwin CI job's four slices run side by
    side (3 min 8 s sequential before). The canary step runs AFTER the
    test step and the sandbox suites are class-gated there, so the load
