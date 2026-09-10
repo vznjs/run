@@ -1556,7 +1556,13 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    task (every shard adds it to `--path-ignore-patterns`; one task
    runs the file alone) would cut the path to ~13 s. Nine config
    edits and a CLAUDE.md line for ~5 s; do it when the next slow file
-   lands in the same shard, not before.
+   lands in the same shard, not before. Refuted alongside: pre-bundling
+   the CLI for the ~130 end-to-end spawns. One `bun bin.ts --version`
+   costs 45–47 ms (bun's own start is 4 ms); a `bun build
+   --target=bun` bundle of the same entry costs 83–90 ms, slower, as
+   the flag-less compile was in item 32, and the `--bytecode` form's
+   ~17 ms gain would buy ~2 s of suite for a build step in every test
+   run. The spawns stay on source.
 
 ## Decisions (this arc)
 
