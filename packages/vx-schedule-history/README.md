@@ -11,7 +11,17 @@ import { scheduleHistoryPlugin } from '@vzn/vx-schedule-history'
 export default { plugins: [scheduleHistoryPlugin()] }
 ```
 
-`scheduleHistoryPlugin({ window? })` learns from the last `window` invocations (default 20) through core's `LocalHistoryProvider` over the cache's own SQLite handle. With one worker and two chains of identical shape, the chain history says is slow starts first; with no history yet, the scheduler's structural order stands.
+`scheduleHistoryPlugin({ window?, assume? })` learns from the last `window` invocations (default 20) through core's `LocalHistoryProvider` over the cache's own SQLite handle. With one worker and two chains of identical shape, the chain history says is slow starts first; with no history yet, the scheduler's structural order stands.
+
+`assume` is for the run that has no history: a fresh CI runner. It names durations (task id → ms) for tasks the history has not seen, so a long leaf task — a docs build, a cross-compile — starts first instead of last:
+
+```ts
+export default {
+  plugins: [scheduleHistoryPlugin({ assume: { '@vzn/vx-docs#build': 30_000 } })],
+}
+```
+
+A recorded p50 always wins over an assumption, and assumptions never feed the workspace median: they are a hint for the cold run, not evidence. vx's own CI declares exactly this one — its docs build was the 29 s tail of a 99 s cold gate, ready from the second second and started last (2026-09-10).
 
 ## What it does and does not do
 

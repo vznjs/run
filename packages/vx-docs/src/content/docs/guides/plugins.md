@@ -163,7 +163,10 @@ export default defineWorkspace({
 ```
 
 It costs one history read per run, in the workspaces that declare it —
-which is why it is a plugin and not a flag.
+which is why it is a plugin and not a flag. A fresh CI runner has no
+history, and there the structural order starts a long leaf task last;
+`scheduleHistoryPlugin({ assume: { 'docs#build': 30_000 } })` names the
+durations the cold run should assume until the history has its own.
 
 - **`executor`** returns a `TaskExecutor` — the thing that actually runs
   one task's command — or `undefined` to decline. Executors form a

@@ -1721,6 +1721,23 @@ migrate` was 1,475 lines of core that knew Turbo's and Nx's file
     init, upgrade, show, info, why, last — orchestration and its own
     cache, history and lock, nothing else.
 
+68. DONE (the cold gate's tail, and `assume` for `@vzn/vx-schedule-history`):
+    CI's Linux gate read 98.7 s for 53 tasks on four workers, and its last
+    29 s were `@vzn/vx-docs#build` running alone — ready at the second
+    second (its cross-compile deps take a second each) and started last,
+    because the structural baseline ranks a task by what it unblocks and
+    the docs build unblocks one. The history plugin would order it first
+    on a machine that had seen it; a fresh runner has seen nothing. So
+    the plugin grew `assume` (task id → ms for tasks the history has not
+    seen; a recorded p50 wins; assumptions never feed the median), pinned
+    four ways in its unit suite (control, lift, p50-wins, median-clean)
+    and once end to end (the very first run starts the assumed-long
+    chain), and this repo's `vx.workspace.ts` declares it with the one
+    assumption — the first workspace to dogfood the `schedule` seam. The
+    expected CI shape: the docs build starts at ~1 s and the run ends
+    when the shards do, ~70 s of the same work. Measure it on the next
+    green run and record the number here.
+
 **The guide pin under the sandboxed gate (2026-09-10, after item 67).**
 CI's Linux job went red on 15136a6 in `@vzn/vx-docs#test`: the plugins
 guide's type-check pin exited 1 with no diagnostic line captured. The

@@ -84,4 +84,37 @@ describe('schedule-history plugin end to end', () => {
     },
     TIMEOUT,
   )
+
+  it(
+    'an assumed duration orders the very first run, before any history exists',
+    async () => {
+      // The same two chains, no history: the case above pins that this run
+      // starts A (insertion order). `assume` names B's head as long, so the
+      // cold run starts B — what a fresh CI runner needs.
+      await pkg(
+        'a',
+        "export default { tasks: { build: { exec: { command: 'true' } }, test: { dependsOn: ['build'], exec: { command: 'true' } } } }\n",
+      )
+      await pkg(
+        'b',
+        "export default { tasks: { build: { exec: { command: 'true' } }, test: { dependsOn: ['build'], exec: { command: 'true' } } } }\n",
+      )
+      await Bun.write(
+        path.join(root, 'vx.workspace.mjs'),
+        `import { scheduleHistoryPlugin } from ${JSON.stringify(PLUGIN_INDEX)}\n` +
+          localWorkspaceSource(["scheduleHistoryPlugin({ assume: { 'b#build': 30000 } })"]),
+      )
+      const first = silent()
+      const summary = await run({
+        cwd: root,
+        tasks: ['test'],
+        concurrency: 1,
+        log: first,
+        handleSignals: false,
+      })
+      expect(summary.ok).toBe(true)
+      expect(first.started[0]).toBe('b#build')
+    },
+    TIMEOUT,
+  )
 })
