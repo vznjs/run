@@ -488,12 +488,9 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    hashing what the cycle wrote before re-arming would zero it — only
    if a real workspace shows the cycle mattering. (d) DONE 2026-09-04: a filter set that matches nothing is one
    error line naming the patterns and the nearest project name.
-8. **Improvement-loop candidates (2026-09-09, in order).** (a) The
-   cached path's save block in `execute-task.ts` (resolve outputs,
-   save, record output dirs, mark git outputs) as its own module —
-   stale-hit-critical, so only with the execute suites and CI's
-   unsafe job green, and behind a differential pin that a moved line
-   would fail. (b) DONE 2026-09-10: `vx cache prune --max-size 10` is refused
+8. **Improvement-loop candidates (2026-09-09, in order).** (a) DONE as
+   item 16 (`orchestrator/miss-save.ts`, behind the differential pin;
+   the hit path followed as item 63, `hit-restore.ts`). (b) DONE 2026-09-10: `vx cache prune --max-size 10` is refused
    with the unit it wanted (`10M, 10G`); `10B` still passes, and
    `parseSize` keeps its bare-bytes contract for the computed
    `--memory` budgets. The zero guard speaks first for every zero
