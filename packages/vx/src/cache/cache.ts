@@ -700,7 +700,7 @@ export class Cache implements CacheLayer {
     // Local reads disabled (e.g. `--force` / `--cache=local:w`): report a
     // miss so the task re-executes. The artifact + index are untouched.
     if (!this.read) return null
-    return await this.readEntry(hash)
+    return this.readEntry(hash)
   }
 
   /**
@@ -712,8 +712,8 @@ export class Cache implements CacheLayer {
    * `ingest` had just written, so the task re-executed and re-uploaded on
    * every single run.
    */
-  async getIngested(hash: string): Promise<CacheEntry | null> {
-    return await this.readEntry(hash)
+  getIngested(hash: string): Promise<CacheEntry | null> {
+    return this.readEntry(hash)
   }
 
   private async readEntry(hash: string): Promise<CacheEntry | null> {
@@ -937,8 +937,8 @@ export class Cache implements CacheLayer {
    * index. Used by the LayeredCache when local writes are disabled but
    * a remote upload still needs the artifact bytes.
    */
-  async packArtifactBytes(args: SaveArgs): Promise<Uint8Array> {
-    return await this.packArtifact(args)
+  packArtifactBytes(args: SaveArgs): Promise<Uint8Array> {
+    return this.packArtifact(args)
   }
 
   async ingest(hash: string, compressed: Uint8Array, meta: IngestMeta): Promise<void> {
@@ -995,7 +995,7 @@ export class Cache implements CacheLayer {
     })
     if (plan.size <= STREAM_DECODE_FROM)
       return await Bun.zstdCompress(await packArtifactBytes(plan))
-    return await bytesOf(packArtifactStream(plan).pipeThrough(zstdEncoder()))
+    return bytesOf(packArtifactStream(plan).pipeThrough(zstdEncoder()))
   }
 
   /**

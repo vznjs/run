@@ -343,5 +343,5 @@ async function doHashProjectPackageJson(
   if (!(await Bun.file(filePath).exists())) return ''
   // Route through the cache layer's mtime+size fast path so the
   // typical re-run sees a stat + SQLite lookup instead of a file read.
-  return await cache.hashFile(filePath)
+  return cache.hashFile(filePath)
 }

@@ -1263,7 +1263,13 @@ undefined?` whenever nothing was within two edits — `nearest`
     precondition (`if` the write landed in the recorded second, assert)
     — a skip is a silent pass — and now sets an mtime one millisecond
     off the recorded one explicitly, so the claim never rides on a
-    second boundary.
+    second boundary. One tightening opened a window: `signal-handling`
+    read `pid.txt` as soon as it existed, and the shell's `echo $$ >`
+    truncates before it writes — a read between sees '', `Number('')`
+    is 0, and `kill(0, 0)` probes the test's own process group, alive
+    forever. Seen once under an eight-shard gate with A/B runs beside
+    it (item 55's), never alone in five, never in six parallel copies
+    after: the test waits for the number, not the file.
 
 47. DONE (pure motion): `project-loader.ts` was 1,022 lines, and 742
     of them were not loading — the validators for every config level,
@@ -1396,6 +1402,25 @@ stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
     median in both orders (239 → 236, 249 → 241; min 220 → 221,
     229 → 225). Rule for the slices: a delegation returns the inner
     promise; `async` on a wrapper is a cost on every call it forwards.
+    The class, grepped (34 `return await` sites in core): nine more
+    forwarded a call the caller awaited anyway — `get`, `getIngested`,
+    `packArtifactBytes`, the streamed pack, the layered `key` /
+    `hashFile` / `prune` / `prefetch`, the key path's `hashFile`, the
+    local executor's sandboxed branch — and now return the inner
+    promise. The rest are once per run (CLI dispatch, lock, watch) or
+    sit inside a `try` that must see the rejection: `remoteHasMany`'s
+    catch IS the never-fail contract, and dropping its `await` let the
+    rejection sail past it — the pin "returns null and reports the
+    error when hasMany throws" failed, which is the differential the
+    exception needed. That one keeps `return await` with a comment
+    saying why; so do `computeTaskHash` (its `finally` closes the
+    timing span), the executor gate in `run.ts` (its `finally`
+    releases the in-flight hash), and the plugin host's `safe`.
+    Measured under the clean protocol against the previous head,
+    twenty reps, both orders: 252 → 249 and 236 → 237 by median, 224 →
+    228 and 222 → 222 by min — a tie, which is the honest number for
+    sites called once per task where item 54's ran two thousand times
+    a run. Kept for the rule, not for a figure.
 
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms

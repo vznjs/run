@@ -130,8 +130,8 @@ export class LayeredCache implements CacheLayer {
     this.policy = options.policy ?? FULL_CACHE_POLICY
   }
 
-  async key(input: CacheKeyInput): Promise<string> {
-    return await this.local.key(input)
+  key(input: CacheKeyInput): Promise<string> {
+    return this.local.key(input)
   }
 
   async prefetch(hash: string, ctx?: CacheGetContext): Promise<boolean> {
@@ -141,7 +141,7 @@ export class LayeredCache implements CacheLayer {
     // point): pullFromRemote registers the `inflight` entry SYNCHRONOUSLY,
     // so a concurrent markRemoteAbsent can't clobber a pending pull — a
     // guard done here (behind an async local.has) would reopen that race.
-    return await this.pullFromRemote(hash, ctx)
+    return this.pullFromRemote(hash, ctx)
   }
 
   /**
@@ -155,6 +155,8 @@ export class LayeredCache implements CacheLayer {
   async remoteHasMany(hashes: readonly string[]): Promise<Set<string> | null> {
     if (!this.policy.remoteRead || this.remote.hasMany === undefined) return null
     try {
+      // `return await`, deliberately: the catch below is the never-fail
+      // contract, and a returned promise's rejection would sail past it.
       return await this.remote.hasMany(hashes)
     } catch (err) {
       this.reportRemoteError(err)
@@ -296,8 +298,8 @@ export class LayeredCache implements CacheLayer {
     return this.local.outputsPath(hash)
   }
 
-  async hashFile(filePath: string): Promise<string> {
-    return await this.local.hashFile(filePath)
+  hashFile(filePath: string): Promise<string> {
+    return this.local.hashFile(filePath)
   }
 
   async restoreOutputs(hash: string, projectDir: string, workspaceRoot?: string): Promise<void> {
@@ -427,8 +429,8 @@ export class LayeredCache implements CacheLayer {
     return this.local.stats(opts)
   }
 
-  async prune(options: PruneOptions): Promise<PruneResult> {
-    return await this.local.prune(options)
+  prune(options: PruneOptions): Promise<PruneResult> {
+    return this.local.prune(options)
   }
 
   close(): void {
