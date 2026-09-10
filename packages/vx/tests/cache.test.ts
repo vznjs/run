@@ -886,14 +886,19 @@ describe('Cache storage (v10)', () => {
 
     // Two prunes over one directory (two vx processes, one cache) both scan
     // the same orphan; only the unlink that lands counts it. `rm({ force })`
-    // swallowed the loser's ENOENT and both reported the bytes.
+    // swallowed the loser's ENOENT and both reported the bytes. Nothing may
+    // be EVICTABLE here: an eviction deletes the row before the file, and a
+    // scan between the two sees the file as an orphan — darwin CI landed
+    // there once with `olderThanMs: 1` and the aged indexed entry.
     const again = await aged('h-orphan-2.tar.zst', 'w'.repeat(7))
     const other = new Cache(cacheDir, { read: true, write: true })
     try {
+      const aYear = 365 * 24 * 60 * 60 * 1000
       const [r1, r2] = await Promise.all([
-        cache.prune({ olderThanMs: 1 }),
-        other.prune({ olderThanMs: 1 }),
+        cache.prune({ olderThanMs: aYear }),
+        other.prune({ olderThanMs: aYear }),
       ])
+      expect(r1.evicted + r2.evicted).toBe(0)
       expect(r1.orphans + r2.orphans).toBe(1)
       expect(r1.orphanBytes + r2.orphanBytes).toBe(7)
       expect(existsSync(again)).toBe(false)

@@ -1551,7 +1551,12 @@ worst.
     file's mtime comes from the kernel's coarse clock (one tick, 4 ms
     at HZ=250), so under load the rewrite landed in the recorded tick;
     the pin stamps the rewrite one millisecond past the recorded mtime
-    now, as item 46 did for `cache-baseline`.
+    now, as item 46 did for `cache-baseline`. The concurrent-prune pin
+    itself went red on darwin CI (1c3a435, `2` orphans): with
+    `olderThanMs: 1` the aged indexed entry was evictable, an eviction
+    deletes the row before the file, and the other prune's scan fell
+    between the two and counted the file as an orphan. The pin now
+    prunes with nothing evictable (a year), and asserts it.
 
 60. DONE (twelve shards from one template): the eight shard tasks were
     eight copies of a twenty-line block, and eight was the count for
