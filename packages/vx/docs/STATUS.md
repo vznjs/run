@@ -1290,7 +1290,14 @@ undefined?` whenever nothing was within two edits — `nearest`
     mentions of the resolver on the git side were comments. The
     `cache/index.ts` contract is unchanged; the resolver re-exports the
     cache for the tests that reach it there. Module doc, index row and
-    CLAUDE.md layout updated.
+    CLAUDE.md layout updated. One lesson, paid in a red head (c7e9bf1,
+    fixed next commit): the re-export list came from a grep of ONE-LINE
+    test imports, and `stale-hit.test.ts` imports three git parsers in
+    a multi-line block — shard 1 failed on the missing export while the
+    targeted suites, which do not include that file, were green. A
+    moved module re-exports its WHOLE public surface from the old path,
+    and the import scan is multi-line (the script in this item's
+    commit), not a one-line grep.
 
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca
