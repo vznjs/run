@@ -24,5 +24,5 @@ every plugin verb for `vx help`.
 
 ## Tests
 
-`tests/plugin-commands.test.ts`; `@vzn/vx-mcp`'s `tests/server.test.ts`
+`tests/plugin-commands.test.ts`; `packages/vx-mcp/tests/server.test.ts`
 drives a real plugin verb through the entry point.

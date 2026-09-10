@@ -115,8 +115,22 @@ describe('loadProjectConfig', () => {
     )
     expect(err?.name).toBe('UserError')
     expect(err?.message).toBe(
-      `${file} has unknown field "task" — did you mean tasks?. Allowed: tasks`,
+      `${file} has unknown field "task" (allowed: tasks) — did you mean tasks?`,
     )
+  })
+
+  it('a field with no near spelling gets the list and no guess', async () => {
+    // `nearest` answers undefined past two edits; the message once printed
+    // that verbatim (`did you mean undefined?`), which reads as a stub.
+    const file = path.join(dir, 'vx.config.mjs')
+    await writeFile(file, "export default { tasks: {}, projectName: 'x' }\n")
+    const err = await loadProjectConfig(file).then(
+      () => null,
+      (e: unknown) => e as Error,
+    )
+    expect(err?.message).toBe(`${file} has unknown field "projectName" (allowed: tasks)`)
+    expect(err?.message).not.toContain('undefined')
+    expect(err?.message).not.toContain('did you mean')
   })
 
   it('throws clearly when the config did not export a default object', async () => {

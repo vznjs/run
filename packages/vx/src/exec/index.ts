@@ -12,6 +12,7 @@ export {
 export {
   initSandbox,
   probeSandbox,
+  unavailableReason,
   resetSandbox,
   resolveSandboxConfig,
   runSandboxed,

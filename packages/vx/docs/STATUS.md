@@ -282,7 +282,7 @@ passed once the load fell.
   (`write /proc/self/uid_map: EPERM`; a non-root user can), and the
   old probe's bare `bwrap … /bin/true` passed anyway. The Linux probe
   now runs ONE sandboxed `true` through SRT's own wrapper and refuses
-  up front naming the fix (non-root, or `enableWeakerNestedSandbox` on
+  up front naming the fix (non-root, or `sandbox.weakerWhenNested` on
   every sandboxed task — `run()` probes the weaker mode only when all
   opt in); a Linux pin says available ⇒ a sandboxed `true` exits 0. The
   suite's `expectOk` prints `<task> <status> exit=<code>` and the
@@ -1162,6 +1162,36 @@ know — vx cache prune reaps them` — only when there are any, from
     sink and the dist scheduler, and sized its stubs against a cloud
     ingest cap: reworded to the one consumer that exists
     (`@vzn/vx-otel`) and to what a sink should size against.
+
+43. DONE (owner's report: `vx lock` "raises schema issues … like some
+    mock"): reproduced `vx lock`, `--check` and `--frozen` on a config
+    using every schema form, on a `project`-stage plugin workspace with
+    a config-less package, and on the walkthrough workspace — the lock
+    round-trips all three (the frozen run re-validates the stored
+    object and accepts it; the plugin still shapes a frozen run). What
+    the report matches is two messages on the way there. (1) The
+    unknown-field refusal from item 22 printed `did you mean
+undefined?` whenever nothing was within two edits — `nearest`
+    answers `undefined` and the template tested for `null`; a
+    validator that prints `undefined` reads exactly like a stub. The
+    message is now `has unknown field "x" (allowed: a, b)` with the
+    hint appended only when there is one; the `resources` block had a
+    second copy of the rule with no hint at all and goes through the
+    one function now. Pinned: a field with nothing near gets the list
+    and no guess (fails on the old code: `undefined` in the message).
+    (2) The sandbox-unavailable message told the user to set
+    `sandbox.enableWeakerNestedSandbox: true` — the runtime's option
+    name, which the loader refuses as an unknown field; the config
+    field is `weakerWhenNested`. The reason builder is a function now
+    (`unavailableReason`), and `tests/sandbox-hint.test.ts` validates
+    every `sandbox.<field>` the hint names against the loader, with
+    the runtime name as the refused control. Also per the owner's ask
+    that every fix carries a test: items 37 and 42 were probes without
+    a law — `tests/doc-references.test.ts` now fails on a doc path
+    that does not exist and on a source module the index does not
+    name (it caught one more on landing: `plugin-commands.md` pointed
+    at a `tests/server.test.ts` that lives in `packages/vx-mcp`).
+    Items 35, 39, 40, 41 carried their pins when they landed.
 
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake

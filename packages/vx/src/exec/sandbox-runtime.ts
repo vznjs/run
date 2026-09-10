@@ -141,6 +141,21 @@ function applyPolicyHere(): SandboxAvailability {
   return { available: false, reason: `sandbox-exec failed: ${stderr || `exit ${proc.exitCode}`}` }
 }
 
+/**
+ * Why the probe's sandboxed `true` failed, in the user's terms. The hint
+ * names the CONFIG field (`exec.sandbox.weakerWhenNested`), not the
+ * runtime option it maps to — a user who followed the runtime's name into
+ * their config met the loader's unknown-field refusal instead of a fix
+ * (`tests/sandbox-hint.test.ts` pins every field the hint names against
+ * the loader).
+ */
+export function unavailableReason(exitCode: number | null, stderr: string): string {
+  const hint = stderr.includes('uid_map')
+    ? " — the runtime's seccomp helper cannot create its nested user namespace here (root inside a container, or a kernel that forbids nested user namespaces): run as a non-root user, or set `sandbox.weakerWhenNested: true` on every sandboxed task"
+    : ''
+  return `a sandboxed \`true\` failed (exit ${exitCode}): ${stderr.slice(0, 200)}${hint}`
+}
+
 async function trySandboxedTrue(
   SandboxManager: SrtModule['SandboxManager'],
   weakerNested: boolean,
@@ -159,13 +174,7 @@ async function trySandboxedTrue(
     const stderr = (await new Response(proc.stderr).text()).trim()
     await proc.exited
     if (proc.exitCode === 0) return { available: true, reason: '' }
-    const hint = stderr.includes('uid_map')
-      ? " — the runtime's seccomp helper cannot create its nested user namespace here (root inside a container, or a kernel that forbids nested user namespaces): run as a non-root user, or set `sandbox.enableWeakerNestedSandbox: true` on every sandboxed task"
-      : ''
-    return {
-      available: false,
-      reason: `a sandboxed \`true\` failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}${hint}`,
-    }
+    return { available: false, reason: unavailableReason(proc.exitCode, stderr) }
   } catch (err) {
     return { available: false, reason: `sandbox probe threw: ${(err as Error).message}` }
   }

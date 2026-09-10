@@ -374,7 +374,7 @@ describe('docs/schema.md unknown-field rejection', () => {
     const message = await workspaceConfig('{ plugin: [{ name: "p", setup() {} }] }')()
     expect(message).toContain('has unknown field "plugin"')
     expect(message).toContain('did you mean plugins?')
-    expect(message).toContain('Allowed: cacheDir, concurrency, plugins, timeout')
+    expect(message).toContain('(allowed: cacheDir, concurrency, plugins, timeout)')
   })
 })
 

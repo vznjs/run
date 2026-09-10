@@ -753,8 +753,8 @@ function assertKnownFields(value: object, allowed: ReadonlySet<string>, where: s
       // takes, the hint says which one was meant.
       const near = nearest(key, allowed)
       throw new UserError(
-        `${where} has unknown field "${key}"${near === null ? '' : ` — did you mean ${near}?`}. ` +
-          `Allowed: ${[...allowed].sort().join(', ')}`,
+        `${where} has unknown field "${key}" (allowed: ${[...allowed].sort().join(', ')})` +
+          (near === undefined ? '' : ` — did you mean ${near}?`),
       )
     }
   }
@@ -997,13 +997,7 @@ function validateResources(resources: unknown, where: string): void {
   if (typeof resources !== 'object' || resources === null || Array.isArray(resources)) {
     throw new UserError(`${where} must be an object (e.g. \`{ cpus: 2, memory: 2048 }\`)`)
   }
-  for (const key of Object.keys(resources as object)) {
-    if (!RESOURCES_FIELDS.has(key)) {
-      throw new UserError(
-        `${where} has unknown field "${key}". Allowed: ${[...RESOURCES_FIELDS].sort().join(', ')}`,
-      )
-    }
-  }
+  assertKnownFields(resources, RESOURCES_FIELDS, where)
   const { cpus, memory, image } = resources as {
     cpus?: unknown
     memory?: unknown
