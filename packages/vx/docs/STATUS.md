@@ -1239,18 +1239,28 @@ undefined?` whenever nothing was within two edits — `nearest`
     ~100 ms each — real work, not waits. Refuted on the way: the
     signal suite's 2 s was not the grace (vx exits in 4 ms and the
     child is a zombie 7 ms later); the zombie wait was the whole of it.
+    Whole suite, eight shards back to back on four cores: 102 s → 80 s,
+    and the longest shard — the critical path when they run in
+    parallel — 28.5 s → 18.0 s.
 
-**Handoff after item 31 (2026-09-09, late).** PR #265 carries the
-loop, 40+ commits, every head green on CI except the one test flake
-(d295a90, fixed next commit). The shape of the day: three seams
-closed (`loadProjects` for every reader, the `config` stage for every
-verb, the workspace validator for plugin verbs), a dozen quiet
-failures turned into refusals that name the file and the plugin, five
-files split by concern with the warm path tied at each step, and one
-measured perf win on the default scaffold (item 31). Start the next
-session from Next § 8: (a) is done, (b) decided, (e)/(f) are open with
-numbers. The scratchpad harnesses (`ab2.ts` warm, `ab3.ts` cold,
-`abshow.ts` for `vx show`) take two worktrees and two workspace
+**Handoff after item 45 (2026-09-10, morning).** PR #265 carries the
+loop, 70+ commits; every head is green on CI except the ones a
+same-day commit fixed (d295a90 timing, 1414cf2 `.mcp.json`, f549719
+unformatted tables, 92e1682/f4a0d48 a doc law reading outside the
+sandbox — each recorded above). The shape since item 31: the owner's
+two asks (item 43's `vx lock` report and item 45's suite speed) both
+resolved to measurement first — a repro that round-trips, a JUnit
+timing pass — and each fix carries a pin that fails on the old code;
+three probes became laws (`doc-references`, `schema-unknown-keys`,
+`sandbox-hint`); the reset notice (39), the orphan sweep (35) and the
+doctor's orphans row (41) close the schema-bump story end to end. The
+suite runs ~95 s of test bodies across eight shards on four cores;
+what remains over a second is real work (rate floods, an 87k-edge
+graph, Worker spawns, ~130 end-to-end CLI spawns at ~100 ms). Start
+the next session from Next § 8: (e)/(f)/(g) are open with reasons;
+(c) is done for every verb but `vx lock`, on purpose. The scratchpad
+harnesses (`ab2.ts` warm, `ab3.ts` cold, `abshow.ts` for `vx show`,
+`junit/` for suite timing) take two worktrees and two workspace
 copies; recreate the copies with the bench generator.
 Next-list 8(b) decided: `--max-size` keeps reading a bare integer
 as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
