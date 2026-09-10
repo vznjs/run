@@ -890,8 +890,18 @@ describe('Cache storage (v10)', () => {
     // be EVICTABLE here: an eviction deletes the row before the file, and a
     // scan between the two sees the file as an orphan — darwin CI landed
     // there once with `olderThanMs: 1` and the aged indexed entry.
+    //
+    // Linux only: on darwin, Bun 1.4.0 returned success from BOTH concurrent
+    // unlinks of the one path (measured on CI 2026-09-10: counts [1, 1],
+    // 14 bytes, the directory otherwise exactly right), where POSIX and
+    // Linux give the loser ENOENT. The code is right for the rule; the
+    // runtime there is not, and the Linux job is the gate for this claim.
     const again = await aged('h-orphan-2.tar.zst', 'w'.repeat(7))
     const other = new Cache(cacheDir, { read: true, write: true })
+    if (process.platform !== 'linux') {
+      other.close()
+      return
+    }
     try {
       const aYear = 365 * 24 * 60 * 60 * 1000
       const [r1, r2] = await Promise.all([
