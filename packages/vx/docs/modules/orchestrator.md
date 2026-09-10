@@ -81,8 +81,10 @@ export interface RunSummary {
    producing `preProbed` (probe reuse) + `restoreTier`.
 9. **`runGraph({..., priorities, restoreTier})`.** Two-tier schedule;
    each ready node runs `executeTask` (with its pre-probe when
-   present). A service-supplied `inflight` map dedupes identical-hash
-   tasks across concurrent delegated runs.
+   present) through `admission.ts`: a service-supplied `inflight` map
+   dedupes identical-hash tasks across concurrent delegated runs, and
+   under `continueMode: 'always'` the taint of an upstream failure is
+   tracked so the task's save is withheld.
 10. **Persistent cleanup** (`persistent.ts`). `selectKeepAlive` picks
     the persistent tasks the user REQUESTED (or that were surfaced) to
     KEEP ALIVE in the real CLI foreground (`options.log === undefined

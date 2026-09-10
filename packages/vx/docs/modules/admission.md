@@ -1,0 +1,69 @@
+# `src/orchestrator/admission.ts` — dedup and taint between scheduler and task
+
+## Purpose
+
+The scheduler hands `run()` a ready task; `executeTask` runs it. Two
+rules stand between them and neither changes what the task is:
+
+- **In-flight dedup.** A service running concurrent delegated runs in
+  one process (`vx serve`) supplies an `inflight` registry
+  (`RunOptions.inflight`). A cacheable task whose key a sibling is
+  already computing waits for the sibling, then cache-hits on what it
+  saved. A stateless `vx run` passes no registry and takes the
+  untouched path: no key derivation before execute.
+- **Continue-taint.** Under `continueMode: 'always'` a task runs
+  although an upstream failed. Its key is the healthy one (pure-input
+  hashing) but its bytes are not, so its save is withheld
+  (`taintedUpstream`) and the taint propagates through every success
+  built on it — otherwise a grand-dependent would cache the same
+  partial tree one hop later. Only that mode executes a task behind a
+  failure; a default run carries no check.
+
+Split from `run.ts` on 2026-09-10 (pure motion).
+
+## Public surface
+
+```ts
+export function taintTracker(enabled: boolean): (node: TaskNode, upstream: TaskOutcome[]) => boolean
+
+export interface AdmissionArgs {
+  inflight: Map<string, Promise<void>> | undefined
+  policy: CachePolicy
+  shortCircuit: ShortCircuit
+  hashArgs: Omit<ComputeHashArgs, 'node' | 'upstream' | 'nestedProjectDirs'> & {
+    nestedDirsByProject: ReadonlyMap<string, string[]>
+  }
+  buildExecuteArgs: (node, upstream, reuseProbe?: boolean) => ExecuteArgs
+}
+export function admitTasks(
+  args: AdmissionArgs,
+): (node: TaskNode, upstream: TaskOutcome[]) => Promise<TaskOutcome>
+```
+
+`admitTasks` returns the scheduler's `execute` callback. Dedup applies
+only when it can help: a non-group, non-persistent task with a `cache`
+block, under a policy where the sibling will WRITE and this task can
+READ (`localRead || remoteRead` and `localWrite || remoteWrite`). A
+restore-tier task (a confirmed local hit the scheduler runs ahead of its
+deps) is never deduped: it restores rather than executes, and its live
+`upstream` is incomplete, so a key recompute would be wrong. A task
+that joins a sibling drops its up-front probe (`reuseProbe: false`) —
+the probe predates the sibling's save and would report a stable miss.
+
+The executor registers its barrier with no `await` between `get` and
+`set`, so at most one executor exists per hash; the barrier is released
+in a `finally` on every exit.
+
+## What it does NOT do
+
+- Decide WHERE a task runs (`placement.ts`) or whether it is a hit
+  (`execute-task.ts`, `local-shortcircuit.ts`).
+- Withhold the save itself: the tracker only answers; `execute-task`'s
+  miss path reads `taintedUpstream` (see `miss-save.md`).
+
+## Tests
+
+`tests/inflight.test.ts` (two runs sharing a registry execute a key
+once; the joiner hits; the barrier is released on failure),
+`tests/continue-taint.test.ts` (the tainted task runs and does not
+save; taint reaches the grand-dependent; other modes skip).

@@ -18,9 +18,8 @@ import {
   type TaskOutcome,
 } from '../graph/index.js'
 import { mark, MAX_TIMEOUT_MS, printTimings, ulid, UserError, nearest } from '../util/index.js'
-import { executeTask } from './execute-task.js'
+import { admitTasks, taintTracker } from './admission.js'
 import { resolveResourceCosts } from './resources.js'
-import { computeTaskHash } from './task-hash.js'
 import { busLogger, createEventBus, terminalSubscriber } from './events.js'
 import { installPlugins } from './plugin.js'
 import { resolveExecutors, teardownPlugins } from './plugin-host.js'
@@ -552,32 +551,14 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       })
     }
 
-    // Under `continueMode: 'always'` a task runs although an upstream failed.
-    // Its key is the healthy one (pure-input hashing) but its bytes are not,
-    // so the taint is tracked here and the task's save withheld — and it
-    // propagates through every success built on it, or a grand-dependent
-    // would cache the same partial tree one hop later. Only this mode ever
-    // executes a task behind a failure; the other modes skip it, so the
-    // warm path of a default run carries no check.
-    const taintOn = options.continueMode === 'always'
-    const tainted = new Set<string>()
-    const isTainted = (upstream: TaskOutcome[]): boolean =>
-      taintOn &&
-      upstream.some(
-        // A restore-tier task may run before its deps and see holes here;
-        // it never saves anyway (a hit restores), so a hole is not taint.
-        (u) =>
-          u !== undefined &&
-          (u.status === 'failed' ||
-            u.status === 'aborted' ||
-            u.status === 'skipped' ||
-            tainted.has(u.node.id)),
-      )
+    // Whether this task runs behind a failure (`continueMode: 'always'`
+    // only) — its save is withheld and the taint propagates; see
+    // admission.ts.
+    const isTainted = taintTracker(options.continueMode === 'always')
 
     const buildExecuteArgs = (node: TaskNode, upstream: TaskOutcome[], reuseProbe = true) => {
       const probe = reuseProbe ? shortCircuit.preProbed.get(node.id) : undefined
-      const taint = isTainted(upstream)
-      if (taint) tainted.add(node.id)
+      const taint = isTainted(node, upstream)
       return {
         node,
         upstream,
@@ -605,74 +586,21 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       }
     }
 
-    // In-flight dedup. Only when a service supplies a shared `inflight`
-    // registry (concurrent runs in one `vx serve`); a stateless `vx run`
-    // passes none and takes the untouched path. Gated to cacheable tasks —
-    // the join works by waiting for the sibling to populate the cache, then
-    // letting executeTask cache-hit on it. executeTask stays unchanged.
-    const inflight = options.inflight
-    const executeWithDedup = async (
-      node: TaskNode,
-      upstream: TaskOutcome[],
-    ): Promise<TaskOutcome> => {
-      // Dedup only helps when the sibling will WRITE the artifact and
-      // this task can READ it back — i.e. both axes effectively on.
-      const canRead = policy.localRead || policy.remoteRead
-      const canWrite = policy.localWrite || policy.remoteWrite
-      const cacheable =
-        !isGroupTask(node) &&
-        node.config.exec?.persistent === undefined &&
-        node.config.cache !== undefined &&
-        canRead &&
-        canWrite
-      // A restore-tier task (confirmed local hit, may run before its
-      // deps) needs no dedup — it's a restore, not an executor, and its
-      // live `upstream` is incomplete, so the dedup hash recompute would
-      // be wrong. Route it straight to executeTask, which reuses the
-      // up-front probe.
-      const restorable = shortCircuit.restoreTier.has(node.id)
-      if (inflight === undefined || !cacheable || restorable) {
-        return executeTask(buildExecuteArgs(node, upstream))
-      }
-      const hash = await computeTaskHash({
-        node,
-        upstream,
+    const executeWithDedup = admitTasks({
+      inflight: options.inflight,
+      policy,
+      shortCircuit,
+      hashArgs: {
         workspaceRoot,
         workspaceFingerprint,
         cache,
         forwardArgs: options.forwardArgs,
-        nestedProjectDirs: nestedDirsByProject.get(node.projectName) ?? [],
+        nestedDirsByProject,
         gitFilesCache,
         hashCache,
-      })
-      const existing = inflight.get(hash)
-      if (existing !== undefined) {
-        // Join a sibling already computing this exact task: wait, then
-        // executeTask cache-hits on the artifact it just saved. The
-        // up-front probe (preProbed) predates the sibling's save — its
-        // "confirmed stable miss" would skip the lazy cache.get and
-        // re-execute, defeating the dedup — so the join path drops it
-        // and lets executeTask probe fresh.
-        await existing.catch(() => {})
-        return executeTask(buildExecuteArgs(node, upstream, false))
-      }
-      // Become the executor: register a barrier siblings await. get→set has
-      // no await between, so registration is atomic — at most one executor
-      // per hash. Released on every exit (success / failure / throw).
-      let release!: () => void
-      inflight.set(
-        hash,
-        new Promise<void>((resolve) => {
-          release = resolve
-        }),
-      )
-      try {
-        return await executeTask(buildExecuteArgs(node, upstream))
-      } finally {
-        inflight.delete(hash)
-        release()
-      }
-    }
+      },
+      buildExecuteArgs,
+    })
 
     mark('classify + probe')
     const outcomes = await runGraph({

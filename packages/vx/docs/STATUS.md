@@ -1422,6 +1422,20 @@ stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
     sites called once per task where item 54's ran two thousand times
     a run. Kept for the rule, not for a figure.
 
+55. DONE (pure motion, the third slice off `run()`): the two rules
+    between the scheduler's `execute` callback and `executeTask` — the
+    in-flight dedup a `vx serve` registry enables and the
+    continue-taint that withholds a save behind a failure — sat as
+    two closures inside `run()`'s try block, 120 lines the reader had
+    to hold while following the run. `orchestrator/admission.ts`
+    holds them: `taintTracker(enabled)` answers per task and records,
+    `admitTasks({...})` returns the `execute` callback. `run()` keeps
+    `buildExecuteArgs` (every run-scoped value a task needs) and hands
+    it in. 988 → 916 lines. Behaviour pinned by `inflight` and
+    `continue-taint` before and after; the executor's `return await`
+    stays, with the reason on it (the `finally` releases the barrier
+    after the task settles, not when its promise is handed back).
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

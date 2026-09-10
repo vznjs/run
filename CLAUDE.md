@@ -47,7 +47,8 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
                         workspace-config.ts is the workspace as every verb sees it (config
                         stage applied, cache dir, staged projects); select.ts is what a run
                         is asked to run (filters, --affected owners, cwd project, picker)
-  src/orchestrator/     run() pipeline, placement (where a task runs), signals, execute-task (+ miss-save,
+  src/orchestrator/     run() pipeline, placement (where a task runs), signals, admission (dedup +
+                        continue-taint), execute-task (+ miss-save,
                         sandbox-request), task-hash,
                         projects.ts (the staged config load every reader shares), plugin
                         stages + seams, events, logger

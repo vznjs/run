@@ -55,13 +55,13 @@ cycle through it).
 The orchestrator is the composition module; its files fall into five
 layers:
 
-| Layer                  | Files                                                                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Run composition        | `run.ts`, `prepare.ts`, `options.ts`, `plan.ts`, `execute-task.ts`, `task-hash.ts`, `upstream.ts`, `run-context.ts`, `run-artifacts.ts`, `run-report.ts` |
-| Cache acceleration     | `remote-cache-setup.ts`, `remote-prefetch.ts`, `stable-keys.ts`, `local-shortcircuit.ts`                                                                 |
-| Plugin + telemetry     | `plugin.ts`, `plugin-host.ts`, `telemetry.ts`, `telemetry-host.ts`                                                                                       |
-| Events                 | `events.ts` — the run event bus and the serializable `WireEvent` any surface reads                                                                       |
-| Presentation + queries | `logger.ts`, `framed-output.ts`, `status-line.ts`, `summary.ts`, `tally.ts`, `colors.ts`, `metrics.ts`, `history.ts`, `predict.ts`                       |
+| Layer                  | Files                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Run composition        | `run.ts`, `prepare.ts`, `options.ts`, `plan.ts`, `admission.ts`, `execute-task.ts`, `task-hash.ts`, `upstream.ts`, `run-context.ts`, `run-artifacts.ts`, `run-report.ts` |
+| Cache acceleration     | `remote-cache-setup.ts`, `remote-prefetch.ts`, `stable-keys.ts`, `local-shortcircuit.ts`                                                                                 |
+| Plugin + telemetry     | `plugin.ts`, `plugin-host.ts`, `telemetry.ts`, `telemetry-host.ts`                                                                                                       |
+| Events                 | `events.ts` — the run event bus and the serializable `WireEvent` any surface reads                                                                                       |
+| Presentation + queries | `logger.ts`, `framed-output.ts`, `status-line.ts`, `summary.ts`, `tally.ts`, `colors.ts`, `metrics.ts`, `history.ts`, `predict.ts`                                       |
 
 ```mermaid
 graph TD
