@@ -22,11 +22,12 @@ import {
   listProjects,
   loadProjectConfig,
   loadWorkspace,
-  loadWorkspaceConfig,
-  resolveCacheDir,
   WORKSPACE_FINGERPRINT_FILES,
+  type ProjectEntry,
   type ProjectMeta,
 } from '../workspace/index.js'
+import type { ProjectConfig } from '../config.js'
+import { type CliLoadOptions, loadCliProjects, loadCliWorkspace } from './workspace-config.js'
 
 /** Wait this long after the last filesystem event before re-running. */
 const DEBOUNCE_MS = 150
@@ -334,7 +335,10 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
   process.stdout.write('vx watch: initial run...\n\n')
   await runOrchestrator(opts)
 
-  const swept = await sweepConfigs(allProjects, workspaceRoot)
+  const swept = await sweepConfigs(allProjects, workspaceRoot, {
+    ...(opts.cacheDir !== undefined ? { cacheDir: opts.cacheDir } : {}),
+    ...(opts.frozen === true ? { frozen: true } : {}),
+  })
   return await runWatchLoop({
     opts,
     workspaceRoot,
@@ -342,54 +346,61 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
     workspaceWide: swept.workspaceWide,
     outputs: swept.outputs,
     // The RESOLVED cache dir, not the `.vx` literal — see `makeWatchIgnore`.
-    cacheDir:
-      opts.cacheDir ?? resolveCacheDir(workspaceRoot, await loadWorkspaceConfig(workspaceRoot)),
+    cacheDir: opts.cacheDir ?? (await loadCliWorkspace(workspaceRoot)).cacheDir,
   })
 }
 
 /**
  * One sweep over every config for the two things the loop needs: whether
  * any task declares `inputs.workspaceFiles` — globs with no project
- * boundary, so the per-project watchers can't see all triggering paths
- * and the loop switches to one recursive root watcher — and each
- * project's declared outputs, so their writes are not taken for edits.
- * Checked across ALL projects (not just the scope) because dependsOn can
- * pull tasks from anywhere; a broken out-of-scope config is skipped,
- * matching scoped-run semantics (it surfaces when that project enters
- * scope).
+ * prefix, so the whole tree has to be watched — and every project's
+ * declared outputs, so their writes are not taken for edits. The run
+ * path's load (`loadProjects`): the plugin `project` stage applies, so an
+ * output a plugin gave a config-less package is ignored like a declared
+ * one, and a pure config is served from its cached evaluation rather than
+ * re-evaluated in a worker. A config that fails to load is out of this
+ * concern's scope — the run that just happened already said so, or will —
+ * and the sweep falls back to the files that do load, one by one.
  */
-async function sweepConfigs(
+export async function sweepConfigs(
   projects: readonly ProjectMeta[],
   workspaceRoot: string,
+  load: CliLoadOptions = {},
 ): Promise<{ workspaceWide: boolean; outputs: Map<string, string[]> }> {
   const outputs = new Map<string, string[]>()
   const add = (dir: string, globs: readonly string[] | undefined): void => {
     if (globs === undefined || globs.length === 0) return
     outputs.set(dir, [...(outputs.get(dir) ?? []), ...globs])
   }
-  // Concurrent, not sequential: the run that just happened already
-  // loaded the in-scope configs, so these are REPEAT loads that
-  // re-evaluate in a worker. Issuing them together lets one worker
-  // serve the whole sweep instead of one per project.
-  const uses = await Promise.all(
-    projects.map(async (p): Promise<boolean> => {
-      if (p.configPath === null) return false
+  let workspaceWide = false
+  const fold = (dir: string, config: ProjectConfig): void => {
+    for (const task of Object.values(config.tasks ?? {})) {
+      if ((task.cache?.inputs?.workspaceFiles?.length ?? 0) > 0) workspaceWide = true
+      add(dir, task.cache?.outputs?.files)
+      add(workspaceRoot, task.cache?.outputs?.workspaceFiles)
+    }
+  }
+  let staged: Map<string, ProjectEntry> | null = null
+  try {
+    staged = await loadCliProjects(workspaceRoot, projects, 'all', load)
+  } catch {
+    staged = null
+  }
+  if (staged !== null) {
+    for (const p of staged.values()) fold(p.dir, p.config)
+    return { workspaceWide, outputs }
+  }
+  await Promise.all(
+    projects.map(async (p) => {
+      if (p.configPath === null) return
       try {
-        const config = await loadProjectConfig(p.configPath)
-        let wide = false
-        for (const task of Object.values(config.tasks ?? {})) {
-          if ((task.cache?.inputs?.workspaceFiles?.length ?? 0) > 0) wide = true
-          add(p.dir, task.cache?.outputs?.files)
-          add(workspaceRoot, task.cache?.outputs?.workspaceFiles)
-        }
-        return wide
+        fold(p.dir, await loadProjectConfig(p.configPath))
       } catch {
         // broken config — out of this concern's scope
-        return false
       }
     }),
   )
-  return { workspaceWide: uses.includes(true), outputs }
+  return { workspaceWide, outputs }
 }
 
 interface WatchLoopArgs {

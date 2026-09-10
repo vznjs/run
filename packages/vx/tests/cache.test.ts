@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
@@ -837,6 +837,101 @@ describe('Cache storage (v10)', () => {
     expect(await cache.get('h-bulk-999')).toBeNull()
   })
 
+  it('prune() reaps an aged artifact or temp the index does not know, and nothing younger', async () => {
+    const { mkdir } = await import('node:fs/promises')
+    await mkdir(projectDir, { recursive: true })
+    const f = path.join(projectDir, 'keep.txt')
+    await writeFile(f, 'keep')
+    await cache.save({
+      hash: 'h-indexed',
+      projectDir,
+      outputFiles: [f],
+      entry: { taskId: 'pkg#build', command: 'noop', durationMs: 0, stdout: '' },
+    })
+    const twoHoursAgo = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+    const aged = async (name: string, bytes: string) => {
+      const file = path.join(cacheDir, name)
+      await writeFile(file, bytes)
+      await utimes(file, twoHoursAgo, twoHoursAgo)
+      return file
+    }
+    // Orphans: an artifact with no row and a temp a crashed save left.
+    const orphanTar = await aged('h-orphan.tar.zst', 'x'.repeat(10))
+    const orphanTmp = await aged('h-inflight.tar.zst.tmp-123-456-abc', 'y'.repeat(5))
+    // Controls: the indexed artifact (aged too — age alone is not the
+    // rule), a fresh row-less artifact (a save between rename and
+    // commit), a fresh temp (a save mid-write), and the index itself.
+    await utimes(cache.outputsPath('h-indexed'), twoHoursAgo, twoHoursAgo)
+    const freshTar = path.join(cacheDir, 'h-fresh.tar.zst')
+    await writeFile(freshTar, 'z')
+    const freshTmp = path.join(cacheDir, 'h-fresh.tar.zst.tmp-1-2-3')
+    await writeFile(freshTmp, 'z')
+
+    // What `vx info` reports before anyone prunes is exactly what prune reaps.
+    expect(await cache.orphanStats()).toEqual({ orphans: 2, orphanBytes: 15 })
+    const result = await cache.prune({ olderThanMs: 1 })
+    expect(result.evicted).toBe(0)
+    expect({ orphans: result.orphans, orphanBytes: result.orphanBytes }).toEqual({
+      orphans: 2,
+      orphanBytes: 15,
+    })
+    expect(await cache.orphanStats()).toEqual({ orphans: 0, orphanBytes: 0 })
+    expect(existsSync(orphanTar)).toBe(false)
+    expect(existsSync(orphanTmp)).toBe(false)
+    expect(existsSync(cache.outputsPath('h-indexed'))).toBe(true)
+    expect(await cache.get('h-indexed')).not.toBeNull()
+    expect(existsSync(freshTar)).toBe(true)
+    expect(existsSync(freshTmp)).toBe(true)
+    expect(existsSync(path.join(cacheDir, 'cache.db'))).toBe(true)
+
+    // Two prunes over one directory (two vx processes, one cache) both scan
+    // the same orphan; only the unlink that lands counts it. `rm({ force })`
+    // swallowed the loser's ENOENT and both reported the bytes. Nothing may
+    // be EVICTABLE here: an eviction deletes the row before the file, and a
+    // scan between the two sees the file as an orphan — darwin CI landed
+    // there once with `olderThanMs: 1` and the aged indexed entry.
+    //
+    // Linux only: on darwin, Bun 1.4.0 returned success from BOTH concurrent
+    // unlinks of the one path (measured on CI 2026-09-10: counts [1, 1],
+    // 14 bytes, the directory otherwise exactly right), where POSIX and
+    // Linux give the loser ENOENT. The code is right for the rule; the
+    // runtime there is not, and the Linux job is the gate for this claim.
+    const again = await aged('h-orphan-2.tar.zst', 'w'.repeat(7))
+    const other = new Cache(cacheDir, { read: true, write: true })
+    if (process.platform !== 'linux') {
+      other.close()
+      return
+    }
+    try {
+      const aYear = 365 * 24 * 60 * 60 * 1000
+      const [r1, r2] = await Promise.all([
+        cache.prune({ olderThanMs: aYear }),
+        other.prune({ olderThanMs: aYear }),
+      ])
+      // One assertion over both results and what the directory still holds:
+      // a failure names WHICH prune counted WHAT, on the platform it failed.
+      const artifacts = (await readdir(cacheDir)).filter((n) => n.includes('.tar.zst')).sort()
+      expect({
+        evicted: r1.evicted + r2.evicted,
+        orphans: [r1.orphans, r2.orphans].sort((x, y) => x - y),
+        orphanBytes: r1.orphanBytes + r2.orphanBytes,
+        artifacts,
+      }).toEqual({
+        evicted: 0,
+        orphans: [0, 1],
+        orphanBytes: 7,
+        artifacts: [
+          'h-fresh.tar.zst',
+          'h-fresh.tar.zst.tmp-1-2-3',
+          path.basename(cache.outputsPath('h-indexed')),
+        ].sort(),
+      })
+      expect(existsSync(again)).toBe(false)
+    } finally {
+      other.close()
+    }
+  })
+
   it('stats() counts remote cache hits in hitCountLast24h', () => {
     const now = Date.now()
     cache.recordRun({
@@ -1276,7 +1371,17 @@ describe('Cache schema/version recovery', () => {
   it('SCHEMA_VERSION mismatch wipes entries + runs and recreates cleanly', async () => {
     // Round 1: write a real entry to a fresh cache.
     const c1 = new Cache(cacheDir)
+    const projectDir = path.join(workspaceRoot, 'pkg')
+    await mkdir(projectDir, { recursive: true })
+    expect(c1.schemaReset).toBeNull()
     try {
+      await writeFile(path.join(projectDir, 'out.txt'), 'built')
+      await c1.save({
+        hash: 'h-artifact',
+        projectDir,
+        outputFiles: [path.join(projectDir, 'out.txt')],
+        entry: { taskId: 'pkg#build', command: 'noop', durationMs: 0, stdout: '' },
+      })
       c1.recordRun({
         hash: 'h-old',
         project: 'pkg',
@@ -1307,6 +1412,15 @@ describe('Cache schema/version recovery', () => {
     // row is gone; new writes succeed.
     const c2 = new Cache(cacheDir)
     try {
+      // The open that dropped the tables is the one that knows; the next
+      // open sees the current version and reports nothing.
+      expect(c2.schemaReset).toEqual({
+        from: 'unknown-future-version',
+        to: expect.stringMatching(/^v\d+$/),
+      })
+      const c3 = new Cache(cacheDir)
+      expect(c3.schemaReset).toBeNull()
+      c3.close()
       expect(c2.stats().runCountLast24h).toBe(0)
       // The Tier-3 tables are recreated as part of the gate.
       const db = c2.dbHandle()
@@ -1332,6 +1446,17 @@ describe('Cache schema/version recovery', () => {
         endedAt: Date.now() + 1,
       })
       expect(c2.stats().runCountLast24h).toBe(1)
+      // The drop orphaned round 1's artifact: no row knows it, so a
+      // lookup misses, and prune's sweep is what reclaims the bytes
+      // once the file is past the in-flight grace window.
+      const orphan = c2.outputsPath('h-artifact')
+      expect(await c2.get('h-artifact')).toBeNull()
+      expect(existsSync(orphan)).toBe(true)
+      const aged = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+      await utimes(orphan, aged, aged)
+      const pruned = await c2.prune({ olderThanMs: 1 })
+      expect(pruned.orphans).toBe(1)
+      expect(existsSync(orphan)).toBe(false)
     } finally {
       c2.close()
     }
@@ -1708,10 +1833,15 @@ describe('skip-restore staleness — millisecond mtimes (the v22 KNOWN-OPEN fix)
     const outFile = await saveOne('ms1', 'AAAA')
     // Unchanged: current.
     expect(await cache.isOutputsCurrent(projectDir, rowsOf('ms1'))).toBe(true)
-    // Same-size rewrite moments later — well inside the same wall-clock
-    // second, which the old seconds-granularity compare could not see.
-    await Bun.sleep(3)
+    // Same-size rewrite inside the same wall-clock second, which the old
+    // seconds-granularity compare could not see. The rewrite's mtime is
+    // STAMPED one millisecond past the recorded one: a file's mtime comes
+    // from the kernel's coarse clock (one tick, 4 ms at HZ=250), so a short
+    // sleep before the write can land in the recorded tick and the claim
+    // would ride on the scheduler — it did, once, under a loaded gate.
     await writeFile(outFile, 'BBBB')
+    const bumped = new Date(rowsOf('ms1')[0]!.mtimeMs + 1)
+    await utimes(outFile, bumped, bumped)
     expect(await cache.isOutputsCurrent(projectDir, rowsOf('ms1'))).toBe(false)
   })
 

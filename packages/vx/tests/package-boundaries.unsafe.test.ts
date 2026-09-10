@@ -1,6 +1,5 @@
-// Cross-package boundary law for the core / sibling-package split. See
-// docs/design/core-cloud-split-2026-06.md §9 and
-// docs/design/observability-architecture-2026-06.md §9. Sibling to
+// Cross-package boundary law for the core / sibling-package split
+// (docs/architecture.md § Repository shape). Sibling to
 // module-boundaries.test.ts (which polices intra-core module edges).
 //
 // Rule 1: every import of vx inside packages/*/src/** must use the bare
@@ -153,8 +152,10 @@ describe('package boundaries', () => {
       'listProjectMetas',
       'listRuns',
       'loadProjectConfig',
+      'loadResolvedProjects',
       'loadWorkspace',
       'loadWorkspaceConfig',
+      'mapTurboWorkspace',
       'markSurfacedDeps',
       'parseCachePolicy',
       'parseDecimalInt',

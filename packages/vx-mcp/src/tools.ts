@@ -1,12 +1,14 @@
-// The four tools, as pure handlers over one workspace's cache.db. Every
-// handler opens the Cache for the call and closes it — the server is a
-// short-lived adapter — and validates its arguments at the boundary rather
-// than coercing them: an agent that sends the wrong shape must be told,
-// not answered with data for a question it did not ask.
+// The five tools, as pure handlers over one workspace: four over its
+// cache.db, one over its resolved configs. Every handler opens what it
+// reads for the call and closes it — the server is a short-lived adapter —
+// and validates its arguments at the boundary rather than coercing them:
+// an agent that sends the wrong shape must be told, not answered with data
+// for a question it did not ask.
 
 import {
   Cache,
   clampInt,
+  loadResolvedProjects,
   LocalHistoryProvider,
   splitTaskId,
   UserError,
@@ -26,6 +28,16 @@ export interface ToolContext {
 }
 
 const TOOLS: readonly ToolDef[] = [
+  {
+    name: 'listTasks',
+    description:
+      'Every project and the tasks a run would see — command, dependsOn, whether it caches — ' +
+      'resolved like `vx run` resolves them (plugin stages included). Optional `project` narrows to one.',
+    inputSchema: {
+      type: 'object',
+      properties: { project: { type: 'string' } },
+    },
+  },
   {
     name: 'getCacheStats',
     description: 'Aggregate cache statistics (entries, total size, hits in last 24h).',
@@ -90,6 +102,8 @@ export async function handleToolCall(
 ): Promise<Record<string, unknown>> {
   const args = (argsRaw ?? {}) as Record<string, unknown>
   switch (name) {
+    case 'listTasks':
+      return listTasks(args, ctx)
     case 'getCacheStats':
       return getCacheStats(args, ctx)
     case 'getRunHistory':
@@ -100,6 +114,38 @@ export async function handleToolCall(
       return whyDidThisRerun(args, ctx)
     default:
       throw new UserError(`vx mcp: unknown tool: ${name}`)
+  }
+}
+
+async function listTasks(
+  args: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<Record<string, unknown>> {
+  const project = args['project']
+  if (project !== undefined && (typeof project !== 'string' || project.length === 0)) {
+    throw new UserError('listTasks: project must be a non-empty string')
+  }
+  const projects = await loadResolvedProjects(ctx.workspaceRoot, {
+    scope: project === undefined ? 'all' : [project],
+    warn: (m) => process.stderr.write(`${m}\n`),
+  })
+  if (project !== undefined && !projects.has(project)) {
+    throw new UserError(`listTasks: unknown project: ${project}`)
+  }
+  return {
+    projects: [...projects.values()].map((p) => ({
+      name: p.name,
+      dir: p.dir,
+      tasks: Object.entries(p.config.tasks ?? {}).map(([taskName, task]) => ({
+        name: taskName,
+        id: `${p.name}#${taskName}`,
+        ...(task.description !== undefined ? { description: task.description } : {}),
+        command: task.exec?.command ?? null,
+        dependsOn: task.dependsOn ?? [],
+        cached: task.cache !== undefined,
+        ...(task.exec?.persistent !== undefined ? { persistent: true } : {}),
+      })),
+    })),
   }
 }
 

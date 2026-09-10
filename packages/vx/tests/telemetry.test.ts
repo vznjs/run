@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'bun:test'
 import { localWorkspaceSource, writeLocalWorkspace } from './helpers/local-workspace.js'
+import { gitInitCommit } from './helpers/workspace.js'
 import type { TaskNode, TaskOutcome } from '../src/graph/index.js'
 import { run } from '../src/index.js'
 import { busLogger, createEventBus } from '../src/orchestrator/events.js'
@@ -388,27 +389,6 @@ describe('subscribeTelemetry — host', () => {
 
 // --- end-to-end through run() via vx.workspace.mjs ---------------------
 
-async function gitInit(dir: string): Promise<void> {
-  await Bun.spawn(['git', 'init', '-q'], { cwd: dir }).exited
-  await Bun.spawn(['git', 'add', '-A'], { cwd: dir }).exited
-  await Bun.spawn(
-    [
-      'git',
-      '-c',
-      'user.email=t@t',
-      '-c',
-      'user.name=t',
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '-q',
-      '-m',
-      'init',
-    ],
-    { cwd: dir },
-  ).exited
-}
-
 function makeSilentLogger() {
   return {
     runStart: () => undefined,
@@ -456,7 +436,7 @@ describe('telemetry — end-to-end through run()', () => {
 `,
         ),
       )
-      await gitInit(workspaceRoot)
+      gitInitCommit(workspaceRoot)
       const summary = await run({
         cwd: workspaceRoot,
         projects: ['pkg-a'],
@@ -504,7 +484,7 @@ describe('telemetry — end-to-end through run()', () => {
       // the option is the only telemetry source (how the serve records
       // delegated runs).
       await writeLocalWorkspace(workspaceRoot)
-      await gitInit(workspaceRoot)
+      gitInitCommit(workspaceRoot)
       let got: RunSummaryRecord | null = null
       const summary = await run({
         cwd: workspaceRoot,

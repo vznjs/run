@@ -1,6 +1,8 @@
 // Module contract. Cross-module imports must come through here; see
 // docs/design/module-isolation-2026-06.md and tests/module-boundaries.test.ts.
-// tar.ts is internal — artifact pack/extract is an implementation detail.
+// archive.ts / tar-stream.ts / zstd.ts are internal — artifact pack, extract
+// and framing are implementation details; the layer CONTRACT is layer.ts,
+// re-exported through cache.ts.
 
 export {
   Cache,
@@ -20,20 +22,26 @@ export {
   OUTPUT_DIRS_CAP,
   FILE_HASH_RACY_MS,
   OUTPUT_DIRS_RACY_MS,
+  noteSchemaReset,
+  type SchemaReset,
+  CACHE_VERSION,
+  SCHEMA_VERSION,
 } from './cache.js'
 export { type CASBackend, FsCASBackend } from './cas-backend.js'
 export { type Digest } from './digest.js'
 export {
   cleanOutputs,
   cleanWorkspaceOutputs,
+  resolveInputs,
+  resolveOutputs,
+  resolveWorkspaceOutputs,
+} from './inputs.js'
+export {
   GitFilesCache,
   applyGitEnumeration,
   gitPathspecs,
   startGitEnumeration,
   type GitEnumeration,
-  resolveInputs,
-  resolveOutputs,
-  resolveWorkspaceOutputs,
-} from './inputs.js'
+} from './git-inputs.js'
 export { LayeredCache, type RemoteCacheLayer } from './layered-cache.js'
 export { ChainedCache } from './chained-cache.js'

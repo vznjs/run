@@ -4,11 +4,12 @@
 // history in cache.db is the only replay surface, and this verb reads it.
 // Read-only — no config evaluation, no re-hash, no cache probe.
 
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { getInvocation, getRun, listInvocations } from '../orchestrator/index.js'
 import { UserError } from '../util/index.js'
-import { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from '../workspace/index.js'
+import { findWorkspaceRoot } from '../workspace/index.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 
 interface LastArgs {
   runId?: string
@@ -59,8 +60,8 @@ export async function lastCmd(args: readonly string[]): Promise<number> {
   if (parsed.error !== undefined) throw new UserError(`vx last: ${parsed.error}`)
 
   const root = await findWorkspaceRoot(process.cwd())
-  const cacheDir = resolveCacheDir(root, await loadWorkspaceConfig(root))
-  const cache = new Cache(cacheDir)
+  const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const db = cache.dbHandle()
 
@@ -127,9 +128,11 @@ export async function lastCmd(args: readonly string[]): Promise<number> {
       const idW = Math.max(...tasks.map((t) => `${t.project}#${t.task}`.length), 4)
       for (const t of failedFirst) {
         const id = `${t.project}#${t.task}`
+        // The terminal summary's own word for a task that runs every time
+        // by design; a reader must not take its row for a miss.
         lines.push(
           `  ${t.status.padEnd(17)} ${id.padEnd(idW)}  ${fmtMs(t.durationMs).padStart(8)}` +
-            `${t.hash !== '' ? `  ${t.hash}` : ''}`,
+            `${t.hash !== '' ? `  ${t.hash}` : ''}${t.cached === false ? '  no-cache' : ''}`,
         )
       }
     }

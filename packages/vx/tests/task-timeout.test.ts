@@ -9,11 +9,16 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import type { Logger } from '../src/orchestrator/index.js'
 import { run } from '../src/orchestrator/index.js'
 import { parseRunArgs } from '../src/cli/index.js'
 import { loadWorkspaceConfig } from '../src/workspace/project-loader.js'
+
+// The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
+// the escalation would wait it out. 200 ms proves the same claim
+// (`VX_KILL_GRACE_MS`, see util/settle.ts); children inherit it.
+process.env['VX_KILL_GRACE_MS'] = '200'
 
 const TIMEOUT = 20_000
 
@@ -37,38 +42,8 @@ const capturingLogger = (f: Fixture): Logger => ({
 })
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-timeout-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  const git = (...args: string[]) => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) throw new Error(new TextDecoder().decode(p.stderr))
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-timeout-' })
   return { root, out: [], err: [] }
-}
-
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0' }, null, 2),
-  )
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
 }
 
 /** Rewrite the workspace file with `fields` (object-literal body) plus the local plugins. */

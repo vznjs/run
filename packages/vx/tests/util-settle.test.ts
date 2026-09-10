@@ -27,8 +27,8 @@
 //      deadline primitive that can itself hang is worse than no deadline.
 
 import path from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { settleWithin, teardownTimeoutMs } from '../src/util/settle.js'
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test'
+import { killGraceMs, settleWithin, teardownTimeoutMs } from '../src/util/settle.js'
 import { MAX_TIMEOUT_MS } from '../src/util/num.js'
 
 /** The documented fallback, restated here so a change to it fails loudly. */
@@ -596,4 +596,29 @@ describe('call-site contracts', () => {
   // because a fixture for it needs a `then` member, which unicorn/no-thenable
   // forbids on exactly the reasoning that makes the hazard real. Both call
   // sites already wrap in `Promise.resolve(...)`; keep it that way.
+})
+
+describe('killGraceMs — the SIGTERM→SIGKILL grace knob', () => {
+  const saved = process.env['VX_KILL_GRACE_MS']
+  afterEach(() => {
+    if (saved === undefined) delete process.env['VX_KILL_GRACE_MS']
+    else process.env['VX_KILL_GRACE_MS'] = saved
+  })
+
+  it('answers the default when unset', () => {
+    delete process.env['VX_KILL_GRACE_MS']
+    expect(killGraceMs(2000)).toBe(2000)
+  })
+
+  it('honours a plain positive integer', () => {
+    process.env['VX_KILL_GRACE_MS'] = '200'
+    expect(killGraceMs(2000)).toBe(200)
+  })
+
+  it('falls back on zero, garbage and a value past the timer ceiling — a grace is a bound', () => {
+    for (const raw of ['0', '-5', '1e3', '25.0', 'soon', String(2 ** 31)]) {
+      process.env['VX_KILL_GRACE_MS'] = raw
+      expect(killGraceMs(2000)).toBe(2000)
+    }
+  })
 })

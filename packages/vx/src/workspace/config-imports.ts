@@ -19,10 +19,11 @@
 //   - RELATIVE specifiers only. A bare specifier is a package; it moves when
 //     the lockfile moves, which the workspace fingerprint already covers.
 //   - Descend only through files owned by NO project. A config reaching into
-//     another project (this repo's `apps/docs/vx.config.ts` imports
-//     `../../src/index.ts`) records that edge and STOPS there — following it
-//     would drag substantially all of core `src/` into the closure, and the
-//     containment channel already selects the project that owns it.
+//     another project (say a site's `vx.config.ts` importing
+//     `../core/src/index.ts`) records that edge and STOPS there — following
+//     it would drag substantially all of that project's `src/` into the
+//     closure, and the containment channel already selects the project that
+//     owns it.
 
 import { realpath } from 'node:fs/promises'
 import path from 'node:path'

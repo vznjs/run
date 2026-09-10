@@ -188,7 +188,8 @@ The plugins that ship alongside vx are ordinary consumers of these same
 seams: `@vzn/vx-reapi` fills `executor` and `cache` against any Bazel
 REAPI server, `@vzn/vx-turbo-cache` and `@vzn/vx-nx-cache` fill `cache`
 against any server speaking Turbo's or Nx's self-hosted cache API,
-`@vzn/vx-otel` and `@vzn/vx-github` fill `telemetry`. None
+`@vzn/vx-turbo` fills `project` so a `turbo.json` workspace runs with no
+`vx.config` written, `@vzn/vx-otel` and `@vzn/vx-github` fill `telemetry`. None
 of them is privileged — core depends on none, and yours plugs in the
 same way. What a plugin declines lands on core's floor: the local
 executor and the local cache, which sit behind every declared list.
@@ -554,6 +555,27 @@ The telemetry guarantee is **structural, not a policy**: a `TelemetrySink`
 is handed immutable records and a read-only context (`workspaceRoot`,
 `cacheDir`, `warn`) — no bus, no cache handle, no run request. There is no
 API path from a sink back into scheduling, caching, or execution.
+
+## What core refuses
+
+A plugin that could never do what it says is refused at load, by
+name, rather than left quietly "on":
+
+- A `cache` or `executor` hook returning something without the
+  contract's methods (`key`, `get`, `has`, `save`, `close`; `execute`
+  and a `name`) — `plugin 'x' returned from cache something that is
+  not a cache layer: missing …`.
+- A `key` hook returning anything but a record of strings, or a
+  `schedule` hook returning anything but a `Map` — a string used to
+  fold its characters into the key, or match no task at all.
+- A `project` edit the loader would refuse from you — refused after
+  the plugin that made it: `vx.config.ts (after plugin 'x'): …`.
+- A `commands` verb that names a core verb (core matches first, so it
+  could never run), or one two plugins both declare (the first would
+  win and hide the second).
+- A telemetry sink with neither `onRecord` nor `onRunSummary` — disabled
+  for the run with the same warning a throwing hook gets, never a
+  failed build.
 
 ## What a plugin can and can't change
 

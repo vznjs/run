@@ -163,8 +163,11 @@ Context Protocol server for AI coding agents, no SDK),
 [`@vzn/vx-turbo-cache`](packages/vx-turbo-cache) and
 [`@vzn/vx-nx-cache`](packages/vx-nx-cache) (remote cache against any
 server speaking Turbo's `/v8/artifacts` API or Nx's self-hosted cache
-spec — the wire is theirs, the artifacts are vx's), and
-`@vzn/vx/plugins/schedule-history` (order by learned critical path). Nothing distributed ships in this repo; the seams are how you
+spec — the wire is theirs, the artifacts are vx's),
+[`@vzn/vx-turbo`](packages/vx-turbo) (a Turbo repo under vx with
+nothing written: `turbo.json` + scripts become tasks through the
+`project` stage), and `@vzn/vx/plugins/schedule-history` (order by
+learned critical path). Nothing distributed ships in this repo; the seams are how you
 build it.
 
 ## How it compares
@@ -292,6 +295,7 @@ is Windows (unsupported).
 | MCP server (`@vzn/vx-mcp`)                       | **shippable**        | `vx mcp` — read-only tools for AI agents, no SDK                                          |
 | Turbo-wire cache (`@vzn/vx-turbo-cache`)         | **shippable**        | any `/v8/artifacts` server, Bearer auth, HMAC artifact signatures                         |
 | Nx-wire cache (`@vzn/vx-nx-cache`)               | **shippable**        | any Nx self-hosted cache server (`/v1/cache`, immutable records)                          |
+| Zero-migration Turbo (`@vzn/vx-turbo`)           | **shippable**        | a `turbo.json` workspace runs under vx with no `vx.config` written; a written config wins |
 
 ## Development
 

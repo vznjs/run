@@ -1,6 +1,6 @@
-// The run-level plugin capabilities (cache / executor / telemetry),
-// inverted from core's hardcoded hooks in Phase 1 of
-// docs/design/core-cloud-split-2026-06.md. Each test declares a VxPlugin
+// The run-level plugin capabilities (cache / executor / telemetry), the
+// seams a plugin fills where core once hardcoded its own hooks
+// (docs/design/pipeline-2026-09.md). Each test declares a VxPlugin
 // in vx.workspace.mjs and asserts the seam is consulted. Nothing is applied
 // by default: every e2e fixture declares the local executor + cache plugins
 // AFTER its own, and the NO DEFAULTS pin below is what a bare workspace sees.
@@ -11,7 +11,12 @@ import path from 'node:path'
 import { describe, expect, it } from 'bun:test'
 import { CORE_INDEX, localWorkspaceSource, writeLocalWorkspace } from './helpers/local-workspace.js'
 import { planRun, run } from '../src/index.js'
-import { resolveCache, resolveExecutors, type VxPlugin } from '../src/orchestrator/index.js'
+import {
+  CACHE_LAYER_METHODS,
+  resolveCache,
+  resolveExecutors,
+  type VxPlugin,
+} from '../src/orchestrator/index.js'
 import type { TaskExecutor, TaskInputs } from '../src/exec/index.js'
 import { Cache, ChainedCache } from '../src/cache/index.js'
 import { loadWorkspaceConfig } from '../src/workspace/index.js'
@@ -124,6 +129,44 @@ describe('plugin-host — capability consultation + fallbacks', () => {
     // core's local executor is the tail of every list, never the head
     expect(resolved.slice(0, 2)).toEqual([a, b])
     expect(resolved.map((e) => e.name)).toEqual(['a', 'b', 'local'])
+  })
+
+  it('resolveCache / resolveExecutors: a hook returning something that is not the contract is refused by name', async () => {
+    // Before: every task failed with `this.layers[0].key is not a function`
+    // — an internal TypeError naming neither the plugin nor the hook.
+    const cacheDir = mkdtempSync(path.join(tmpdir(), 'vx-cache-host-'))
+    const local = new Cache(cacheDir, { read: true, write: true })
+    try {
+      await expect(
+        resolveCache([{ name: 'org/junk', cache: () => ({ nope: true }) as never }], {
+          ...baseCtx,
+          localCache: local,
+          policy: { localRead: true, localWrite: true, remoteRead: false, remoteWrite: false },
+        }),
+      ).rejects.toThrow(
+        `plugin 'org/junk' returned from cache something that is not a cache layer: missing ${CACHE_LAYER_METHODS.map((m) => `${m}()`).join(', ')}`,
+      )
+    } finally {
+      local.close()
+      rmSync(cacheDir, { recursive: true, force: true })
+    }
+    await expect(
+      resolveExecutors([{ name: 'org/junk', executor: () => ({ name: 'x' }) as never }], {
+        ...baseCtx,
+        concurrency: 1,
+      }),
+    ).rejects.toThrow(
+      "plugin 'org/junk' returned from executor something that is not an executor: missing execute()",
+    )
+    await expect(
+      resolveExecutors(
+        [{ name: 'org/anon', executor: () => ({ execute: async () => ({}) }) as never }],
+        {
+          ...baseCtx,
+          concurrency: 1,
+        },
+      ),
+    ).rejects.toThrow("plugin 'org/anon' returned an executor with no name")
   })
 
   it('resolveExecutors: a throwing executor factory aborts with a named UserError', async () => {
@@ -761,6 +804,41 @@ describe('executor capability — end-to-end via run()', () => {
       const byId = new Map(plan.tasks.map((t) => [t.node.id, t.executor]))
       expect(byId.get('pkg-a#hello')).toBe('spy-remote')
       expect(byId.get('pkg-a#docker')).toBe('local')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it("placement: --dry says, in the plugin's name, when placement could not be resolved", async () => {
+    // A plan must not fail over a label — but the run it previews WOULD
+    // refuse on this plugin, and a plan that hid that read as "everything
+    // lands locally". Control: the same plan succeeds and shows no
+    // placement column (one executor, nothing to choose).
+    const { workspaceRoot, cleanup } = await writeFixture()
+    try {
+      await Bun.write(
+        path.join(workspaceRoot, 'pkg-a/vx.config.mjs'),
+        `export default { tasks: { hello: { exec: { command: 'echo hi' } } } }`,
+      )
+      await Bun.write(
+        path.join(workspaceRoot, 'vx.workspace.mjs'),
+        localWorkspaceSource([
+          `{ name: 'org/broken-exec', executor() { throw new Error('exec boom') } }`,
+        ]),
+      )
+      await gitInit(workspaceRoot)
+      const status: string[] = []
+      const plan = await planRun({
+        cwd: workspaceRoot,
+        projects: ['pkg-a'],
+        tasks: ['hello'],
+        log: makeSilentLogger((line) => status.push(line)),
+      })
+      expect(plan.tasks.map((t) => t.executor)).toEqual([undefined])
+      const notices = status.filter((l) => l.includes('placement not shown'))
+      expect(notices).toHaveLength(1)
+      expect(notices[0]).toMatch(/^\[vx\] placement not shown — .*org\/broken-exec.*exec boom/)
+      expect(notices[0]).toContain('the run would refuse on it')
     } finally {
       cleanup()
     }

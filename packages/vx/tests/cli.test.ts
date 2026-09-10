@@ -815,7 +815,7 @@ describe('vx watch end-to-end against a real fixture workspace', () => {
       await writeFile(path.join(workspaceRoot, 'packages', 'one', 'src', 'index.txt'), 'v1')
       await waitFor(() => /re-running\.\.\./.test(stdout))
       // Long enough for a runaway loop (cycles take ~30 ms) to show itself.
-      await new Promise((r) => setTimeout(r, 1500))
+      await new Promise((r) => setTimeout(r, 600))
       process.emit('SIGINT')
       expect(await cmd).toBe(0)
       const reRuns = (stdout.match(/re-running\.\.\./g) ?? []).length
@@ -1780,5 +1780,27 @@ describe('--continue parsing', () => {
     expect(parseRunArgs(['build', '--continue=deps-ok']).continueMode).toBe('deps-ok')
     expect(parseRunArgs(['build', '--continue=sometimes']).error).toContain('--continue must be')
     expect(parseRunArgs(['build']).continueMode).toBeUndefined()
+  })
+
+  it('a mode written with a space is refused with the = form, not read as a task', () => {
+    // `--continue never` used to run with `never` as a second task name and
+    // fail with "No projects declare task(s): never".
+    expect(parseRunArgs(['build', '--continue', 'never']).error).toBe(
+      "--continue takes its mode with '=': --continue=never",
+    )
+    // A task name after a bare --continue is still a task name.
+    const ok = parseRunArgs(['build', '--continue', 'test'])
+    expect(ok.error).toBeUndefined()
+    expect(ok.continueMode).toBe('always')
+    expect(ok.tasks).toEqual(['build', 'test'])
+  })
+})
+
+describe('unknown-flag hints reach three edits', () => {
+  it('--retries hints --retry, which is three edits away', () => {
+    expect(parseRunArgs(['build', '--retries', '2']).error).toContain('(did you mean --retry?)')
+    // The third edit is only for flags sharing a stem: a plain three-edit
+    // budget hinted `--all` for `--zzz`.
+    expect(parseRunArgs(['build', '--zzz']).error).not.toContain('did you mean')
   })
 })

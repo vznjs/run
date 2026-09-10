@@ -6,12 +6,17 @@
 // because that's exactly where stacking handlers would hurt
 // (watch loop, bun test).
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { isAlive, waitForDead } from './helpers/alive.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { run, type Logger } from '../src/orchestrator/index.js'
+
+// The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
+// the escalation would wait it out. 200 ms proves the same claim
+// (`VX_KILL_GRACE_MS`, see util/settle.ts); children inherit it.
+process.env['VX_KILL_GRACE_MS'] = '200'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 const TIMEOUT = 20_000
@@ -21,65 +26,26 @@ interface Fixture {
 }
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-signal-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git for input enumeration.
-  const git = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-signal-' })
   return { root }
 }
 
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
-}
-
-async function waitForFile(file: string, timeoutMs: number): Promise<void> {
+// The shell's `echo $$ > pid.txt` truncates the file before it writes it;
+// a read that lands between sees '' and Number('') is 0, and kill(0, 0)
+// probes the caller's own process group — alive forever. Under an
+// eight-shard gate that window was hit once. Wait for the number, not the
+// file.
+async function waitForPid(file: string, timeoutMs: number): Promise<number> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
-    if (await Bun.file(file).exists()) return
-    await Bun.sleep(50)
+    const f = Bun.file(file)
+    if (await f.exists()) {
+      const pid = Number((await f.text()).trim())
+      if (Number.isInteger(pid) && pid > 0) return pid
+    }
+    await Bun.sleep(20)
   }
-  throw new Error(`timed out waiting for ${file}`)
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function waitForDead(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (!isAlive(pid)) return true
-    await Bun.sleep(50)
-  }
-  return !isAlive(pid)
+  throw new Error(`timed out waiting for a pid in ${file}`)
 }
 
 const silentLogger: Logger = {
@@ -122,8 +88,7 @@ describe('signal handling during vx run (e2e)', () => {
         stderr: 'pipe',
       })
       const pidFile = path.join(dir, 'pid.txt')
-      await waitForFile(pidFile, 10_000)
-      const pid = Number((await readFile(pidFile, 'utf8')).trim())
+      const pid = await waitForPid(pidFile, 10_000)
       expect(isAlive(pid)).toBe(true)
 
       proc.kill('SIGTERM')
@@ -165,8 +130,7 @@ describe('signal handling during vx run (e2e)', () => {
         stderr: 'pipe',
       })
       const pidFile = path.join(dir, 'pid.txt')
-      await waitForFile(pidFile, 10_000)
-      const pid = Number((await readFile(pidFile, 'utf8')).trim())
+      const pid = await waitForPid(pidFile, 10_000)
       expect(isAlive(pid)).toBe(true)
 
       proc.kill('SIGTERM')
@@ -199,8 +163,7 @@ describe('signal handling during vx run (e2e)', () => {
         stderr: 'pipe',
       })
       const pidFile = path.join(dir, 'pid.txt')
-      await waitForFile(pidFile, 10_000)
-      const pid = Number((await readFile(pidFile, 'utf8')).trim())
+      const pid = await waitForPid(pidFile, 10_000)
 
       proc.kill('SIGINT')
       const code = await proc.exited

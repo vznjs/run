@@ -1,7 +1,39 @@
 import { defineProject } from './src/index.ts'
 
+// The core suite runs as this many parallel `bun test` processes, the files
+// dealt by recorded weight (scripts/test-shard.ts). Many processes is not
+// only speed: `bun test` pins ~2 descriptors per imported module and macOS
+// caps a process at 10 240, so the whole suite in one process does not
+// clear the cap. Twelve, not the four cores of the smallest box it runs
+// on: an oversubscribed box finishes in the same wall time as eight, a
+// twelve-core one in two thirds of it.
+export const SHARD_COUNT = 12
+const SHARDS = Array.from({ length: SHARD_COUNT }, (_, i) => i + 1)
+const shardTask = (i: number) => ({
+  description: `bun test, shard ${i} of ${SHARD_COUNT} (dealt by scripts/test-shard.ts)`,
+  dependsOn: ['install'],
+  exec: {
+    command: `bun test $(bun scripts/test-shard.ts ${i} ${SHARD_COUNT})`,
+    env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
+    sandbox: {
+      allow: {
+        systemInfo: ['vfs.disk-space'],
+        machLookup: ['com.apple.FSEvents'],
+      },
+    },
+  },
+  cache: {
+    inputs: {
+      files: ['**/*'],
+    },
+    outputs: { files: [] as string[] },
+  },
+})
+const shardTasks = Object.fromEntries(SHARDS.map((i) => [`test.bun.shard-${i}`, shardTask(i)]))
+
 export default defineProject({
   tasks: {
+    ...shardTasks,
     ci: {
       dependsOn: ['lint', 'test'],
     },
@@ -24,17 +56,9 @@ export default defineProject({
 
     'test.bun': {
       description: 'bun test',
-      dependsOn: [
-        'test.bun.shard-1',
-        'test.bun.shard-2',
-        'test.bun.shard-3',
-        'test.bun.shard-4',
-        'test.bun.shard-5',
-        'test.bun.shard-6',
-        'test.bun.shard-7',
-        'test.bun.shard-8',
-        'test.bun.unsafe',
-      ],
+      // The pattern form: the shards are generated above, so a spread cannot
+      // name them for the key check; `*` expands at graph build.
+      dependsOn: ['test.bun.shard-*', 'test.bun.unsafe'],
     },
 
     'test.bun.unsafe': {
@@ -43,174 +67,6 @@ export default defineProject({
       exec: {
         command: 'bun test ./tests/*.unsafe.test.ts',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-1': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=1/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-2': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=2/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-3': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=3/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-4': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=4/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-5': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=5/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-6': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=6/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-7': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=7/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
-      },
-      cache: {
-        inputs: {
-          files: ['**/*'],
-        },
-        outputs: { files: [] },
-      },
-    },
-
-    'test.bun.shard-8': {
-      description: 'bun test',
-      dependsOn: ['install'],
-      exec: {
-        command: 'bun test --shard=8/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
-        env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
-        sandbox: {
-          allow: {
-            systemInfo: ['vfs.disk-space'],
-            machLookup: ['com.apple.FSEvents'],
-          },
-        },
       },
       cache: {
         inputs: {

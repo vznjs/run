@@ -1080,6 +1080,18 @@ autocomplete for task names in `dependsOn` against your declared
 tasks, strict validation against the schema, errors at edit time
 rather than at `vx run` time.
 
+They cost one runtime import of `@vzn/vx` per config file — a second
+copy of core loaded into every run (~17 ms on a two-package workspace,
+measured 2026-09-09; the `vx` process already holds the first). The
+type-only form gives the same editor checking for free, and is what
+`vx init` / `vx migrate` write:
+
+```ts
+import type { ProjectConfig, WorkspaceConfig } from '@vzn/vx'
+export default { tasks: { … } } satisfies ProjectConfig
+export default { plugins: [] } satisfies WorkspaceConfig
+```
+
 You _can_ skip the helpers and write
 `export default { tasks: { … } }`, but the IDE experience is
 strictly worse.
@@ -1298,13 +1310,22 @@ and surfaces `UserError` (clean output, no stack):
 | `exec.timeout: <n> ms exceeds the maximum timer delay`                              | Past 2^31-1 ms a timer fires at once, not never.   |
 | `description must be a string`                                                      | Non-string description.                            |
 
-**Unknown fields are rejected**, not ignored, at every level that feeds
-the cache key — the task itself, `exec`, `exec.resources`, `exec.sandbox`, `cache`,
-`cache.inputs`, and `cache.outputs`. A silently-dropped
+**Unknown fields are rejected**, not ignored, at every object level —
+the project's top level (`tasks`), the task itself, `exec`, `exec.env`,
+`exec.persistent`, `exec.resources`, `exec.sandbox` and its `allow` /
+`deny` / `ignore` blocks, `cache`, `cache.inputs`, and `cache.outputs`
+(`tests/schema-unknown-keys.test.ts` walks every one) — and at the top
+of `vx.workspace.ts`,
+where `plugin:` (singular) would otherwise declare no plugins and run
+the workspace bare. A silently-dropped
 `workspaceFile` (singular) or `timeoutMs` would make the task hash as
 though the field had never been written, so vx would replay an artifact
-built from different inputs. The error names the offending key and lists
-what that level accepts.
+built from different inputs; a silently-dropped `env: { set: … }` would
+run the task without the variables it was written to have. The error
+names the offending key, lists what that level accepts, and adds the
+nearest accepted spelling when one is within two edits:
+`tasks.build.exec.env has unknown field "passthrough" (allowed: define,
+passThrough) — did you mean passThrough?`.
 
 Workspace-discovery errors (`src/workspace/workspace.ts`):
 
@@ -1317,13 +1338,16 @@ Workspace-discovery errors (`src/workspace/workspace.ts`):
 
 Workspace-config errors:
 
-| Symptom                                                                                                                           | Cause                                                    |
-| --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `concurrency must be a positive integer`                                                                                          | `concurrency` is negative, zero, NaN, ...                |
-| `timeout must be a positive integer (milliseconds)`                                                                               | Workspace `timeout` is ≤ 0, NaN, or not an int.          |
-| `cacheDir must be a string`                                                                                                       | Wrong shape.                                             |
-| `plugins must be an array of plugin objects`                                                                                      | Wrong shape.                                             |
-| `plugins[<i>] must be an object`                                                                                                  | A non-object entry in `plugins`.                         |
-| `plugins[<i>].name must be a non-empty string`                                                                                    | Missing / empty plugin name.                             |
-| `plugins[<i>].<capability> must be a function`                                                                                    | A capability key holding something that is not callable. |
-| `plugins[<i>] must contribute at least one of config/project/graph/key/schedule/setup/cache/executor/telemetry/teardown/commands` | A plugin object with no capability.                      |
+| Symptom                                                                                                                           | Cause                                                                                                 |
+| --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `concurrency must be a positive integer`                                                                                          | `concurrency` is negative, zero, NaN, ...                                                             |
+| `timeout must be a positive integer (milliseconds)`                                                                               | Workspace `timeout` is ≤ 0, NaN, or not an int.                                                       |
+| `cacheDir must be a string`                                                                                                       | Wrong shape.                                                                                          |
+| `plugins must be an array of plugin objects`                                                                                      | Wrong shape.                                                                                          |
+| `plugins[<i>] must be an object`                                                                                                  | A non-object entry in `plugins`.                                                                      |
+| `plugins[<i>].name must be a non-empty string`                                                                                    | Missing / empty plugin name.                                                                          |
+| `plugins[<i>].<capability> must be a function`                                                                                    | A capability key holding something that is not callable.                                              |
+| `plugins[<i>] must contribute at least one of config/project/graph/key/schedule/setup/cache/executor/telemetry/teardown/commands` | A plugin object with no capability.                                                                   |
+| `<file> has unknown field "<key>"`                                                                                                | Typo'd / unsupported top-level key (`plugin`, `cacheDirectory`); the hint names the nearest spelling. |
+| `plugin '<name>' declares command '<verb>', a core verb — core verbs cannot be shadowed`                                          | A plugin verb the dispatcher matches first; it could never run.                                       |
+| `plugins '<a>' and '<b>' both declare command '<verb>' — a verb has one owner`                                                    | Two plugins on one verb; the first would win and hide the second.                                     |

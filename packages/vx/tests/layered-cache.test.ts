@@ -1,6 +1,6 @@
 // LayeredCache over the RemoteCacheLayer seam — a plain in-memory stub
 // layer (core ships no wire client; the wire is a plugin concern, see
-// native-cache-wire-2026-07). The stub throws like a real client would;
+// docs/modules/layered-cache.md). The stub throws like a real client would;
 // LayeredCache owns dedup, provenance, and never-fail degradation.
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'

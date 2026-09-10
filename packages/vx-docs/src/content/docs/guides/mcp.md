@@ -50,12 +50,13 @@ directory, exactly like `vx run`.
 
 | Tool              | What it answers                                                                                                                                                                                                                          |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listTasks`       | "What can I run here?" — every project and the tasks a run would see (command, `dependsOn`, whether it caches, persistent), resolved like `vx run` resolves them — plugin stages included. `project` narrows to one.                       |
 | `getCacheStats`   | "What's the state of my cache right now?" — entries, total size, runs and hits in the last 24h, hit rate. `scope: { project }` narrows every number to that project rather than echoing the workspace's.                                 |
 | `getRunHistory`   | "Which tasks have I been running, and how fast?" — recent runs plus per-task p50 / p99 / success rate / hit rate. `failureMode` calls a task flaky only on a real nondeterminism signal (a within-run retry, or one key that both failed and succeeded) — repeated failures on their own keys are a break, not flake. |
 | `explainCacheKey` | "What's the cache identity of `pkg#build`?" — the latest entry's hash, command, exit code, duration and size. The per-component breakdown is `vx why`.                                                                                     |
 | `whyDidThisRerun` | "Why did `pkg#test` re-execute in run X instead of hitting?" — the run's key against the previous run's for the same task, and whether it changed.                                                                                       |
 
-All four read the local `cache.db` — the same tables `vx why`, `vx last`
+The four history tools read the local `cache.db` — the same tables `vx why`, `vx last`
 and `vx info` read. Ask things like:
 
 - "What's my cache hit rate today?"

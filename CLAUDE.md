@@ -43,11 +43,20 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/index.ts          public façade (snapshot-pinned by tests/package-boundaries.unsafe.test.ts)
   src/config.ts         user schema: defineProject / defineWorkspace
   src/cli/              verbs: run watch cache lock init migrate show info why last prune upgrade;
-                        plugin-commands.ts resolves plugin verbs (`commands` seam)
-  src/orchestrator/     run() pipeline, execute-task, task-hash, plugin stages + seams, events, logger
-  src/workspace/        discovery, config eval (+ config-cache.ts), package graph, --filter/--affected, lockfile
+                        plugin-commands.ts resolves plugin verbs (`commands` seam);
+                        workspace-config.ts is the workspace as every verb sees it (config
+                        stage applied, cache dir, staged projects); select.ts is what a run
+                        is asked to run (filters, --affected owners, cwd project, picker)
+  src/orchestrator/     run() pipeline, placement (where a task runs), signals, admission (dedup +
+                        continue-taint), execute-task (+ miss-save,
+                        sandbox-request), task-hash,
+                        projects.ts (the staged config load every reader shares), plugin
+                        stages + seams, events, logger
+  src/workspace/        discovery, config eval (+ config-cache.ts), config-schema.ts (what a config
+                        may say), package graph, --filter/--affected, lockfile
   src/graph/            task graph + two-tier scheduler
-  src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (git enumeration)
+  src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (glob
+                        resolution, boundaries) + git-inputs (the git enumeration it trusts)
   src/exec/             runner (Bun.spawn), env isolation, sandbox, local-executor (the floor)
   src/plugins/          core's own plugins: schedule-history
   src/util/             incl. timing.ts (`VX_TIMING=1` stage table)
@@ -58,6 +67,7 @@ packages/vx-github      GitHub Actions job summary + Checks API plugin
 packages/vx-mcp         `vx mcp` — MCP server for AI agents (commands seam, no SDK)
 packages/vx-turbo-cache Turbo `/v8/artifacts` remote cache plugin (self-hosted or Vercel)
 packages/vx-nx-cache    Nx self-hosted remote cache plugin (`/v1/cache`)
+packages/vx-turbo       zero-migration Turbo plugin: turbo.json + scripts → tasks via the `project` stage
 packages/vx-docs        Astro Starlight site; packages/vx/docs is imported by scripts/import-docs.ts
 packages/vx-bench       synthetic workspace generator + runners (vx / turbo / nx)
 packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, schema, modules/, design/
@@ -65,7 +75,7 @@ packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, 
 
 Module boundaries: each `src/<module>/index.ts` is the contract; cross-module
 imports go through it only (`tests/module-boundaries.test.ts`). Plugin
-packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
+packages import core only via `@vzn/vx` (`tests/package-boundaries.unsafe.test.ts`).
 
 ## Workflow
 
@@ -74,11 +84,14 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
   docs build). Then push and confirm the real CI conclusion.
 - `bun test` alone is NOT the gate: it is transpile-only and cannot see a
   type error. Never pipe a gate through `tail`/`grep` — it masks the exit.
-- The core suite runs as eight parallel shard tasks
-  (`test.bun.shard-1`–`shard-8`, `bun test --shard=<i>/8`). Many
-  processes is not only speed: `bun test` pins ~2 descriptors per
-  imported module and macOS caps a process at 10 240, so the whole suite
-  in one process does not clear the cap.
+- The core suite runs as `SHARD_COUNT` (12, `vx.config.ts`) parallel
+  shard tasks, generated from one template; `scripts/test-shard.ts <i>
+<n>` deals the files by recorded weight (`tests/shard-weights.json`,
+  refreshed with `--weigh <junit-dir>`), so the wall time is the
+  average shard, not the alphabet's heaviest. Many processes is not
+  only speed: `bun test` pins ~2 descriptors per imported module and
+  macOS caps a process at 10 240, so the whole suite in one process
+  does not clear the cap.
 - `tests/*.unsafe.test.ts` is the suite a sandbox cannot host — the
   sandbox's own tests (seatbelt cannot nest) and the cross-project law
   (a project may read only its own directory). The shards exclude them
@@ -106,10 +119,14 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
 ## Architecture principles
 
 1. **Perf first.** Measure before and after; interleave A/B arms, min-of-N,
-   "before" arm from an immutable `git worktree`. A change to the warm path
-   without a number is not done.
+   "before" arm from an immutable `git worktree`, one workspace copy per
+   arm pre-warmed by that arm (arms on different `SCHEMA_VERSION`s reset
+   a shared copy, and the rep after a reset proves hits by the walk —
+   min-of-N picks that rep). A change to the warm path without a number
+   is not done.
 2. **Explicit over magical.** Caching is opt-in; `cache.inputs.files` is
-   required; no inferred inputs (`--verify=inputs` proves the declared set).
+   required; no inferred inputs (the sandbox, `exec.sandbox`, is how a
+   task proves what it touches; `--verify` was removed 2026-09-04).
 3. **One command per task; shell is the API.** A plugin changes WHERE a
    command runs, never what it is.
 4. **Resolved-config hashing.** The key sees the evaluated config object.
@@ -135,13 +152,18 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.test.ts`).
 - A red main is not always your diff: read the failing test name and the
   actual error. `git checkout <file>` never undoes a mutation — use the
   reverse edit.
+- A timed wait in a test is a claim about time: prove it with the
+  shortest window that still fails without the fix. A kill grace is
+  `VX_KILL_GRACE_MS`; "the child is dead" is `tests/helpers/alive.ts`
+  (a zombie counts); "the task has started" is a marker file, never a
+  sleep.
 - Use the session scratchpad, never bare `/tmp`.
 - Correct wrong entries in place; never write a plausible cause you have
   not proven.
 
 ## Live invariants (verify in source before quoting)
 
-- `CACHE_VERSION` `vx-cache-v27`, core `SCHEMA_VERSION` `v24`,
+- `CACHE_VERSION` `vx-cache-v27`, core `SCHEMA_VERSION` `v25`,
   `TELEMETRY_SCHEMA_VERSION` 2. Bump `CACHE_VERSION` when stored bytes are
   wrong under an unchanged key or the container changes; a key-derivation
   fix whose old key was already wrong is self-healing and does not bump.

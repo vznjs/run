@@ -30,6 +30,8 @@ export interface RunSummaryRow {
   startedAt: number
   endedAt: number
   cacheHit: boolean | null
+  /** Whether the task declared a `cache` block; null on rows older than the column. */
+  cached: boolean | null
   hash: string
   cpuMs: number | null
   peakRssBytes: number | null
@@ -65,8 +67,12 @@ export function listRuns(db: Database, args: ListRunsArgs = {}): RunSummaryRow[]
     params.push(args.runId)
   }
   const clause = where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''
-  type RawRow = Omit<RunSummaryRow, 'cacheHit' | 'wallclockStartNs' | 'wallclockEndNs'> & {
+  type RawRow = Omit<
+    RunSummaryRow,
+    'cacheHit' | 'cached' | 'wallclockStartNs' | 'wallclockEndNs'
+  > & {
     cacheHit: number | null
+    cached: number | null
     wallclockStartNs: bigint | null
     wallclockEndNs: bigint | null
   }
@@ -74,7 +80,7 @@ export function listRuns(db: Database, args: ListRunsArgs = {}): RunSummaryRow[]
     .query(
       `SELECT run_id AS runId, project, task, status, exit_code AS exitCode,
               duration_ms AS durationMs, started_at AS startedAt, ended_at AS endedAt,
-              cache_hit AS cacheHit, hash,
+              cache_hit AS cacheHit, cached, hash,
               cpu_ms AS cpuMs, peak_rss_bytes AS peakRssBytes,
               wallclock_start_ns AS wallclockStartNs, wallclock_end_ns AS wallclockEndNs
        FROM runs ${clause} ORDER BY started_at DESC LIMIT ?`,
@@ -83,6 +89,7 @@ export function listRuns(db: Database, args: ListRunsArgs = {}): RunSummaryRow[]
   return rows.map((r) => ({
     ...r,
     cacheHit: r.cacheHit === null ? null : Boolean(r.cacheHit),
+    cached: r.cached === null ? null : Boolean(r.cached),
     wallclockStartNs: r.wallclockStartNs === null ? null : r.wallclockStartNs.toString(),
     wallclockEndNs: r.wallclockEndNs === null ? null : r.wallclockEndNs.toString(),
   }))
@@ -350,7 +357,14 @@ export interface WhyDidThisRerun {
   runId: string
   taskId: string
   found: boolean
-  thisRun?: { hash: string; status: string; cacheHit: boolean | null; startedAt: number }
+  thisRun?: {
+    hash: string
+    status: string
+    cacheHit: boolean | null
+    /** Whether the task declared a `cache` block; null on rows older than the column. */
+    cached: boolean | null
+    startedAt: number
+  }
   previousRun?: { hash: string; status: string; cacheHit: boolean | null; startedAt: number } | null
   hashChanged?: boolean | null
   note: string
@@ -370,11 +384,17 @@ export function whyDidThisRerun(db: Database, runId: string, taskId: string): Wh
   const [project, task] = splitTaskId(taskId)
   const this_ = db
     .query(
-      `SELECT hash, status, cache_hit AS cacheHit, started_at AS startedAt
+      `SELECT hash, status, cache_hit AS cacheHit, cached, started_at AS startedAt
        FROM runs WHERE run_id = ? AND project = ? AND task = ?`,
     )
     .get(runId, project, task) as
-    | { hash: string; status: string; cacheHit: number | null; startedAt: number }
+    | {
+        hash: string
+        status: string
+        cacheHit: number | null
+        cached: number | null
+        startedAt: number
+      }
     | undefined
   if (!this_) {
     return {
@@ -403,24 +423,32 @@ export function whyDidThisRerun(db: Database, runId: string, taskId: string): Wh
     runId,
     taskId,
     found: true,
-    thisRun: { ...this_, cacheHit: this_.cacheHit === null ? null : Boolean(this_.cacheHit) },
+    thisRun: {
+      ...this_,
+      cacheHit: this_.cacheHit === null ? null : Boolean(this_.cacheHit),
+      cached: this_.cached === null ? null : Boolean(this_.cached),
+    },
     previousRun: prev
       ? { ...prev, cacheHit: prev.cacheHit === null ? null : Boolean(prev.cacheHit) }
       : null,
     hashChanged: prev && !noKey ? prev.hash !== this_.hash : null,
     note: noKey
       ? 'this task recorded no cache key (skipped, or a persistent task) — nothing to compare'
-      : prev && prev.hash !== this_.hash
-        ? 'cache key changed between the previous run and this one (inputs differ)'
-        : prev
-          ? // An unchanged key has two very different endings, and calling
-            // both a "re-run" answered the question wrong: a cache HIT did not
-            // re-run at all, so blaming `--no-cache` named a cause that cannot
-            // have applied. Only a run that EXECUTED on an unchanged key is
-            // the case this verb exists to explain. A row with no recorded
-            // cacheHit (older rows) is neither — say that, do not guess.
-            unchangedKeyNote(this_.cacheHit)
-          : 'no prior run for this (project, task)',
+      : this_.cached === 0
+        ? // Not a cache decision at all: the task runs every time by design,
+          // and its key is derived only so dependents can fold it.
+          'this task declares no `cache` block — it runs on every invocation; its key is folded by dependents only'
+        : prev && prev.hash !== this_.hash
+          ? 'cache key changed between the previous run and this one (inputs differ)'
+          : prev
+            ? // An unchanged key has two very different endings, and calling
+              // both a "re-run" answered the question wrong: a cache HIT did not
+              // re-run at all, so blaming `--no-cache` named a cause that cannot
+              // have applied. Only a run that EXECUTED on an unchanged key is
+              // the case this verb exists to explain. A row with no recorded
+              // cacheHit (older rows) is neither — say that, do not guess.
+              unchangedKeyNote(this_.cacheHit)
+            : 'no prior run for this (project, task)',
   }
 }
 
@@ -483,9 +511,11 @@ export function cacheKeyDiff(db: Database, runId: string, taskId: string): Cache
   const [project, task] = splitTaskId(taskId)
   const this_ = db
     .query(
-      'SELECT hash, started_at AS startedAt FROM runs WHERE run_id = ? AND project = ? AND task = ?',
+      'SELECT hash, cached, started_at AS startedAt FROM runs WHERE run_id = ? AND project = ? AND task = ?',
     )
-    .get(runId, project, task) as { hash: string; startedAt: number } | undefined
+    .get(runId, project, task) as
+    | { hash: string; cached: number | null; startedAt: number }
+    | undefined
   if (!this_) {
     return {
       runId,
@@ -559,7 +589,10 @@ export function cacheKeyDiff(db: Database, runId: string, taskId: string): Cache
       previousRunId: prev.runId,
       entries: [],
       unchangedCount: 0,
-      note: 'cache key changed but input fingerprints are unavailable — the task declares no `cache` block (it runs every time), or its entry was pruned; only the key change is known',
+      note:
+        this_.cached === 0
+          ? 'this task declares no `cache` block — it runs every time; its key moved, but no input fingerprints exist for an uncached task'
+          : 'cache key changed but input fingerprints are unavailable — the entry was pruned (or the row predates the `cached` column); only the key change is known',
     }
   }
 

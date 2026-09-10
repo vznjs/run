@@ -52,9 +52,10 @@ export default defineWorkspace({
 Let vx write it: `vx init` scaffolds this file and one `vx.config.ts`
 per package from your `package.json` scripts (`vx migrate` does the same
 from a `turbo.json` or an Nx graph). Steps 3–5 show what it generates —
-the generated files type themselves with `satisfies ProjectConfig` and
-a type-only import instead of `defineProject`, which is the same thing
-without a runtime import.
+the generated files type themselves with `satisfies ProjectConfig` /
+`satisfies WorkspaceConfig` and a type-only import instead of
+`defineProject` / `defineWorkspace`, which is the same checking without
+a runtime import of core (worth ~17 ms per run on a small workspace).
 
 ## 3. Describe a task
 

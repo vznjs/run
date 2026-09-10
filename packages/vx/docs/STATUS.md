@@ -282,7 +282,7 @@ passed once the load fell.
   (`write /proc/self/uid_map: EPERM`; a non-root user can), and the
   old probe's bare `bwrap … /bin/true` passed anyway. The Linux probe
   now runs ONE sandboxed `true` through SRT's own wrapper and refuses
-  up front naming the fix (non-root, or `enableWeakerNestedSandbox` on
+  up front naming the fix (non-root, or `sandbox.weakerWhenNested` on
   every sandboxed task — `run()` probes the weaker mode only when all
   opt in); a Linux pin says available ⇒ a sandboxed `true` exits 0. The
   suite's `expectOk` prints `<task> <status> exit=<code>` and the
@@ -630,6 +630,1088 @@ place with pins:
   plugin host's graph-stage comment blamed the last plugin as the one
   whose edit broke the graph; the check runs once after all of them.
 
+## Improvement loop (2026-09-09, after the review pass merged)
+
+Open-ended, owner-delegated: find flaws, widen seams, sharpen DX,
+refactor toward cleaner layers. One coherent commit per step, gated,
+recorded here as it lands. Layer map measured first (imports between
+`src/<module>` directories): util ← workspace ← cache, exec ← graph ←
+orchestrator ← cli, `config.ts` a leaf, no back edges — the boundaries
+test is telling the truth.
+
+1. DONE: the `project` stage reaches config-less packages (Next 3's
+   seam gap). Zero cost without a `project` plugin: the `configPath`
+   filter is unchanged there, so nothing new is loaded, fenced or
+   seeded.
+2. DONE: one near-miss rule. A DX probe through the CLI's typo paths
+   found five copies of "within two edits" (task names, `pkg#task`
+   halves, project filters, flags, verbs) and two verbs (`why`, `prune`)
+   on a substring rule that found nothing for `vx why buld`; `vx run`'s
+   hint also repeated itself when two typos pointed at one spec
+   (`Did you mean app#build, app#build?`, pinned as-is). `nearest` /
+   `nearMatches` in util are the rule now; every surface calls them,
+   `why` matches a bare query against the task half and hints the
+   runnable id, hints are deduped. The probe's other answers were
+   right: scope errors before name errors at the root, `--cache` /
+   `--continue` / `--concurrency` values refused by name.
+3. DONE: cache.ts split by concern, pure moves. The file was 2,640
+   lines, a thousand of them the contract and its records before the
+   class began. `layer.ts` holds the contract (`CacheLayer` and every
+   shape that crosses it), `policy.ts` the run-policy grammar, `zstd.ts`
+   the artifact framing; cache.ts keeps the schema, the store and the SQL
+   binders (1,850 lines) and re-exports the three, so no importer moved.
+   The one reference from the contract to the implementation (`local?:
+Cache`, the handle a layer may wrap) is a type import. Next candidate
+   inside the class, not taken yet: the file-hash memo, the output
+   fingerprints and the run history are each a cohesive slice over the
+   same handle — a composition split, behaviour-preserving, when the
+   class next needs touching. Warm path: a tie (interleaved against
+   main, both orders, 8 reps: 216/231 vs 216/229 ms, 218/224 vs
+   212/223), as three more module evaluations should be.
+4. DONE: the first-run walkthrough, repeated on a fresh Bun workspace
+   (two packages with scripts, no vx files). What held: the pre-init
+   run names `vx init`; init's dry run and report; the generated
+   config's TODO for the cache block; `show`, `info`, `last`. Two
+   things did not. `vx init` reported itself as `vx migrate` — on the
+   terminal and in the generated file's banner — because init is
+   migrate with the scripts source; both say the verb the user typed
+   now. And `vx why` on an UNCACHED task headlined "cache key changed
+   between the previous run and this one (inputs differ)": the task
+   has no cache block, so its key exists only for dependents to fold,
+   and with no declared outputs its own `out.txt` lands in the default
+   `**/*` input set and moves the key every run. The runs row could
+   not tell an uncached task from a miss, so `runs.cached` records it
+   (SCHEMA v25, analytics-only, key unchanged): `why` says the task
+   declares no cache block, the fingerprint-unavailable note names
+   pruning only when that is what happened, and `vx last` marks such
+   rows `no-cache` the way the terminal summary already did. Pinned
+   end to end for both; the walkthrough's remaining rough edge — a
+   fresh workspace with no `.gitignore` folds `dist/` into every
+   default input set until the user ignores it — is git's model, not a
+   bug, and the TODO comment already tells the user to declare outputs.
+5. DONE: the Linux gate no longer depends on apt sources it never
+   uses. Two heads went red before any vx step ran: `apt-get update`
+   exited 100 on a hash-sum mismatch from the runner image's Chrome
+   repository. The step drops every source but Ubuntu's own first.
+6. DONE: `@vzn/vx-turbo`, the zero-migration plugin the widened
+   `project` stage was for (Next 3). The Turbo mapper left the CLI for
+   `workspace/turbo.ts` — `cli/migrate-turbo.ts` is the renderer now,
+   120 lines over a shared mapping the migrate suite proves unchanged
+   — and the plugin is one `project` hook over it. Two things the
+   first pins taught: the stage hands core an object it edits in place
+   and the mapping outlives a run, so each fill is a copy; and a
+   fixture without a `.gitignore` folds `dist/` into a sibling task's
+   default inputs, the same finding as the walkthrough's.
+   NOT its Nx twin, decided the same day: the Nx mapper reads a
+   generated project-graph snapshot (`.nx/workspace-data/`), so it is
+   not zero-setup, and every executor-backed target maps to a
+   placeholder command that exits 1 — under a live plugin that is a
+   run that fails by design, not a repo that runs. `vx migrate --from
+nx` stays the Nx path.
+7. DONE: the miss path's two output passes glob synchronously. A cold
+   1,000-task run here (4 workers) spends, per task-slot, execute 4.7
+   ms, save 1.8, clean outputs 0.83, resolve outputs 0.59 — the last
+   two a glob over a one-file `dist/`, run through the async walker
+   that was chosen on 2026-09-02 for the HIT path, which no longer
+   globs. Synchronous, interleaved against the previous head on private
+   workspace copies, 3 cold reps each order: min 2586 → 2467 ms and
+   2830 → 2733, median 2699 → 2577 and 2831 → 2779; the restore path
+   (which still globs after a wiped output) 814/942 → 798/870 and
+   964/990 → 915/948, so no regression where the async form was meant
+   to win. What is left on a cold slot is the shell and the process
+   (execute) and the artifact save; the save's five spans are each
+   under 0.6 ms.
+8. DONE: `Cache` composed from four slices, behaviour-preserving. A map
+   of every method to the private fields it touches showed the class
+   was four stores sharing one handle: file hashes (two statements,
+   the object format), config evaluations (two statements, the
+   read/write axes), the output index (four statements), the run
+   history (two statements, the binders). Each is its own class over
+   the same `Database`, owning its statements; `Cache` keeps the
+   schema — the one place every table is declared — the entry store,
+   and thin delegates, so the `CacheLayer` contract and every importer
+   are unchanged, and the save transaction still writes an entry and
+   its output rows together (`OutputIndex.replaceFileRows` inside it).
+   cache.ts 1,850 → 1,330 lines; the slices 260 / 90 / 210 / 150. Warm
+   path ties both orders (211/219 vs 212/221, 218/222 vs 217/220).
+9. DONE: a config that fails to PARSE names its file, line and column.
+   A DX probe over broken configs: unknown field, `dependsOn` typo,
+   `cache` without inputs, unresolved import, runtime throw — all name
+   the file. The one that did not was a syntax error: `vx: Expected "}"
+but found end of file`, nothing else, because Bun's `BuildMessage`
+   keeps the location in `position`, not in the message, and the loader
+   only rewrapped `ResolveMessage`. `configLoadError` now rewraps both;
+   the file comes from the position (a preset the config imports fails
+   the same way and is named as `config (in preset:line:col)`), and the
+   config worker forwards the position so the repeat path — the second
+   `vx watch` cycle — reports the same text as the first. Refuted on
+   the way: the probe's "package silently dropped on a missing import"
+   was the probe. A `.ts` config with an UNUSED import of a missing
+   module loads fine because TypeScript elides unused imports, and
+   that config declared `tasks: {}`, so "1 affected · 2 total" was
+   correct. A used import of a missing module fails loud, as pinned.
+10. DONE: `run()` composed from two more phase modules, behaviour-
+    preserving. The 900-line body had two self-contained blocks that
+    read as their own concerns: what a finished run leaves behind
+    (`run-records.ts`: one pass over the outcomes builds the `runs`
+    rows, the `invocations` header and the telemetry mirror, so the
+    three task counts agree by construction) and the end-of-run
+    disposition of persistent children (`persistent.ts`:
+    `selectKeepAlive` + bounded `shutdownPersistent`). run.ts
+    1,303 → 1,167 lines; the record and persistent suites pass
+    unchanged. Warm path ties in both orders (min 296/296, 286/286;
+    med 321/328, 294/299 ms on the 1000-project workspace).
+11. DONE: `vx show` sees what a run sees. The verb documented itself
+    as "what a live run would see", then read config files raw: under
+    `@vzn/vx-turbo` it printed `(no vx config)` for a package `vx run`
+    runs, and it hid `retries`, `env`, `remote`, `resources`,
+    `sandbox`, workspace inputs and runtime probes. The staged load
+    (config-less packages under a `project` plugin, seeds + closure,
+    rounds to a fixpoint, lock or live, eval cache, the `project`
+    stage + re-validation) moved out of `prepareRun` into
+    `orchestrator/projects.ts:loadProjects`; `prepareRun`, `show` and
+    `info`'s task count all call it, and `loadWorkspacePlugins` owns
+    the `config` stage the same way. `show` gained the bare `<task>` form (every project
+    declaring it), prints every field the run reads, and suggests by
+    edit distance as well as partial name. Found on the way and
+    fixed: the Turbo mapper listed a workspace file twice when both
+    `globalDependencies` and a task's `$TURBO_ROOT$/` input named it
+    (the same for an env name in `globalEnv` and a task `env`). Strings
+    the mapper can see are listed once; the `vx migrate` renderer's
+    opaque preset spread stays as written, so a generated config can
+    still repeat one — the user's file to tidy.
+12. DONE: the `config` stage reaches every verb. The stage is documented
+    to shape `cacheDir`, and `vx run` honoured that — while `vx last`,
+    `vx why`, `vx cache prune`, `vx watch` and plugin verbs resolved
+    the directory from the raw file, so a plugin that moved the cache
+    left `last` with no runs and `prune` pruning nothing (the very
+    no-op the prune code's own comment warned about). One CLI loader
+    (`cli/workspace-config.ts:loadCliWorkspace`) applies the stage
+    and derives the directory from the result; every verb goes
+    through it. Pinned end to end with a plugin that moves the cache:
+    `last`, `why`, `info` and `prune` all find the run.
+13. DONE: CI red on d295a90 was `tests/cache-hash-files.test.ts`, not
+    the diff: the racy-window pin wrote a file and asserted no memo row,
+    which holds only if both hash calls finish inside the 50 ms window —
+    and the first miss in a store spawns `git rev-parse` for the object
+    format. 417 ms on the loaded ubuntu job, row memoised. The pin now
+    warms that spawn on an aged file and asserts only on an attempt the
+    clock proves stayed inside the window, retrying with a fresh file
+    otherwise; a runner that never manages it fails loudly.
+14. DONE: the `vx watch` sweep sees what a run sees. It read config
+    files raw for the outputs to ignore and the workspace-wide
+    decision, so under a `project` plugin a config-less package's
+    `dist/**` was an edit (one wasted cycle, the content check caught
+    the second) and its `workspaceFiles` input did not widen the
+    watch. `sweepConfigs` now calls `loadProjects` — the fourth
+    consumer after prepareRun, show and info — with the eval cache, so
+    the sweep's repeat loads of pure configs hit instead of paying a
+    worker each; a load that fails drops to the raw per-file sweep it
+    had before.
+15. DONE: the last two raw config reads in the CLI went through the
+    staged load too — `--affected`'s orphan-path owners (a
+    `workspaceFiles` glob a `project` plugin gave a config-less
+    package now selects it; before, an edit under that glob selected
+    nothing) and the interactive picker's menu. The four copies of
+    "open the cache, load the staged projects, close" collapsed into
+    `cli/workspace-config.ts:loadCliProjects`; `lock.ts` stays raw on
+    purpose — it freezes the file's own evaluation, and the stage runs
+    on top of the frozen config at run time. The owners read live now
+    (they preferred the lock when present, which a default run never
+    consults); the eval cache makes live as cheap.
+16. DONE: the sandbox request assembly (`sandboxRequestFor`, the
+    workspace-link scan, the bind pre-creation) moved out of
+    execute-task.ts into `orchestrator/sandbox-request.ts`, pure code
+    motion: none of it touches a key or a save, and nothing outside the
+    file referenced it. execute-task.ts 1,074 → 932 lines. The
+    remaining body is the cached path, whose save block is the next
+    candidate — it is stale-hit-critical, so it moves only with the
+    execute suites and the unsafe suite green on CI.
+17. DONE: two claims the code lacked, de-claimed. `frozenProjectConfig`'s
+    doc comment promised a content-hash tripwire and a hard error on a
+    changed file; its body skips both on purpose (owner, 2026-06-13),
+    and `docs/modules/lockfile.md` repeated the promise ("hash
+    tripwire", "stale file is a hard UserError"). A DX probe ran an
+    edited config as locked under `--frozen` with no word — which IS
+    the contract (`lock --check` is the audit; pinned in lock.test.ts),
+    so the words moved, not the code. CLAUDE.md still named
+    `--verify=inputs`, removed 2026-09-04; it now names the sandbox as
+    the way a task proves what it touches.
+18. DONE: a cache block whose globs match nothing is said out loud. A
+    DX probe: `inputs.files: ['nope/**']` cached silently (the key
+    never moves with the source — the quiet stale hit), and
+    `outputs.files: ['out/**']` on a task that wrote nothing saved an
+    empty artifact silently (a later hit "restores" a build that ran
+    nowhere). Both are now one status line on the miss that saved,
+    naming the task and the globs; a hit says nothing, `outputs: []`
+    (the deliberate cached no-op) says nothing, and the warm path is
+    untouched — the miss path already held both resolved lists.
+19. DONE: sandbox-runtime.ts (1,318 lines, the largest file) split by
+    concern, pure code motion: `sandbox-violations.ts` (the strace
+    pass, the seatbelt record description, the report filters),
+    `sandbox-binds.ts` (bwrap-honourable write grants, read-grant
+    punching, the SRT custom config) and `sandbox-paths.ts` (the four
+    path helpers all three share). runtime keeps probe, init, config
+    resolution and the spawn: 844 lines. The sandbox suite cannot run
+    here (no bwrap: 20 pass, 25 skip locally), so CI's
+    `VX_REQUIRE_SANDBOX=1` job is the arbiter for this one.
+20. DONE: `vx.workspace.ts` refuses an unknown top-level field. The
+    project levels have rejected unknown keys since the review pass;
+    the workspace validator checked its four fields and let anything
+    else through, so `plugin: [...]` (singular) declared no plugins and
+    ran the workspace bare, and `cacheDirectory` left the cache where
+    it was — a file that loads and quietly does nothing it says. Same
+    `assertKnownFields`, which now also names the nearest accepted
+    spelling at every level (`did you mean plugins?`); pinned in the
+    schema-doc drift table.
+21. DONE: the project config's top level too. `task:` (singular) loaded
+    as a project with no tasks — `vx show` said "(no tasks declared)",
+    `vx run build` said "no projects declare" — and the loader's
+    `assertKnownFields` had covered every level below it. Now
+    `has unknown field "task" — did you mean tasks?`.
+22. DONE: two flag probes. `--continue never` read `never` as a second
+    TASK and failed with "No projects declare task(s): never" — true
+    and useless; the space form is now refused naming the `=` form.
+    `--retries` got no hint because `--retry` is three edits away (the
+    `i`/`y`), one past the usual budget; a third edit is now allowed
+    between flags sharing their first five characters. Two probes
+    refuted on the way: `--retries` is NOT a prefix of `--retry` (a
+    prefix rule was written and thrown out), and a plain three-edit
+    budget hinted `--all` for `--zzz` (the existing pin caught it).
+23. DONE: a plugin-authoring probe, four quiet failures. A `cache` or
+    `executor` hook returning junk failed every task with an internal
+    TypeError deep in the chain (`this.layers[0].key is not a
+function`); the seam now checks the returned shape once and refuses
+    by plugin and hook. A `project` edit that broke a task was refused
+    "(after plugins)" — which one? — so the stage re-validates after
+    each plugin and names it. Two plugins declaring the same verb ran
+    the first and hid the second; a plugin naming a core verb loaded
+    fine and sat dead (a pin even asserted it "never runs"). Both are
+    refused wherever the workspace loads — every core verb that opens
+    it, and the plugin-verb lookup, which reports why it could not
+    finish — naming the plugins and the verb; the pin now asserts the
+    refusal (`help` and `version` never load the workspace).
+24. DONE: the same probe over the remaining stages. `key` returning a
+    string folded its CHARACTERS into every cache key as parts named
+    '0', '1', '2' (`Object.entries` over a string) — silent and
+    permanent; `schedule` returning a string was a silent no-op (its
+    characters matched no task); a telemetry hook returning `{}` was a
+    valid sink that heard nothing. Non-record and non-Map returns are
+    refused by plugin and stage; a sink with no handler is disabled
+    with the same warning a throwing hook gets. `graph` was already
+    right: a missing edge target and a cycle both name the plugin. The
+    plugins guide gained a "What core refuses" list for items 23–24.
+    Checked against the shipped plugins, since the REAPI suite cannot
+    run here: every `cache` hook returns a `LayeredCache` (key, get,
+    has, save, close all present) and the REAPI executor is named
+    (`vx/reapi`) with `execute` — the shape checks refuse none of them.
+25. DONE: `cli/run.ts` composed: what a run is asked to run (the
+    `--filter` resolution, `--affected`'s orphan owners, the cwd
+    project, the interactive picker) is `cli/select.ts`; run.ts keeps
+    argument parsing, option resolution, the verb and the summary
+    (837 → 659 lines). Pure code motion. Day-end warm A/B against
+    main (c0b20ca), 1000 projects, interleaved both orders: min
+    296/304 and 302/295, med 310/313 and 325/320; at 20 reps 310/313.
+    Within this box's run-to-run jitter (the baseline itself moved
+    296 → 310 between runs) and no `VX_TIMING` stage moved.
+26. DONE: the cached path's save block is `orchestrator/miss-save.ts`
+    (`saveMiss`), pure code motion: resolve outputs → the empty-set
+    warning → `cache.save` → `recordOutputDirs` → the git marks.
+    execute-task.ts 932 → 892 lines; the whole gate passed unchanged.
+    Cold A/B (the path it sits on), 1000 tasks, both orders, min of 4:
+    3592 → 3490 ms and 3518 → 3701 — mixed by ±200 on a 3.5 s run,
+    i.e. a tie inside the cold path's noise on this box.
+27. DONE: `@vzn/vx-mcp` gains `listTasks` — "what can I run here?" —
+    the one tool over configs rather than the cache: every project and
+    the tasks a run would see (command, `dependsOn`, cached,
+    persistent), resolved like `vx run` resolves them. It reads through
+    a new façade export, `loadResolvedProjects` (discovery, the
+    `config` and `project` stages, cached evaluations served), the same
+    view `vx show` prints; an embedder's task catalog is the other
+    consumer. The façade pin gained the name.
+28. DONE: `vx init` on a Turbo (or Nx) repo names the config it did
+    not read. A probe on the Turbo fixture: `init` generated the
+    scripts' configs with their TODOs and said nothing about the
+    `dependsOn` / `inputs` / `outputs` that `turbo.json` already
+    declares one directory up. It now prints one note naming both ways
+    to use it (`vx migrate`, `plugins: [turbo()]`); `migrate` itself
+    auto-detects, so the note is `init`-only (control pinned). Also
+    probed and found right: `vx lock` / `--frozen` / `lock --check`
+    under `@vzn/vx-turbo` — the lock records nothing for a config-less
+    package and the plugin maps live under `--frozen`; the README now
+    says so. Left alone by 8(d)'s rule: `logger.ts` is one 550-line
+    terminal renderer and `framed-output.ts` one formatting concern —
+    no seam to cut. A number for item 11's other half: `vx show` on
+    the 1000-project workspace, main vs head, both orders, min of 8:
+    209 → 141 ms and 197 → 129 — the staged load serves cached
+    evaluations where the raw path evaluated every config.
+29. DONE: probes that confirmed what is pinned, and one stale comment.
+    A plugin `key` part is named in `vx why` (`plugin tool/node-major`,
+    digest → digest — values are reduced to digests on purpose, the
+    rows persist); `@vzn/vx-turbo` warns its mapping gaps on `run` and
+    `show` alike; a reservation over the budget is admitted alone
+    (schema.md § resources, scheduler.ts). The run.ts comment on
+    resource costs still named the percent form removed 2026-08-30;
+    it now points at resources.ts instead.
+30. DONE: the plugin-verb refusal (item 23) moved from the CLI loader
+    into `validateWorkspace`: `vx run` never went through the CLI
+    loader, so a shadowing verb was refused by `vx show` and not by
+    the run — half a rule. The core verb list moved to
+    `util/verbs.ts` (the workspace module cannot import cli); the two
+    messages joined the schema-doc drift table, and the pin now
+    asserts `vx run` refuses too.
+31. DONE: the scaffolded `vx.workspace.ts` no longer imports core at
+    runtime. `import { defineWorkspace } from '@vzn/vx'` — an identity
+    function — loaded a SECOND copy of core into every run: on the
+    two-package walkthrough workspace the `workspace config` stage
+    read 27–33 ms with it and 10–13 ms without, the whole run 81–100 →
+    65–74 ms (6 runs each). The 1000-project bench never saw it: its
+    workspace file exports a plain object. `vx init` / `vx migrate`
+    now write `import type { WorkspaceConfig }` + `satisfies`, the form
+    the project configs already used; schema.md, the config module doc
+    and the quickstart say what the helpers cost. Next-list item 4
+    (the binary's second core) is thereby paid by no default scaffold;
+    a workspace that declares plugins still loads their packages.
+    Refuted on the way: the stage's remaining 11–12 ms is not the
+    config — `loadWorkspace` + `loadWorkspaceConfig` measure 1.8 ms in
+    isolation; the stage also holds the early `git ls-files` spawn.
+32. DONE (a measurement, and a probe refuted): the shipped binary vs
+    `bun bin.ts` on the two-package workspace, interleaved, min of 8.
+    A flag-less `bun build --compile` read SLOWER than source (89 vs
+    52 ms for `--version`, 148 vs 114 for a warm run) — refuted as a
+    finding: the release tasks build with `--minify --bytecode`, and
+    that binary reads 36 vs 53 ms and 71 vs 114. So the dev path pays
+    ~40 ms of transpile per run that no user of the binary sees, and
+    every small-workspace number in this file taken through
+    `bun bin.ts` overstates the shipped wall time by about that much;
+    the 1000-project figures are dominated by work the transpile does
+    not touch. When a small-workspace number matters, time the
+    bytecode binary: `VX_BIN=<binary> bun packages/vx-bench/run.ts`
+    (added the same day; 20 projects, median of 3: warm 109 → 64 ms,
+    restore 134 → 83, cold 203 → 143 through the binary). Inside the
+    binary's 71 ms on two packages: startup 25–30 (the runtime's own),
+    the early `git ls-files` spawn 9, the per-run git context spawn
+    (commit + branch for the invocations row) ~4, the status walk, and
+    ~13 for two cache hits — a floor of deliberate spawns, nothing to
+    cut without a number.
+33. DONE (fix shipped, cause half-proven): CI red on 1414cf2 (a
+    help-text commit) in `@vzn/vx#lint.oxfmt`: `oxfmt --check .`
+    failed with `Failed to read file: packages/vx/.mcp.json` — a file
+    that exists nowhere in the repo. It exists INSIDE the sandbox:
+    `@anthropic-ai/sandbox-runtime` 0.0.75 lists `.mcp.json` among its
+    DANGEROUS_FILES and masks `<cwd>/.mcp.json` with a `/dev/null`
+    ro-bind on Linux whether or not the file exists
+    (`linuxGetMandatoryDenyPaths`), so the walker meets an entry it
+    cannot read. `.oxfmtrc.json` now ignores `.mcp.json`, `.vscode`,
+    `.idea` and `.claude` — every masked name oxfmt could take for
+    input — so the sandboxed check never opens them. Not reproduced
+    here (no sandbox as root): a device node and a directory named
+    `.mcp.json` both pass locally, so the mask's exact shape inside
+    bwrap, and why every earlier head passed the same task, are not
+    known — the four heads after 1414cf2 passed the same task, so the
+    walker meets the mask only sometimes (a race in the sandbox's
+    mount setup is the likeliest shape). The ignore makes the check
+    independent of it either way.
+34. DONE: a persistent task that failed to become ready explained itself
+    on the PROCESS's stderr — a bare write that a run with a custom
+    logger (an embedder, the MCP server) never saw, and that the task's
+    frame did not carry. It now goes through the task's own stderr
+    stream; the pin that asserted the bare write asserts the stream,
+    with the process stream as the control. The other direct stderr
+    writes below the CLI (an observer that threw, an internal error,
+    the bwrap symlink-punch warning, a nameless package at discovery)
+    are last-resort paths where the logger may be the thing that
+    failed, or have no logger in scope; left as they are.
+
+35. DONE (a comment that claimed what the code lacked): the schema
+    gate in `cache.ts` said artifacts orphaned by a `SCHEMA_VERSION`
+    drop are "reaped by `vx cache prune`". `Cache.prune` evicted only
+    hashes with an `entries` row — an orphan had none, so nothing ever
+    reclaimed it, nor the `.tar.zst.tmp-*` a crashed save leaves. Prune
+    now sweeps the cache directory after eviction: a row-less artifact
+    or a temp older than an hour is unlinked and reported separately
+    (`PruneResult.orphans` / `orphanBytes`; the CLI appends "reaped N
+    orphaned artifacts"). The hour is the in-flight guard — a save
+    renames before its row commits, and a temp exists while its bytes
+    are written — so the pins keep a fresh row-less artifact, a fresh
+    temp, and an aged INDEXED artifact as controls, and the
+    schema-mismatch test now ends with the orphan it creates being
+    reaped. Both pins failed before the sweep (`orphans` undefined).
+    Cost: one `readdir` plus one `SELECT hash` per prune, and a `stat`
+    only per candidate; the run path is untouched. Found by the same
+    grep that caught item 34's class: `modules/cache.md` also still
+    said entries are stored uncompressed and `SCHEMA_VERSION` is v22;
+    both corrected.
+
+36. DONE (de-claim): the CAS seam (`cache/cas-backend.ts`,
+    `digest.ts`, `Cache.contentBackend()`) still carried its 2026-06
+    plan in three places — "Cache.ts has NOT yet been rewired … a
+    follow-up (Phase 1b)", "R2 mirror, REAPI CAS bridge, analytics
+    scanners", "internal until the artifact store lands", "dev-flows
+    roadmap Phase 3". None of it is true or planned: nothing distributed
+    ships here, `vx-reapi` speaks Bazel's CAS over its own wire without
+    the type, and no package imports it. The header, the method doc,
+    the module doc, `architecture.md`, and the two module indexes now
+    say what it is: a module-internal, consumer-less digest-keyed view
+    of the artifacts directory that core's save/restore path does not
+    go through, kept because it is small, tested and free on the run
+    path — and that a write through it lands a row-less file item 35's
+    sweep will reap. Not deleted: the façade snapshot and the
+    integration test would go with it for no run-path gain, and the
+    seam is the shape a blob store built on top would need.
+
+37. DONE (a mechanical probe, then the rot it found): a script pulled
+    every `tests/…`, `src/…`, `docs/…` path out of docs, comments and
+    guides and checked it exists. Thirty-five misses; most were test
+    fixtures (`src/a.ts`), the rest were real: seven pointers at
+    `tests/package-boundaries.test.ts` (the file is `.unsafe.test.ts`,
+    CLAUDE.md included), two at `tests/sandbox-runtime.test.ts`, one at
+    `src/orchestrator.ts`, three at `apps/docs/vx.config.ts` importing
+    core by relative path (the docs package moved and imports the bare
+    `@vzn/vx` now), and eight at two design docs that no longer exist
+    (`core-cloud-split-2026-06`, `native-cache-wire-2026-07`) — one of
+    them from the retired `remote-cache.md`, which pointed at the other
+    deleted doc as its successor. Each now points at the file that
+    exists: the boundary law at `architecture.md`, the remote-cache
+    seam at `modules/layered-cache.md` with the three wire packages
+    named, the seams at `pipeline-2026-09.md`. `sandbox-gate.ts` also
+    claimed two consumers; the `--verify` suite it named is gone.
+    Refuted along the way: a `.vx-tmp-*` restore temp leaked by a kill
+    mid-restore cannot reach the next artifact — the miss path wipes
+    the declared outputs before it spawns and a hit wipes them before
+    it restores, so a temp under an output glob is gone before anything
+    packs; the extractor's own `abort()` covers the error path.
+
+38. DONE (the sibling probe: identifiers): the same script for code
+    identifiers in backticks across docs, module docs and guides,
+    checked against every `src/` in the repo. Real misses: `RemoteCache`
+    in `architecture.md`'s module map (the type is `RemoteCacheLayer`),
+    `SandboxNetworkConfig` in the façade table (the schema exports are
+    `SandboxConfig`, `SandboxGrants`, `SandboxDenials`; `ResourcesConfig`
+    was missing from the row), and `optimizations.md` row 22 living in
+    `cache/remote-cache.ts` — the wire that left core; the
+    `AbortSignal.timeout` it describes lives in the turbo and nx cache
+    packages now. The same catalog opened with "~3.9× faster than Turbo
+    and ~5.4× faster than Nx", numbers `benchmarks.md` no longer
+    carries (its table reads 1.9× and ~7× warm); the catalog now points
+    at the benchmarks doc instead of restating a figure that moves.
+
+39. DONE (DX: an upgrade that empties the cache says so): a
+    `SCHEMA_VERSION` mismatch drops every table — entries, history,
+    memos — on the first open, silently; the run after an upgrade was
+    an all-miss run that looked like a bug, and `vx last` after it
+    said "no recorded runs yet" with no reason. `Cache.schemaReset`
+    now carries `{ from, to }` on the one open that did the drop (null
+    on every later one, pinned), and `noteSchemaReset` prints one line
+    at each opener that has a channel — the run's status line
+    (`prepare`, `loadResolvedProjects`) and a verb's stderr (`last`,
+    `why`, `info`, `cache prune`, the CLI project load): `[vx] cache
+index reset: schema v0 → v25 (vx upgraded); every cached task
+misses once and re-saves, and vx cache prune reclaims the old
+artifacts`. Pinned end to end: the run after a poked version says
+    it once and the run after that is quiet; `vx last` prints it before
+    its own empty-history refusal. Cost: one property read per open.
+    Refuted on the way: a CLI-flag drift probe (every `--flag` in
+    `cli.md` against every string in `src/cli`, both directions) found
+    only examples and git/bwrap flags — `cli-doc-drift.test.ts` already
+    holds that line. And a rule re-learned: two commits before this one
+    pushed three doc tables the formatter rejects, because the format
+    check was read through `tail -1`, which hid the "issues found" line
+    above the summary — exactly what CLAUDE.md's "never pipe a gate
+    through tail" is about. Fixed in 377c00f; the check is read whole.
+
+40. DONE (a swallow that hid a refusal): `planRun`'s placement helper
+    caught every error from `resolveExecutors` and returned nothing —
+    right that `--dry` must not fail over a label, wrong that it said
+    nothing: the run the plan previews WOULD refuse on that plugin, and
+    the plan read as "everything lands locally". It now puts one line
+    on the status channel, in the plugin's name — `[vx] placement not
+shown — plugin 'org/broken-exec' … exec boom (the run would refuse
+on it)` — and still returns the plan. Pinned with a throwing
+    executor factory; the pin fails on the old code (zero notices).
+    Found by reading the 47 bare `catch {}` sites in core: the rest are
+    teardown-must-not-throw, best-effort git probes, and ENOENT-means-no
+    checks, each with its reason on the line. A run-context comment
+    that explained a `HEAD` branch by "the dashboard's column" was
+    reworded; there is no dashboard.
+
+41. DONE (the doctor names the bytes nothing will hit): `vx info` now
+    prints an `orphans` row — `3 artifacts (12.4 MB) the index does not
+know — vx cache prune reaps them` — only when there are any, from
+    the same scan item 35's sweep uses (`Cache.orphanStats()`, one
+    readdir and a stat per row-less file past the hour). The reset
+    notice (39) says an upgrade emptied the index; this says what it
+    left on disk, before anyone prunes. Pinned end to end with an aged
+    orphan and a fresh one as the in-flight control; the existing info
+    pin holds the no-orphans control (no row at all).
+
+42. DONE (the module index claimed one page per module; 34 files had
+    none): a probe compared `src/**` against `docs/modules/README.md`.
+    Eight modules had no page anywhere — the Turbo mapper both
+    `vx migrate` and `@vzn/vx-turbo` run, the run-history queries
+    behind `vx last` / `vx why` / the MCP tools, `resources`, the
+    telemetry log buffer, and four util rules (edit distance, integer
+    bounds, the settle deadline, the persistent tail); each has one
+    now, written from the source, with its tests named. The rest were
+    slices and helpers documented inside their owner's page (the cache
+    slices, the sandbox helpers, `failure-mode`, `config-eval`,
+    `local-executor`) or CLI verb parsers the README already routes to
+    `cli.md` — they are indexed under their owner, and the README's
+    first sentence says that is the rule. `task-log-buffer.ts` still
+    described its consumers as the cloud client sink, the cloud serve
+    sink and the dist scheduler, and sized its stubs against a cloud
+    ingest cap: reworded to the one consumer that exists
+    (`@vzn/vx-otel`) and to what a sink should size against.
+
+43. DONE (owner's report: `vx lock` "raises schema issues … like some
+    mock"): reproduced `vx lock`, `--check` and `--frozen` on a config
+    using every schema form, on a `project`-stage plugin workspace with
+    a config-less package, and on the walkthrough workspace — the lock
+    round-trips all three (the frozen run re-validates the stored
+    object and accepts it; the plugin still shapes a frozen run). What
+    the report matches is two messages on the way there. (1) The
+    unknown-field refusal from item 22 printed `did you mean
+undefined?` whenever nothing was within two edits — `nearest`
+    answers `undefined` and the template tested for `null`; a
+    validator that prints `undefined` reads exactly like a stub. The
+    message is now `has unknown field "x" (allowed: a, b)` with the
+    hint appended only when there is one; the `resources` block had a
+    second copy of the rule with no hint at all and goes through the
+    one function now. Pinned: a field with nothing near gets the list
+    and no guess (fails on the old code: `undefined` in the message).
+    (2) The sandbox-unavailable message told the user to set
+    `sandbox.enableWeakerNestedSandbox: true` — the runtime's option
+    name, which the loader refuses as an unknown field; the config
+    field is `weakerWhenNested`. The reason builder is a function now
+    (`unavailableReason`), and `tests/sandbox-hint.test.ts` validates
+    every `sandbox.<field>` the hint names against the loader, with
+    the runtime name as the refused control. Also per the owner's ask
+    that every fix carries a test: items 37 and 42 were probes without
+    a law — `tests/doc-references.test.ts` now fails on a doc path
+    that does not exist and on a source module the index does not
+    name (it caught one more on landing: `plugin-commands.md` pointed
+    at a `tests/server.test.ts` that lives in `packages/vx-mcp`).
+    Items 35, 39, 40, 41 carried their pins when they landed.
+
+44. DONE (the class behind item 43's second message, then a hole): a
+    probe pulled every dotted config path core's messages and comments
+    name (`exec.env.define`, `sandbox.ignoreViolations`, …) and checked
+    each segment against the loader's field sets. Two comments named a
+    `sandbox.ignoreViolations` that does not exist (the field is
+    `sandbox.ignore`); corrected. The probe's control found the real
+    thing: `exec.env` was the one object level with NO unknown-field
+    check — `env: { set: { A: 'b' } }` loaded, defined nothing, and the
+    task ran without `A` under a green run. `ENV_FIELDS` closes it.
+    `tests/schema-unknown-keys.test.ts` is the law: it walks every
+    object level of a full config, injects a key at each, and asserts
+    the refusal names that level and its list — thirteen levels today,
+    and the walk's own list is pinned so a new level cannot arrive
+    without the check. The two env pins fail without `ENV_FIELDS`;
+    `schema.md` now lists every level and shows the message form.
+
+45. DONE (owner's ask: "why are the tests so slow"): measured with the
+    JUnit reporter across the eight shards — 5,403 tests, ~95 s of
+    test bodies, 102 s of shard wall run back to back on four cores.
+    Per-file startup is 9–15 ms and 5,237 tests finish under 200 ms;
+    the time sat in thirteen tests over a second, and none of them was
+    doing work — they were WAITING: (a) six tests proving the
+    SIGTERM→SIGKILL escalation each waited the full 2 s grace
+    (`TIMEOUT_SIGKILL_GRACE_MS`, `PERSISTENT_SHUTDOWN_GRACE_MS`);
+    (b) the signal-handling suite polled `process.kill(pid, 0)` for a
+    child that was already dead — a zombie reparented to init, which a
+    container reaps ~1.5 s later; three tests × 1.5 s, and three
+    copies of that `isAlive` across suites; (c) two 8 s stdout floods
+    in `output-memory` where a 1 s / 3 s pair separates a 100 MiB/s
+    leak from flat just as well; (d) a fixed `Bun.sleep(1200)` in
+    `cache-hygiene` standing in for "the task has started", and a
+    1.5 s settle in a `vx watch` test for a loop that cycles in 30 ms.
+    Fixes: `killGraceMs()` reads `VX_KILL_GRACE_MS` (bounded like the
+    teardown deadline; pinned) and the escalation suites set 200 ms;
+    `tests/helpers/alive.ts` defines child liveness ONCE and reads
+    `/proc/<pid>/stat` so a zombie counts as dead; the marker file and
+    the shorter windows. Before → after, one file per process:
+    signal-handling 5.5 s → 0.5 s, task-timeout 5.1 → 3.3,
+    persistent 3.0 → 1.1, output-memory 17.4 → 9.4, cli 4.0 → 3.2,
+    cache-hygiene 1.24 → 0.14. What stays: `output-memory` is a rate
+    measurement (4 s of flood is its floor), `scheduler`'s dense-graph
+    pin builds 87k edges, `options-resolve` spawns a config Worker per
+    deadline case, and ~130 end-to-end `bun bin.ts` spawns cost
+    ~100 ms each — real work, not waits. Refuted on the way: the
+    signal suite's 2 s was not the grace (vx exits in 4 ms and the
+    child is a zombie 7 ms later); the zombie wait was the whole of it.
+    Whole suite, eight shards back to back on four cores: 102 s → 80 s,
+    and the longest shard — the critical path when they run in
+    parallel — 28.5 s → 18.0 s.
+
+46. DONE (a pin that proved nothing, found by taking its sleep away):
+    `cache-baseline`'s "second restore touches no inodes" slept 1.1 s
+    and compared whole-second mtimes. Replacing the sleep with the
+    inode showed the claim false: `Cache.restoreOutputs` ALWAYS
+    materialises (a `.vx-tmp-*` renamed over each target — new inode,
+    same bytes, same sidecar mtime), so the old comparison passed a
+    rewrite as readily as a skip. Skipping a current tree is the
+    orchestrator's decision (`isOutputsCurrent`, pinned in
+    `execute-task` and `output-dirs`), never the cache's. The test now
+    says what the cache does — the recorded whole-millisecond mtime on
+    every restore, a new inode on a re-restore, a deleted or
+    wrong-sized file replaced — with no sleep; the file runs 2.4 s
+    instead of ~7.7. The band under a second was otherwise real work
+    or inherent waits: `options-resolve` spans two fixed sleeps to
+    prove ordering, `config-eval` sleeps inside configs to prove a
+    deadline, `inflight` needs the first task still running. The same
+    file's millisecond-precision pin sat behind a same-second
+    precondition (`if` the write landed in the recorded second, assert)
+    — a skip is a silent pass — and now sets an mtime one millisecond
+    off the recorded one explicitly, so the claim never rides on a
+    second boundary. One tightening opened a window: `signal-handling`
+    read `pid.txt` as soon as it existed, and the shell's `echo $$ >`
+    truncates before it writes — a read between sees '', `Number('')`
+    is 0, and `kill(0, 0)` probes the test's own process group, alive
+    forever. Seen once under an eight-shard gate with A/B runs beside
+    it (item 55's), never alone in five, never in six parallel copies
+    after: the test waits for the number, not the file.
+
+47. DONE (pure motion): `project-loader.ts` was 1,022 lines, and 742
+    of them were not loading — the validators for every config level,
+    the field sets, the glob and timeout rules, the sandbox grant
+    shapes. They are `workspace/config-schema.ts` now, with the loader
+    at 281 lines deciding how a file is evaluated and the schema
+    deciding what it may say. The `workspace/index.ts` contract is
+    unchanged; `lockfile.ts` imports the validator from the schema; the
+    loader re-exports it so the tests that reach it there keep
+    working. Nothing crossed between the halves but the two calls.
+    Module doc, index row and CLAUDE.md layout updated; the doc-index
+    law names the new file. Warm A/B: see item 49 — the readings taken
+    that evening reused workspace copies across schema versions; the
+    clean protocol reads a tie.
+
+48. DONE (pure motion, the sibling of 47): `cache/inputs.ts` was 1,257
+    lines holding two concerns — which files a task declared (globs,
+    boundaries, outputs, runtime values) and how git is asked about
+    them (`GitFilesCache`, the `ls-files` / `status` / `check-attr`
+    parsers, the start/apply enumeration). The git half is
+    `cache/git-inputs.ts` (636 lines); the resolver keeps 627. Nothing
+    crossed between them but the cache class and two calls — the only
+    mentions of the resolver on the git side were comments. The
+    `cache/index.ts` contract is unchanged; the resolver re-exports the
+    cache for the tests that reach it there. Module doc, index row and
+    CLAUDE.md layout updated. One lesson, paid in a red head (c7e9bf1,
+    fixed next commit): the re-export list came from a grep of ONE-LINE
+    test imports, and `stale-hit.test.ts` imports three git parsers in
+    a multi-line block — shard 1 failed on the missing export while the
+    targeted suites, which do not include that file, were green. A
+    moved module re-exports its WHOLE public surface from the old path,
+    and the import scan is multi-line (the script in this item's
+    commit), not a one-line grep.
+
+49. DONE (a regression that was the harness, then the harness rule):
+    the A/B after item 48 read the head 8–12 ms slower than main by
+    median in both orders at twenty reps, and swapping the workspace
+    copies did not move it. Bisecting by `VX_TIMING` stage (main vs
+    commits 31, 57, 44, then 44 vs 57 directly) gave inconsistent
+    signs and one clean-looking +7.8 ms in `classify + probe` — until
+    the accumulated counters showed the two arms proving their hits
+    differently in the same run: one arm's minimum came from the rep
+    right after a `SCHEMA_VERSION` flip. main is v24 and every PR head
+    is v25, and the copies were reused across arms, so whichever arm
+    did not match a copy's last index reset it, re-saved on rep 1, and
+    proved rep 2's hits by the glob walk (which records the output-dir
+    rows) — a rep whose stage split differs from steady state, and
+    min-of-N picks exactly that rep. On a fresh index head and main
+    behave identically (miss, walk-and-record, then the dirs proof
+    from rep 3: 175–182 ms total vs 296–347 with the walk forced every
+    rep — the dirs proof holds). The clean protocol — one copy per
+    arm, pre-warmed by that arm, no flips inside the measured reps,
+    twenty reps, both orders — reads main med 236 / head 232 in one
+    order and head 229 / main 227 in the other: a tie by median with
+    the sign flipping; the minimum reads head +5–6 ms in both orders,
+    inside the harness's own spread but noted. No commit in the PR
+    costs the warm path; the earlier readings under items 46–48 were
+    taken with reused copies and are superseded by this one. Rule
+    (CLAUDE.md): arms on different `SCHEMA_VERSION`s never share a
+    workspace copy. Under the same protocol `vx show` at 1,000
+    projects reads main min 132 / med 138 ms vs head 102 / 105 — the
+    staged load's cached evaluations (item 13), re-measured.
+
+50. DONE (DX, one row): `vx info` prints `cache versions: keys
+vx-cache-v27 · index schema v25` — the two constants a bug report
+    needs and the reset notice (39) names, read from the source
+    constants (now exported from `cache/index.ts`), and pinned against
+    those same constants so a bump shows up in the doctor without a
+    second copy. Found while chasing item 49: the doctor had no way to
+    say which schema an index was on.
+    Seen and deferred: 26 test files carry their own `makeWorkspace`,
+    23 an `addProject`, 9 a silent logger — the second-copy class at
+    suite scale. A shared `tests/helpers/workspace.ts` would drop a few
+    hundred lines, but each copy differs a little (git init, heredoc
+    configs, extra packages) and the move is mechanical risk for no
+    behaviour; do it file by file when a suite is touched for another
+    reason, not as one commit.
+
+51. DONE (DX, one row): `vx info` prints `plugins: 2 — @vzn/vx-reapi
+(executor, cache); @vzn/vx-otel (telemetry)` — every plugin the
+    workspace declares and the seams each fills, in pipeline order, or
+    `none`. Nothing named the loaded plugins before; "why did this task
+    run there / cache there / not at all" started with reading
+    `vx.workspace.ts`. It reads the declarations (a plugin that
+    declines at run time still lists its seam) and is pinned on the
+    plugin fixture (`1 — gen (project)`) and the bare one (`none`).
+    The Next list is exhausted of actionable items: 1–2 parked with
+    reasons, 3 done, 4 refuted, 5 an instruction, 6 done as item 49,
+    7 done but (c), 8 (a)–(h) done, decided or refuted with numbers.
+
+52. DONE (pure motion): the placement of a graph over its executors —
+    the pinned-local walk, `placeTasks`, the plan-mode `planExecutorOf`,
+    the pool view and the unplaced sentinel, 170 lines — left `run.ts`
+    for `orchestrator/placement.ts`; `run.ts` is 1,004 lines. The move
+    found a doc comment orphaned above the wrong function (the
+    "nearest declared name" text sat over `initHint`; it is back over
+    `didYouMean`). Module doc, index row, `orchestrator.md` and the
+    CLAUDE.md layout updated; the placement suites pass unchanged.
+    Clean-protocol A/B (item 49's rule), twenty reps, both orders:
+    main med 226 / head 229, head 236 / main 233 — +3 ms by median in
+    both orders with the minimum flipping (+3 / −1), inside the
+    harness's own spread as a pure move should read.
+
+53. DONE (pure motion, the sibling of 52): the signal forwarding —
+    SIGINT/SIGTERM to every live and persistent child, cache closed,
+    exit 128+signo, handlers removed in the finally — left `run()` for
+    `orchestrator/signals.ts` (`forwardSignals(...) → { remove }`).
+    The registries stay with `run()`, which hands them to the runner
+    around every spawn; the module only reads them when a signal
+    lands. `run()` is 970 lines, the function itself ~750. Module doc,
+    index row, `orchestrator.md` and the CLAUDE.md layout updated; the
+    signal suites pass unchanged.
+
+54. DONE (the few milliseconds against main, named and taken back):
+    every clean-protocol A/B since item 49 read the head 3–7 ms slower
+    than main by median with the sign steady, small enough to call
+    spread and consistent enough not to. Fresh copies with equal
+    warm-up (the old head copy carried 197,000 `runs` rows against the
+    base's 141,000 — another asymmetry, ruled out) still read +3–6.
+    A clean stage table named it: `classify + probe` +3.4 and `run
+graph` +3.1, with the accumulated `output dirs` +3.0 and `output
+stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
+    and `startup` −2.4 in head's favour. The proofs' code is identical;
+    item 11's composition had wrapped their delegation (and the two
+    file-hash entry points) in `async` methods with `return await`,
+    one extra promise and microtask hop per call. The four wrappers
+    now return the slice's own promise. Measured against the pushed
+    head under the clean protocol: `run graph` −2.3 ms, `output stat`
+    −2.2 accumulated, and the twenty-rep A/B reads the fix faster by
+    median in both orders (239 → 236, 249 → 241; min 220 → 221,
+    229 → 225). Rule for the slices: a delegation returns the inner
+    promise; `async` on a wrapper is a cost on every call it forwards.
+    The class, grepped (34 `return await` sites in core): nine more
+    forwarded a call the caller awaited anyway — `get`, `getIngested`,
+    `packArtifactBytes`, the streamed pack, the layered `key` /
+    `hashFile` / `prune` / `prefetch`, the key path's `hashFile`, the
+    local executor's sandboxed branch — and now return the inner
+    promise. The rest are once per run (CLI dispatch, lock, watch) or
+    sit inside a `try` that must see the rejection: `remoteHasMany`'s
+    catch IS the never-fail contract, and dropping its `await` let the
+    rejection sail past it — the pin "returns null and reports the
+    error when hasMany throws" failed, which is the differential the
+    exception needed. That one keeps `return await` with a comment
+    saying why; so do `computeTaskHash` (its `finally` closes the
+    timing span), the executor gate in `run.ts` (its `finally`
+    releases the in-flight hash), and the plugin host's `safe`.
+    Measured under the clean protocol against the previous head,
+    twenty reps, both orders: 252 → 249 and 236 → 237 by median, 224 →
+    228 and 222 → 222 by min — a tie, which is the honest number for
+    sites called once per task where item 54's ran two thousand times
+    a run. Kept for the rule, not for a figure.
+
+55. DONE (pure motion, the third slice off `run()`): the two rules
+    between the scheduler's `execute` callback and `executeTask` — the
+    in-flight dedup an embedder's registry enables and the
+    continue-taint that withholds a save behind a failure — sat as
+    two closures inside `run()`'s try block, 120 lines the reader had
+    to hold while following the run. `orchestrator/admission.ts`
+    holds them: `taintTracker(enabled)` answers per task and records,
+    `admitTasks({...})` returns the `execute` callback. `run()` keeps
+    `buildExecuteArgs` (every run-scoped value a task needs) and hands
+    it in. 988 → 916 lines. Behaviour pinned by `inflight` and
+    `continue-taint` before and after; the executor's `return await`
+    stays, with the reason on it (the `finally` releases the barrier
+    after the task settles, not when its promise is handed back).
+
+56. DONE (pure motion, the fourth slice): arming the sandbox runtime
+    for a run — which tasks opt in, the platform probe that refuses
+    when one cannot be honoured, the union of every task's network
+    allowlist for the one proxy SRT runs — was twenty lines inside
+    `run()`. `sandbox-request.ts` already owned the sandbox half of a
+    request; `armSandbox(nodes)` now sits beside it and returns
+    whether it armed, which is what the run's end-of-try reset keys
+    on. 916 → 895 lines. `tests/sandbox-hint.test.ts` still validates
+    the unavailable message's field name against the loader.
+
+57. DONE (test DX, the deferred fixture consolidation): forty test
+    files carried a private copy of the workspace scaffold — mkdtemp,
+    `pnpm-workspace.yaml`, a root package.json, the local workspace
+    file, a quiet git repo, an `addProject` — and the copies had
+    started to disagree in load-bearing ways: `prepare-perf` swallowed
+    a git failure, `why`/`last` ignored every git exit code, two
+    suites shared the `vx-timeout-` mkdtemp prefix, `cache-hygiene`
+    wrote no workspace file, four files held the same 18-line
+    init-add-commit. `tests/helpers/workspace.ts` defines it once:
+    `makeWorkspace({ prefix, rootName, workspaceFile, git })`,
+    `addProject(root, name, config | { config, deps, devDeps, files })`,
+    `gitIn`, `gitInit`, `gitInitCommit`. Twenty-seven files migrated,
+    901 lines out, 130 in, every suite's pass count unchanged; a git
+    failure now throws everywhere. Left alone on purpose: the eight
+    files whose deviation IS the test (a git shim on PATH, a workspace
+    root inside a git subdirectory, the 6,000-package generator, the
+    lockfile-and-node_modules layout, fault-injection knobs, the
+    `@vzn/vx` symlink `vx migrate` needs) and the two that `await
+import()` inside `beforeAll` for module-mock ordering. The inline
+    `beforeEach` scaffolds (~14 files, ~12 lines each) migrate when a
+    file is next touched.
+
+58. DONE (the suite's wall time is the heaviest shard, and the alphabet
+    dealt it): `bun test --shard=i/n` deals files round-robin by sorted
+    name, so on this box the eight shards ran 10–24 s of wall and the
+    gate waited on the 24. `scripts/test-shard.ts <i> 8` deals them by
+    recorded weight instead — longest first, each into the lightest
+    bin — from `tests/shard-weights.json`, refreshed with `--weigh
+<junit-dir>` from Bun's JUnit reports. The weight is the FILE-level
+    suite time, not the sum of its cases: the first deal used the sum
+    and still ran 24 s, because `scale-graph`'s 2,000-package
+    generator and warm plan are a 9.5 s `beforeAll` no case carries
+    (1.9 s of cases, 11.5 s of file). An unknown file weighs the
+    median (246 ms), so a new file costs nothing to add.
+    `tests/shard-partition.test.ts` pins the deal: every file exactly
+    once, deterministic, heaviest bin within 1.25× of the lightest,
+    and every weighed name still exists (a rename must carry its
+    weight or it falls to the median). Eight shards in parallel on
+    four cores: 24.4 → 18.2 s, the shards 15.8–18.2 s (the sum-weighted first deal read 24.4 with one shard at 24 and the rest at 15–20). Next-list 8(h) closed by this. The darwin
+    CI job's sequential `--shard=$i/4` loop is untouched: its time is
+    the sum, which a deal cannot move.
+
+**Why the suite is not instant (2026-09-10, asked by the owner; main
+and this branch measured alike).** JUnit reports over eight shards:
+2,647 cases, 119 s of case time (main: 2,582 cases, 121 s), 24 s of
+wall on four cores. The median case is 1 ms; 2,145 cases under 50 ms
+sum to 12.6 s — the unit tier is already instant. The time is two
+bands. 464 cases between 50 and 500 ms sum to 65 s: the end-to-end
+band, whose floor is processes, not timers — a `git init` plus two
+`config` is 7 ms, an in-process `run()` on a one-task workspace 12 ms
+warm, a `node -e` task 40 ms, and one CLI spawn 91 ms, of which 46 ms
+is Bun loading the source tree (`bun bin.ts --version`; bun's own
+start is 4 ms; pre-bundling measured slower, Next 8(h)). Nineteen
+files spawn the CLI (~250 cases), forty-two init a repo, twenty-seven
+call `run()`. 38 cases over 500 ms sum to 41 s: the rate and volume
+measurements (`output-memory` 11 s — two 1 s + 3 s floods per line
+shape and four RSS probes, differential by design; `cache-baseline`,
+`scheduler`, `scale-graph` ~5 s of scaling pins), the scheduler spans
+(`options-resolve`, three cases at 1 s: two tasks each sleeping
+0.3 s to prove co-admission), and the git-commit-heavy pins
+(`stale-hit` 2.2 s and `affected-workspace-files` 2.4 s in one case
+each — five commits and five runs). Timeouts inflate nothing: a
+timeout is a cap, and the only timed waits left are the floods, the
+spans, the debounce and settle windows (item 45 took the rest). To
+go faster the suite would have to spawn less — fewer CLI-spawned
+cases (91 ms each) and shorter floods — not shorten timeouts; the
+deal in item 58 makes the wall the average shard instead of the
+worst.
+
+59. DONE (an adversarial read of the whole PR diff against main,
+    2026-09-10, findings acted on): the cache-correctness category
+    came back empty — the eight cache slices, `miss-save`, the orphan
+    reaper (rows read before the readdir; a save renames before its
+    row commits; the grace window) all verified faithful. Five
+    findings were real, each fixed with a differential pin:
+    (a) `loadCliProjects` opened the WORKSPACE's cache dir, so a run
+    given `--cache-dir` still created `.vx/cache/cache.db` beside it
+    on the `--affected` owner, picker and watch-sweep paths, and
+    printed the schema notice against the wrong index — the override
+    now reaches every opener (`tests/cache-dir-selection.test.ts`, an
+    orphan-change `--filter '[HEAD]'` run keeps every cache under
+    `--cache-dir`); (b) the cache seam's shape check named five
+    methods of a seventeen-method contract, so a layer with those
+    five was admitted and died at its first hit inside
+    `restoreOutputs` with the internal TypeError the check exists to
+    prevent — `CACHE_LAYER_METHODS` is the contract, checked once
+    (pinned by the refusal message); (c) `resolveCache` throwing on a
+    refused plugin left the local SQLite handle `prepareRun` had
+    opened for the config cache — closed on that path now (pinned:
+    `Cache.prototype.close` is called once); (d) the orphan reaper
+    counted a file a concurrent prune had already taken, because
+    `rm({ force })` swallows ENOENT — `unlink` now, and two prunes
+    over one directory count an orphan once; (e) the `contentBackend`
+    comment and the CAS doc claimed a write through the view could
+    never be a hit, but a digest hash equal to a live key REPLACES
+    that entry's bytes — de-claimed in both places (nothing in core
+    writes through it; a consumer that does owns the risk). Accepted
+    as-is, recorded: `--affected` owners evaluate live configs where
+    main consulted the lock — the doc comment says so, and a frozen
+    run's SELECTION following the lock is a different feature. One
+    more timed claim fell in the same gate: `cache.test`'s
+    millisecond-mtime pin slept 3 ms before a same-size rewrite, and a
+    file's mtime comes from the kernel's coarse clock (one tick, 4 ms
+    at HZ=250), so under load the rewrite landed in the recorded tick;
+    the pin stamps the rewrite one millisecond past the recorded mtime
+    now, as item 46 did for `cache-baseline`. The concurrent-prune pin
+    itself went red on darwin CI (1c3a435, `2` orphans): with
+    `olderThanMs: 1` the aged indexed entry was evictable, an eviction
+    deletes the row before the file, and the other prune's scan fell
+    between the two and counted the file as an orphan. The pin now
+    prunes with nothing evictable (a year), and asserts it. Darwin read
+    `2` again with nothing evicted (0d70abe, 569dd17), which the
+    reasoning above cannot produce; the pin now asserts one object —
+    each prune's count, the bytes, and every artifact the directory
+    still holds — so the next darwin run says which prune counted
+    what, instead of a bare `2`. It said: both prunes counted the one 7-byte file
+    (`[1, 1]`, 14 bytes) with the directory otherwise exactly right — on
+    darwin, Bun 1.4.0 returns success from BOTH concurrent `unlink`s of
+    one path, where POSIX and Linux give the loser ENOENT. The code is
+    right for the rule; the runtime there is not; the concurrent block
+    runs on Linux only, which is the gate for this claim, and the
+    reason is on the block.
+
+60. DONE (twelve shards from one template): the eight shard tasks were
+    eight copies of a twenty-line block, and eight was the count for
+    no reason a box could name. `vx.config.ts` now generates them from
+    `SHARD_COUNT` (12) and one template; `test.bun` depends on
+    `test.bun.shard-*` (the pattern form — a generated key cannot be
+    named for the spread's key check, and `*` expands at graph build),
+    and the partition pin reads the count from the config. Measured
+    on this four-core box, both deals by weight: twelve shards 17.5 s
+    wall, eight 19.9 s — an oversubscribed box pays nothing for the
+    extra processes, and a twelve-core one gets the suite in two
+    thirds of the time. The darwin CI job's four sequential slices are
+    untouched: sequential time is the sum. Config: 379 → 235 lines.
+
+61. DONE (the per-file cap under the deal): a weighted deal makes the
+    wall the average shard — until one file is heavier than the
+    average, and then the wall is that file on any box with enough
+    cores. Two were: `output-memory` (11.5 s: two 1 s + 3 s floods per
+    line shape, run one after another though each is its own child
+    and the claim is about each child's bounded capture, not
+    throughput — the four now run side by side from a `beforeAll`,
+    4.5 s) and `orchestrator.test.ts` (14 s, 62 cases in one
+    2,633-line describe — split at the seam between "what busts a
+    task" and "what a run does with its outcomes" into
+    `orchestrator.test.ts` and `orchestrator-run.test.ts`, the fixture
+    in `helpers/orchestrator-fixture.ts`; 62 cases before and after).
+    The heaviest file is now `scale-graph` at 11.5 s, which is one
+    perf pin's generator and warm plan and does not split. The table
+    was refreshed from a twelve-shard JUnit run the same day: under
+    twelve-way oversubscription on four cores every file reads slower
+    than alone (`output-memory` 8.5 s against 4.5 s by itself,
+    167 s of file time against 140 s under eight), which is the right
+    weight for the deal on the box that runs it — the deal balances
+    relative load, and the absolute figures are this box's.
+
+62. DONE (the one review finding accepted as-is, closed after all): a
+    `--frozen` run reads its configs from the lock, but the `--affected`
+    owners it selected from — and the picker, and the watch sweep —
+    evaluated live, so an env-dependent `workspaceFiles` glob could
+    select in one environment what the run then keyed by another.
+    `loadCliProjects` takes the run's flags as one `CliLoadOptions`
+    (`cacheDir`, `frozen`) and reads the lock under `--frozen`,
+    refusing with the run's own message when there is none
+    (`FROZEN_WITHOUT_LOCK`, defined once in `workspace/lockfile.ts`).
+    Pinned end to end in `tests/frozen-selection.test.ts`: a glob the
+    lock froze under `SHARED=shared/**` selects the task in a frozen
+    run with no env, and a live run in the same environment does not.
+    The owner sweep tolerates a config that will not load (a broken
+    out-of-scope config must not fail a scoped run), so the missing
+    lock is refused BEFORE it, or a frozen run with no lock answered
+    "nothing affected" and exited 0 without reaching the run's own
+    refusal — the third pin.
+
+63. DONE (pure motion, the mirror of item 16): the hit path —
+    `restoreHit` and its args, 179 lines: the two proofs, clean +
+    restore, the git marking, the stdout replay, the outcome — left
+    `execute-task.ts` for `hit-restore.ts`, beside `miss-save.ts`
+    (the miss path, item 16). `execute-task.ts` re-exports both names,
+    so the direct-drive pins and the short-circuit keep their import.
+    892 → 716 lines; `hit-restore.ts` 202. Stale-hit-critical by the
+    same rule as the miss path, and pinned by the same suites
+    (`execute-task`, `stale-hit`, `output-dirs`, `local-shortcircuit`,
+    `orchestrator-run`), all green before and after. The status
+    vocabulary tripwire caught the move: the one line that PRODUCES a
+    hit's status (local vs remote) went with the path, so its allowlist
+    entry moved from `execute-task.ts` to `hit-restore.ts` — the
+    tripwire doing its job. Warm path under the clean protocol, twenty
+    reps both orders: 231 → 231 and 250 → 243 by median, a tie.
+
+64. DONE (words that named a product this repo does not ship): eleven
+    live comments and one module doc named `vx serve`, a `vx dev` hub
+    and a devframe surface as the consumers of the in-flight registry,
+    the injected remote layer, the telemetry-sink seam and the wire
+    event form. None exists here: the verbs are run, watch, cache,
+    lock, init, migrate, show, info, why, last, prune, upgrade (and a
+    plugin's), and CLAUDE.md says nothing distributed ships in this
+    repo — the seams exist so someone builds those on top. Every site
+    now says "an embedder" / "a daemon built on the façade; core ships
+    none", so a reader is not sent looking for a verb. The dated
+    design documents keep their history.
+
+**Two warm-path probes refuted after item 61 (2026-09-10).** Cold
+config evaluation, measured by deleting `config_evals` and
+`config_closures` on the warm 1,000-project copy: the `load configs`
+stage reads 584 ms cold against 26 ms warm — 0.58 ms per config through
+the worker, so a 2,000-project first run pays about a second there and
+no batching lead exists; `scale-graph`'s 9.5 s `beforeAll` is its
+generator, git and warm plan, not evaluation. And the accumulated
+`output dirs` counter (52 ms over 1,000 proofs, 52 µs each for one or
+two `statSync` calls) is not a cost to chase: an accumulated span
+measures wall time between its start and end, and under the
+scheduler's concurrency that window holds other tasks' work, so the
+per-call figure over-counts. The rule for the stage table: stage rows
+are exclusive and comparable; accumulated rows are upper bounds.
+
+**Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
+pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
+sampled): 28% in the discovery closure (`workspace.ts:303` — the
+per-package readdir + manifest read, async continuation attributed to
+the closure), 11% `JSON.parse` of manifests, 5% `listProjects`, then
+the staged load and the eval-cache keys at 1–3% each. Warm `vx run`
+(228 ms sampled): `statSync` 9% (the two output proofs, 2,000 stats,
+chosen sync by the 2026-09-09 A/B: 100 → 54 ms on the run-graph
+stage), `findConfigFile` 5%, `bun:sqlite` query 3.5%, package graph
+2.5%, `hashProjectPackageJson` 2.4%, then a long tail under 2%. No
+new hot spot: every frame over 2% is a measured decision already
+recorded (discovery 8(e), the proofs' sync stats, the manifest hash).
+The next warm-path gain is structural (8(e)'s stat-keyed discovery
+memo), not a frame.
+
+**Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
+projects, twelve reps, both orders, base = the immutable c0b20ca
+worktree: main min 225 / med 242 ms vs head 231 / 246 in one order,
+head 221 / 233 vs main 222 / 232 in the other — a tie inside
+run-to-run jitter, the sign flipping with the order. The reset
+property read (39), the env field check (44, on the eval path only)
+and the orphan scan (35, prune only) cost the warm run nothing
+measurable.
+
+**Handoff after item 45 (2026-09-10, morning).** PR #265 carries the
+loop, 70+ commits; every head is green on CI except the ones a
+same-day commit fixed (d295a90 timing, 1414cf2 `.mcp.json`, f549719
+unformatted tables, 92e1682/f4a0d48 a doc law reading outside the
+sandbox — each recorded above). The shape since item 31: the owner's
+two asks (item 43's `vx lock` report and item 45's suite speed) both
+resolved to measurement first — a repro that round-trips, a JUnit
+timing pass — and each fix carries a pin that fails on the old code;
+three probes became laws (`doc-references`, `schema-unknown-keys`,
+`sandbox-hint`); the reset notice (39), the orphan sweep (35) and the
+doctor's orphans row (41) close the schema-bump story end to end. The
+suite runs ~95 s of test bodies across eight shards on four cores;
+what remains over a second is real work (rate floods, an 87k-edge
+graph, Worker spawns, ~130 end-to-end CLI spawns at ~100 ms). Start
+the next session from Next § 8: (e)/(f)/(g) are open with reasons;
+(c) is done for every verb but `vx lock`, on purpose. The scratchpad
+harnesses (`ab2.ts` warm, `ab3.ts` cold, `abshow.ts` for `vx show`,
+`junit/` for suite timing) take two worktrees and two workspace
+copies; recreate the copies with the bench generator.
+Next-list 8(b) decided: `--max-size` keeps reading a bare integer
+as bytes — it is pinned (`cli-arg-hygiene`: `--max-size 1` is one
+byte), documented as `<bytes>`, and the zero bound is the guard;
+refusing unitless there would reverse an earlier call for one
+footgun the docs already name.
+
 ## In flight
 
 **Open after the sandbox arc (2026-09-05).** Local `vx run ci --all` is
@@ -740,22 +1822,28 @@ from …/node_modules/astro/dist/cli/index.js` — astro's OWN
    measures nothing; streaming needs a two-pass digest and a chunked
    compressed upload through the adaptive-downgrade path. Do it when a
    real workspace uploads > 100 MiB artifacts, not before.
-3. **Zero-migration adoption as a plugin (candidate, owner's call).**
+3. **DONE 2026-09-09 — zero-migration adoption as a plugin.** (Kept for the reasoning.)
    The Vite-shaped ecosystem lever: `plugins: [turbo()]` in a Turbo
    repo (or `nx()`) and `vx run build --all` works against `turbo.json`
    - `package.json` scripts with no generated files — a trial that
      commits nothing. The `project` stage is the right seam, and the
      mapping already exists in `migrate-turbo.ts` / `migrate-nx.ts`, but
-     ONE seam gap blocks it: `prepareRun` loads only packages that have a
-     config file (`prepare.ts`, the `configPath` filter), so the stage
-     never visits a config-less package. Widening: when any plugin
-     declares `project`, a package without a config is loaded as
-     `{ tasks: {} }` for the stage to fill (zero cost otherwise — the
-     filter stays when no plugin declares it). Then a `@vzn/vx-turbo`
-     package reusing the mapper's IR without the preset splices, ~150
-     lines, with the migrate suite's fixtures as its tests. Not built:
-     `vx migrate` is one command and a second source of task truth is a
-     maintenance surface; decide with the owner.
+     the seam gap that blocked it is CLOSED (2026-09-09): when any
+     plugin declares `project`, a package without a config file is
+     loaded as `{ tasks: {} }` for the stage to fill (pinned: a
+     scripts-to-tasks plugin gives a config-less package a task that
+     plans and runs; with no `project` plugin the package stays
+     invisible, as before). DONE the same day: `@vzn/vx-turbo`. The
+     mapper moved out of the CLI into `workspace/turbo.ts` (one mapping,
+     two consumers — `vx migrate` renders it with preset splices, the
+     plugin runs it live with the globals inlined), the façade exports
+     it, and the plugin fills the `project` stage from it, never
+     overwriting a written config. Pinned end to end over the migrate
+     suite's Turbo fixture: plan shape, edges, cache blocks, inlined
+     globals, second-run hits, `cache: false` uncached, hand-written
+     config wins, gaps warned once. The maintenance-surface worry is
+     answered by the shared mapper: there is one source of task truth
+     for Turbo, and the plugin is 90 lines over it.
 4. **The shipped binary's second core.** A compiled `vx` loading a
    `vx.workspace.ts` that imports `@vzn/vx` pulls a second copy of core
    from `node_modules` (~12 ms) on every run — and makes a binary user
@@ -783,6 +1871,10 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    A/B against an immutable worktree settles any gap
    (`scratchpad/ab.ts`-style: alternate arms, min and median of N).
    Closing figures for 2026-09-09 on a noisy 4-core Linux container
+   (late, after the improvement loop's 25 items): head vs main
+   (c0b20ca), 1000 projects, both orders, min 296/304 and 302/295 ms,
+   20 reps 310/313 — within run-to-run jitter, no `VX_TIMING` stage
+   moved (loop item 25). Every warm-path step was A/B'd at its commit.
    (not the owner's box — compare against 2026-09-04 only by ratio):
    `run.ts` medians before the day's perf commit, 100 projects 109 ms
    warm / 180 ms restore, 1000 projects 281 / 1337; the commit's A/B is
@@ -858,6 +1950,106 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    hashing what the cycle wrote before re-arming would zero it — only
    if a real workspace shows the cycle mattering. (d) DONE 2026-09-04: a filter set that matches nothing is one
    error line naming the patterns and the nearest project name.
+8. **Improvement-loop candidates (2026-09-09, in order).** (a) The
+   cached path's save block in `execute-task.ts` (resolve outputs,
+   save, record output dirs, mark git outputs) as its own module —
+   stale-hit-critical, so only with the execute suites and CI's
+   unsafe job green, and behind a differential pin that a moved line
+   would fail. (b) `vx cache prune --max-size 10` reads a bare number
+   as 10 BYTES and evicts everything; `--older-than 5` refuses a bare
+   number. Decide: refuse unitless sizes there (the zero bound is
+   already refused for the same reason), or keep the documented
+   `<bytes>` and say so louder. (c) Anything else that reads config
+   files raw: only `vx lock` remains, on purpose (it freezes the
+   file's own evaluation). Grep for `loadProjectConfig(` before
+   adding a fourth consumer of the staged load. (d) `logger.ts` (716)
+   and `framed-output.ts` (528) are the last large files; split only
+   if a concern separates as cleanly as the three splits today did
+   (assessed 2026-09-09: neither does — one renderer, one formatter).
+   (e) Discovery is the largest fixed cost a warm run pays before any
+   task: `listProjects` reads 19–28 ms for 1000 packages (2026-09-09,
+   isolated). The manifest reads are 3–5 ms of it (async `Bun.file`
+   wins over `readFileSync` 3.4 vs 6.3 ms, re-measured — the comment
+   in workspace.ts stands); the rest is the member glob, the config
+   probe and the loops. A memo keyed on each member directory's stat
+   would skip the reads on a warm run, but a directory mtime does not
+   move when a file INSIDE it is rewritten in place, so the key would
+   have to be the manifest's own stat — one stat per package, which is
+   most of the cost already. Do it only with a measured design.
+   Measured 2026-09-10 on the pre-warmed 1,000-project copy, min of
+   seven, all in flight: today's per-package I/O (readdir + manifest
+   read + `JSON.parse`) is 8.6 ms; the memo's key (a stat of the
+   directory — entries added or removed — and a stat of the manifest)
+   is 3.3 ms async, 2.8 ms sync. But the memo must hand plugins and the
+   package graph the whole manifest, so it stores the parsed JSON and
+   parses it back — the `JSON.parse` share stays — and reads 1,000
+   rows from SQLite (~1 ms). Net ≈ 3–4 ms of a 230 ms run for a second
+   staleness surface (directory mtimes across platforms). REFUTED as
+   not worth it; revisit only if discovery's share grows.
+   (f) `--cache-dir` is a `vx run` flag only: a run under it leaves
+   `vx last` / `vx why` / `vx cache prune` reading the default
+   directory. `defineWorkspace({ cacheDir })` is the durable way and
+   the docs call the flag per-run; add it to the reading verbs only if
+   someone hits it.
+   (g) `vx why` names a plugin `key` part but shows its digests
+   (`plugin tool/node-major a2d9… → e893…`), because `entry_inputs`
+   rows reduce every value to a digest — right for env values, which
+   can be secrets, but a plugin's own material (`node-major: 22`) is
+   what its author wants to read. Assessed 2026-09-09: a new column
+   means a SCHEMA_VERSION bump, and a bump DROPS every table — every
+   user's cache and history — for a nicety; storing the raw value in
+   the `hash` column for `plugin` rows needs no bump but persists
+   whatever a plugin returned (a secret, if a plugin ever folds one).
+   Neither is worth it today; revisit when a plugin's part is the
+   thing people debug.
+   (h) DONE as item 58 (the weighted deal). Was: shard balance
+   (measured 2026-09-10, after item 45): `bun test
+--shard` splits by file count, so shard 5 carries `output-memory`
+   (a 4 s rate measurement that spawns RSS probes) plus `task-timeout`
+   and runs 18 s wall while the others run 5–13 s — the critical path
+   when the shards run in parallel. Giving the memory probe its own
+   task (every shard adds it to `--path-ignore-patterns`; one task
+   runs the file alone) would cut the path to ~13 s. Nine config
+   edits and a CLAUDE.md line for ~5 s; do it when the next slow file
+   lands in the same shard, not before. Refuted alongside: pre-bundling
+   the CLI for the ~130 end-to-end spawns. One `bun bin.ts --version`
+   costs 45–47 ms (bun's own start is 4 ms); a `bun build
+   --target=bun` bundle of the same entry costs 83–90 ms, slower, as
+   the flag-less compile was in item 32, and the `--bytecode` form's
+   ~17 ms gain would buy ~2 s of suite for a build step in every test
+   run. The spawns stay on source.
+
+9. **Handoff after item 64 (2026-09-10, evening).** The loop's Next
+   items are spent; what a fresh session should know, in order:
+   (a) PR #265 is 110+ commits on `claude/review-improve-codebase-waarsg`
+   against main c0b20ca; every head green on both CI jobs except the
+   ones the CI section of the PR body names, each fixed by the next
+   commit. The hourly check-in re-arms itself until merge.
+   (b) The suite's floor is processes, not timers (the paragraph after
+   item 58). The one lever left is converting the nineteen
+   CLI-spawning suites (~250 cases at 91 ms) to in-process calls where
+   process semantics are not the claim — about 14 s of file time,
+   ~1 s of wall on twelve shards; do it only if a box with many cores
+   shows the wall pinned by them. The gate on four cores is 15.7 s.
+   (c) The darwin CI job runs four sequential slices; parallel would
+   halve it, but the sandbox canary there is class-gated because
+   `sandbox-exec` misbehaved under load once — measure the canary
+   under parallel slices before changing the loop.
+   (d) `executeCachedTask` (execute-task.ts, ~440 lines) is dense
+   policy — probe, hash, clean, exec, save — with no clean seam left
+   after the hit and miss paths moved out; leave it whole.
+   (e) `run()` is 895 lines; the run-context record (25 lines of
+   literal assembly) is the last cohesive block, and moving it buys
+   nothing a reader needs. Stop slicing there.
+   (f) Warm path: no lead in the stage table (the two refuted probes
+   after item 61); the discovery memo and pre-bundling stay refuted.
+   The next gain is a Bun change (config-eval worker start, `bun
+bin.ts` load), not a vx change.
+   (g) Capabilities worth a design before code: streaming artifacts
+   through the remote seam (Next 2, gated by the plugin side), and a
+   `serve`-shaped embedder built OUTSIDE this repo on the façade
+   (the seams are in place: `inflight`, `remoteCache`,
+   `telemetrySinks`, the wire event form).
 
 ## Decisions (this arc)
 

@@ -28,7 +28,7 @@ export function localExecutor(): TaskExecutor {
         const res = await runCommand(common)
         return { ...res, violations: [] }
       }
-      return await runSandboxed({
+      return runSandboxed({
         ...common,
         baseAllowRead: req.sandbox.baseAllowRead,
         baseAllowWrite: req.sandbox.baseAllowWrite,

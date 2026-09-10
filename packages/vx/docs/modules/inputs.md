@@ -13,6 +13,11 @@ files for capture.
 
 ## Public surface
 
+The git side — `GitFilesCache`, the `ls-files` / `status` /
+`check-attr` parsers, `startGitEnumeration` / `applyGitEnumeration` —
+is `git-inputs.ts` (see git-inputs.md); this module imports the cache
+and re-exports it for readers that reach it here.
+
 ```ts
 export interface ResolvedInputs {
   files: string[] // absolute paths, sorted

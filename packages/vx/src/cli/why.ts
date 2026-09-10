@@ -5,7 +5,7 @@
 // names the exact cache-key components that differ. Read-only over cache.db —
 // no config evaluation, no re-hash.
 
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { splitTaskId } from '../graph/index.js'
 import {
@@ -13,8 +13,9 @@ import {
   explainCacheKeyQuery as explainCacheKey,
   whyDidThisRerunQuery as whyDidThisRerun,
 } from '../orchestrator/index.js'
-import { UserError } from '../util/index.js'
-import { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from '../workspace/index.js'
+import { nearMatches, UserError } from '../util/index.js'
+import { findWorkspaceRoot } from '../workspace/index.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 
 interface WhyArgs {
   target?: string
@@ -59,13 +60,23 @@ export function parseWhyArgs(args: readonly string[]): WhyArgs {
   return out
 }
 
-/** Simple includes-match in both directions, case-insensitive. */
-function suggest(query: string, candidates: readonly string[]): string {
-  const q = query.toLowerCase()
-  const hits = candidates.filter((c) => {
-    const n = c.toLowerCase()
-    return n.includes(q) || q.includes(n)
-  })
+/**
+ * A bare query is a TASK name, so it is matched against the task half of
+ * every recorded id (the same rule `vx run` hints with) and the hint is
+ * the runnable `project#task`; an anchored query is matched whole.
+ */
+function suggest(query: string, ids: readonly string[]): string {
+  let hits: string[]
+  if (query.includes('#')) {
+    hits = nearMatches(query, ids)
+  } else {
+    const byTask = new Map<string, string[]>()
+    for (const id of ids) {
+      const task = splitTaskId(id)[1]
+      byTask.set(task, [...(byTask.get(task) ?? []), id])
+    }
+    hits = nearMatches(query, byTask.keys()).flatMap((t) => byTask.get(t) ?? [])
+  }
   return hits.length > 0 ? ` — did you mean ${hits.slice(0, 3).join(', ')}?` : ''
 }
 
@@ -127,8 +138,8 @@ export async function whyCmd(args: readonly string[]): Promise<number> {
   }
 
   const root = await findWorkspaceRoot(process.cwd())
-  const cacheDir = resolveCacheDir(root, await loadWorkspaceConfig(root))
-  const cache = new Cache(cacheDir)
+  const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const db = cache.dbHandle()
     const taskId = resolveTarget(cache, parsed.target)

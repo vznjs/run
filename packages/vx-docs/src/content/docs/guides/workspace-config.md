@@ -21,8 +21,20 @@ export default defineWorkspace({
 ```
 
 `defineWorkspace` is an identity function — it's there for TypeScript
-autocomplete and validation, with no runtime effect. The file is loaded
-from `vx.workspace.{ts,mts,js,mjs}`.
+autocomplete and validation, with no runtime effect of its own. Its
+import is not free, though: a runtime `import … from '@vzn/vx'` loads
+a second copy of core into every run (~17 ms on a small workspace,
+measured 2026-09-09). The type-only form gives the same checking for
+nothing, and is what `vx init` writes:
+
+```ts
+import type { WorkspaceConfig } from '@vzn/vx'
+export default { plugins: [] } satisfies WorkspaceConfig
+```
+
+A workspace that declares plugins imports their packages at runtime
+anyway; use whichever reads better there. The file is loaded from
+`vx.workspace.{ts,mts,js,mjs}`.
 
 ## The file is optional; the floor is not a plugin
 

@@ -19,6 +19,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { localWorkspaceSource } from './helpers/local-workspace.js'
+import { gitInitCommit } from './helpers/workspace.js'
 import { teardownPlugins } from '../src/orchestrator/plugin-host.js'
 import { run } from '../src/index.js'
 
@@ -112,24 +113,7 @@ describe('the lifecycle is reached on a run that FAILED', () => {
       path.join(root, 'a/vx.config.mjs'),
       `export default { tasks: { boom: { exec: { command: 'exit 7' } } } }`,
     )
-    for (const c of [
-      ['init', '-q'],
-      ['add', '-A'],
-      [
-        '-c',
-        'user.email=t@t',
-        '-c',
-        'user.name=t',
-        '-c',
-        'commit.gpgsign=false',
-        'commit',
-        '-q',
-        '-m',
-        'i',
-      ],
-    ]) {
-      await Bun.spawn(['git', ...c], { cwd: root }).exited
-    }
+    gitInitCommit(root, 'i')
   })
 
   afterEach(() => {

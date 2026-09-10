@@ -1,7 +1,6 @@
 // The shared per-task log capture primitive (task-logs-2026-07 §1). ONE
-// bounded-tail buffer every telemetry sink uses — the cloud client sink (local
-// runs), the cloud serve sink (delegated runs), the dist scheduler, and the
-// OTLP logs exporter — so the capping rules can't drift between capture sites.
+// bounded-tail buffer every telemetry sink uses — today `@vzn/vx-otel`'s
+// sink — so the capping rules can't drift between capture sites.
 //
 // It lives in CORE, beside the telemetry contract, for the same reason
 // `assembleRunSummary` does: two sinks that each roll their own bounded buffer
@@ -25,8 +24,7 @@ import type { TaskStatus } from '../graph/index.js'
 import type { CacheSource } from './telemetry.js'
 
 /** Version of the drained-bundle shape below. It is the canonical drained
- *  logs format, not one transport's: cloud's `POST /v1/ingest/logs` accepts
- *  it verbatim, and any other sink ships the same object. */
+ *  logs format, not one transport's: every sink ships the same object. */
 export const LOG_WIRE_VERSION = 1
 
 /**
@@ -256,15 +254,14 @@ export class TaskLogBuffer {
    * enough failing tasks to blow the budget). A stub costs a few dozen bytes,
    * keeps the `content.length === charsFull - truncatedHeadChars` accounting
    * honest, and renders through the truncation banner the per-task cap
-   * already uses. It is also what the STORE does when its own run budget runs
-   * out (`Analytics.ingestLogs` slices to empty and adds the remainder to
-   * `truncated_head`) — the two sides now degrade the same way.
+   * already uses — a store that enforces its own run budget should degrade
+   * the same way (slice to empty, add the remainder to the truncated count).
    *
    * The cost is a stub per evicted task in the end-of-run bundle: measured at
    * ~190 JSON bytes each, so ~1.9 MiB at the 10k-task scale target and ~9.3 MiB
-   * at 50k, against the 16 MiB `/v1/ingest/logs` cap. A run evicting past ~66k
-   * tasks would 413 the batch — remote (6x the scale target), and it does not
-   * touch the connected default, which ships per task as it finishes.
+   * at 50k — a sink that posts the whole bundle in one request sizes its cap
+   * against that; one that ships per task as it finishes (`takeEntry`) never
+   * sees it.
    */
   private evictToBudget(): void {
     if (this.retainedChars <= RUN_LOG_BUDGET_CHARS) return

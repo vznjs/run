@@ -1,22 +1,18 @@
-// CASBackend — pluggable content-addressed storage beneath the cache.
+// CASBackend — a content-addressed view of where artifact bytes live,
+// separate from the SQL index that knows what they are.
 //
-// Today's Cache + LayeredCache both bundle "where do the bytes live"
-// with "how do we look up entries metadata + key derivation."
-// CASBackend separates the former so a future R2/S3 backend
-// or REAPI CAS bridge can drop in without touching the
-// orchestrator or the SQL entries index.
+// Two reference implementations:
+//   - MemoryCASBackend — holds raw bytes; tests and ephemeral runs.
+//   - FsCASBackend     — one `<hash>.tar.zst` per digest in a directory,
+//                        written temp-then-rename like `Cache.save`; the
+//                        read path streams through Bun.file.
 //
-// Two reference implementations in this file:
-//   - MemoryCASBackend — testing + in-memory builds. Holds raw bytes.
-//   - FsCASBackend     — writes bytes to a directory; mirrors what
-//                        Cache.save does today. Bun-native using Bun.file
-//                        for the read path so big artifacts stream
-//                        without slurping into memory.
-//
-// Cache.ts has NOT yet been rewired to use a CASBackend — that's a
-// follow-up (Phase 1b). This file ships the abstraction + the two
-// reference impls so downstream work (R2, otel-bridge, distributed-ci)
-// can rely on the type. Byte-identical behaviour today.
+// Status: module-internal, no consumer. `Cache.save` and `restoreOutputs`
+// write and read the artifacts directory directly and are not routed
+// through this type; `Cache.contentBackend()` hands out an `FsCASBackend`
+// over the same directory for code that wants a digest-keyed view of it.
+// Nothing distributed ships in this repo, so a blob store behind this
+// seam is something built on top, not a plan here.
 
 import { mkdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'

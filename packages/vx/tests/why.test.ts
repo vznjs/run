@@ -3,11 +3,10 @@
 // The fixture runs a real task twice with a changed input file so the
 // persisted entry_inputs rows carry a genuine component-level diff.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { gitIn, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { parseWhyArgs } from '../src/cli/index.js'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
@@ -27,26 +26,16 @@ const APP_CONFIG = `
   }
 `
 
-async function sh(cwd: string, cmd: string[]): Promise<void> {
-  const proc = Bun.spawn(cmd, { cwd, stdout: 'ignore', stderr: 'ignore' })
-  await proc.exited
-}
-
 async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-why-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
+  const root = await makeWorkspaceRoot({ prefix: 'vx-why-', git: false })
   const appDir = path.join(root, 'packages', 'app')
   await mkdir(path.join(appDir, 'src'), { recursive: true })
   await writeFile(path.join(appDir, 'package.json'), JSON.stringify({ name: 'app' }))
   await writeFile(path.join(appDir, 'vx.config.mjs'), APP_CONFIG)
   await writeFile(path.join(appDir, 'src', 'input.txt'), 'v1\n')
-  await sh(root, ['git', 'init', '-q'])
-  await sh(root, ['git', 'add', '-A'])
+  const git = gitIn(root)
+  git('init', '-q')
+  git('add', '-A')
   return root
 }
 
@@ -129,12 +118,17 @@ describe('vx why (e2e)', () => {
   )
 
   it(
-    'an unknown task errors with include-match suggestions',
+    'an unknown task errors with the same near-miss hint `vx run` gives',
     async () => {
       const r = await vx(root, ['why', 'app#buil'])
       expect(r.code).toBe(1)
       expect(r.err).toContain('no recorded runs')
       expect(r.err).toContain('did you mean app#build')
+      // A bare typo is matched against the TASK half and hinted as the
+      // runnable id — a substring match alone found nothing for `buld`.
+      const bare = await vx(root, ['why', 'buld'])
+      expect(bare.code).toBe(1)
+      expect(bare.err).toContain('did you mean app#build')
     },
     TIMEOUT,
   )
@@ -151,6 +145,43 @@ describe('vx why (e2e)', () => {
 })
 
 describe('parseWhyArgs', () => {
+  it(
+    'an UNCACHED task is reported as one — not as a cache decision — by why and last',
+    async () => {
+      const root = await makeWorkspace()
+      try {
+        const libDir = path.join(root, 'packages', 'lib')
+        await mkdir(path.join(libDir, 'src'), { recursive: true })
+        await writeFile(path.join(libDir, 'package.json'), JSON.stringify({ name: 'lib' }))
+        // No cache block, no declared outputs: the write lands in the default
+        // `**/*` input set, so the second run's key differs from the first —
+        // the shape that used to headline "cache key changed (inputs differ)".
+        await writeFile(
+          path.join(libDir, 'vx.config.mjs'),
+          `export default { tasks: { build: { exec: { command: 'echo built > out.txt' } } } }`,
+        )
+        gitIn(root)('add', '-A')
+
+        expect((await vx(root, ['run', 'build', '--all'])).code).toBe(0)
+        expect((await vx(root, ['run', 'build', '--all'])).code).toBe(0)
+        const why = await vx(root, ['why', 'lib#build'])
+        expect(why.code).toBe(0)
+        expect(why.out).toContain('declares no `cache` block')
+        expect(why.out).not.toContain('inputs differ')
+        const last = await vx(root, ['last'])
+        expect(last.code).toBe(0)
+        const row = last.out.split('\n').find((l) => l.includes('lib#build'))
+        expect(row).toContain('no-cache')
+        // Control: the cached task's row carries no such marker.
+        const cachedRow = last.out.split('\n').find((l) => l.includes('app#build'))
+        expect(cachedRow).not.toContain('no-cache')
+      } finally {
+        await rm(root, { recursive: true, force: true })
+      }
+    },
+    TIMEOUT,
+  )
+
   it('parses target, --run and --format in both forms', () => {
     expect(parseWhyArgs(['app#build'])).toEqual({ target: 'app#build', format: 'pretty' })
     expect(parseWhyArgs(['build', '--run', 'r1'])).toEqual({

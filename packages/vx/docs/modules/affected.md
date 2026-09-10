@@ -49,8 +49,10 @@ export function defaultAffectedBase(workspaceRoot: string): Promise<string>
      hashing folds those values into the key, so selection has to see
      them too.
    - **Workspace globs.** For paths that belong to no project,
-     `workspaceGlobOwners` asks which projects declared a matching
-     `cache.inputs.workspaceFiles` glob.
+     `workspaceGlobOwners` (`cli/run.ts`) asks which projects declare
+     a matching `cache.inputs.workspaceFiles` glob — through the run
+     path's staged load, so a glob a `project` plugin gave a
+     config-less package counts.
 
 Selection is never hashed, so widening it changes no cache key: every
 channel here may over-select safely. It does NOT follow that selection

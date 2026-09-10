@@ -278,6 +278,20 @@ function workspaceConfig(body: string): () => Promise<string | null> {
 }
 
 const WORKSPACE_CASES: Array<[string, () => Promise<string | null>]> = [
+  ['<file> has unknown field "<key>"', workspaceConfig('{ plugin: [] }')],
+  [
+    "plugin '<name>' declares command '<verb>', a core verb — core verbs cannot be shadowed",
+    workspaceConfig(
+      '{ plugins: [{ name: "p", commands: { show: { description: "d", run() { return 0 } } } }] }',
+    ),
+  ],
+  [
+    "plugins '<a>' and '<b>' both declare command '<verb>' — a verb has one owner",
+    workspaceConfig(
+      '{ plugins: [{ name: "a", commands: { hi: { description: "d", run() { return 0 } } } }, ' +
+        '{ name: "b", commands: { hi: { description: "d", run() { return 0 } } } }] }',
+    ),
+  ],
   ['concurrency must be a positive integer', workspaceConfig('{ concurrency: 0 }')],
   ['timeout must be a positive integer (milliseconds)', workspaceConfig('{ timeout: -1 }')],
   ['cacheDir must be a string', workspaceConfig('{ cacheDir: 42 }')],
@@ -352,6 +366,15 @@ describe('docs/schema.md unknown-field rejection', () => {
     })
     expect(message).toContain('workspaceFile')
     expect(message).toContain('workspaceFiles')
+    expect(message).toContain('did you mean workspaceFiles?')
+  })
+
+  it('the workspace file refuses a typo the same way, naming the spelling meant', async () => {
+    // `plugin: [...]` loaded, declared nothing, and ran the workspace bare.
+    const message = await workspaceConfig('{ plugin: [{ name: "p", setup() {} }] }')()
+    expect(message).toContain('has unknown field "plugin"')
+    expect(message).toContain('did you mean plugins?')
+    expect(message).toContain('(allowed: cacheDir, concurrency, plugins, timeout)')
   })
 })
 

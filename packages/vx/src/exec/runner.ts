@@ -5,6 +5,7 @@
 // folded into the v11 `runs` table by the orchestrator.
 
 import { constants as osConstants } from 'node:os'
+import { killGraceMs } from '../util/index.js'
 
 export interface RunResult {
   exitCode: number
@@ -182,7 +183,7 @@ export function armTimeout(
     // timeout, so a wedged child hangs the whole run forever. Mirrors the
     // end-of-run persistent-shutdown escalation. Unref'd so it never keeps
     // the CLI alive.
-    killTimer = setTimeout(() => proc.kill('SIGKILL'), TIMEOUT_SIGKILL_GRACE_MS)
+    killTimer = setTimeout(() => proc.kill('SIGKILL'), killGraceMs(TIMEOUT_SIGKILL_GRACE_MS))
     killTimer.unref?.()
   }, timeoutMs)
   return {

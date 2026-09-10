@@ -1,21 +1,7 @@
-import readline from 'node:readline/promises'
 import { appendFile } from 'node:fs/promises'
 import path from 'node:path'
 import { documentedFlags, seeHelp } from './help.js'
-import {
-  affectedProjects,
-  applyFilters,
-  buildPackageGraph,
-  defaultAffectedBase,
-  findWorkspaceRoot,
-  listProjects,
-  loadProjectConfig,
-  loadWorkspace,
-  parseFilter,
-  readLockfile,
-  workspaceGlobsMatch,
-  type ProjectMeta,
-} from '../workspace/index.js'
+import { defaultAffectedBase, findWorkspaceRoot } from '../workspace/index.js'
 import {
   planRun,
   formatRunReportMarkdown,
@@ -25,10 +11,10 @@ import {
   type RunOptions,
   type RunResult,
 } from '../orchestrator/index.js'
-import type { ProjectConfig } from '../config.js'
 import type { ContinueMode } from '../graph/index.js'
 import { type CachePolicy, FULL_CACHE_POLICY, parseCachePolicy } from '../cache/index.js'
-import { MAX_TIMEOUT_MS, parseDecimalInt, parseSize, editDistance } from '../util/index.js'
+import { findCwdProject, pickTask, resolveFilters } from './select.js'
+import { MAX_TIMEOUT_MS, parseDecimalInt, parseSize, nearest } from '../util/index.js'
 import { formatGraphDot, formatPlanJson, formatPlanText } from './plan-format.js'
 
 export interface RunArgs {
@@ -258,7 +244,14 @@ export function parseRunArgs(args: readonly string[]): RunArgs {
     } else if (a === '--force') {
       forceFlag = true
     } else if (a === '--continue') {
-      // Bare --continue = 'always' (the Turbo convention).
+      // Bare --continue = 'always' (the Turbo convention). Its mode comes
+      // with '=' only: `--continue never` would read `never` as a TASK, and
+      // the run would then say "No projects declare task(s): never" — true,
+      // and no help at all.
+      const next = before[i + 1]
+      if (next === 'never' || next === 'deps-ok' || next === 'always') {
+        return { ...out, error: `--continue takes its mode with '=': --continue=${next}` }
+      }
       out.continueMode = 'always'
     } else if (a?.startsWith('--continue=')) {
       const v = a.slice('--continue='.length)
@@ -422,7 +415,10 @@ export async function resolveRunOptions(
   if (bareTasks.length === 0) {
     projects = undefined
   } else if (filterStrings.length > 0) {
-    const resolved = await resolveFilters(cwd, filterStrings)
+    const resolved = await resolveFilters(cwd, filterStrings, {
+      ...(parsed.cacheDir !== undefined ? { cacheDir: parsed.cacheDir } : {}),
+      ...(parsed.frozen ? { frozen: true } : {}),
+    })
     if ('error' in resolved) return { error: resolved.error }
     if ('empty' in resolved) {
       // "Nothing changed" is a clean exit for the BARE tasks the filter
@@ -496,7 +492,14 @@ export async function runCmd(args: readonly string[]): Promise<number> {
       process.stderr.write(`vx run: missing task name (stdin is not a TTY)\n`)
       return 1
     }
-    const picked = await pickTask(cwd)
+    const picked = await pickTask(
+      cwd,
+      {},
+      {
+        ...(parsed.cacheDir !== undefined ? { cacheDir: parsed.cacheDir } : {}),
+        ...(parsed.frozen ? { frozen: true } : {}),
+      },
+    )
     if (!picked) return 1
     tasks = [`${picked.project}#${picked.task}`]
   }
@@ -581,189 +584,6 @@ export async function runCmd(args: readonly string[]): Promise<number> {
   return result.ok ? 0 : 1
 }
 
-/**
- * Which projects declare a `cache.inputs.workspaceFiles` glob matching one of
- * `orphans` (workspace-relative paths belonging to no project).
- *
- * Reached ONLY when a changed path belongs to no project, so a run whose every
- * change is inside a project never gets here — the scoped-config-loading win
- * is untouched for the common case.
- *
- * `vx-lock.json` FIRST when present: it holds the resolved configs, so CI —
- * where `--affected` matters most and the lock is committed — answers with
- * zero evaluation. Without a lock this evaluates configs, which is the honest
- * cost of the question: nothing cheaper can know which globs a program
- * declares. A config that fails to load is skipped rather than failing the
- * run, matching the deliberate Turbo-like rule that a broken out-of-scope
- * config does not fail a scoped run.
- */
-async function workspaceGlobOwners(
-  root: string,
-  projects: readonly ProjectMeta[],
-  orphans: readonly string[],
-): Promise<string[]> {
-  const lock = await readLockfile(root)
-  const owners: string[] = []
-  const declaresMatch = (config: ProjectConfig): boolean => {
-    for (const task of Object.values(config.tasks ?? {})) {
-      const globs = task.cache?.inputs?.workspaceFiles
-      if (globs === undefined) continue
-      if (orphans.some((rel) => workspaceGlobsMatch(globs, rel))) return true
-    }
-    return false
-  }
-  await Promise.all(
-    projects.map(async (meta) => {
-      const locked = lock?.projects[meta.name]
-      if (locked !== undefined) {
-        if (declaresMatch(locked.config)) owners.push(meta.name)
-        return
-      }
-      if (meta.configPath === null || meta.configPath === '') return
-      try {
-        if (declaresMatch(await loadProjectConfig(meta.configPath))) owners.push(meta.name)
-      } catch {
-        // A config that will not load cannot be shown to declare a matching
-        // glob; surfacing it here would fail a run the loader itself tolerates.
-      }
-    }),
-  )
-  return owners
-}
-
-async function loadWorkspaceProjects(cwd: string): Promise<ProjectMeta[]> {
-  const root = await findWorkspaceRoot(cwd)
-  const ws = await loadWorkspace(root)
-  return await listProjects(ws)
-}
-
-async function findCwdProject(cwd: string): Promise<string | null> {
-  const projects = await loadWorkspaceProjects(cwd)
-  const abs = path.resolve(cwd)
-  let best: ProjectMeta | null = null
-  for (const p of projects) {
-    if (abs === p.dir || abs.startsWith(p.dir + path.sep)) {
-      if (!best || p.dir.length > best.dir.length) best = p
-    }
-  }
-  return best?.name ?? null
-}
-
-type FilterResolution = { names: string[] } | { error: string } | { empty: string }
-
-async function resolveFilters(cwd: string, raw: string[]): Promise<FilterResolution> {
-  const root = await findWorkspaceRoot(cwd)
-  const projects = await loadWorkspaceProjects(cwd)
-  const graph = buildPackageGraph(projects)
-  const parsed = raw.map((r) => parseFilter(r, root))
-
-  // Resolve every `[<since>]` filter against git before the pure
-  // applyFilters pass runs. One spawn per distinct ref — usually
-  // there's only one anyway.
-  const affectedByFilter = new Map<(typeof parsed)[number], Set<string>>()
-  for (const f of parsed) {
-    if (f.gitSince === undefined) continue
-    try {
-      const names = await affectedProjects({
-        workspaceRoot: root,
-        since: f.gitSince,
-        projects,
-        workspaceGlobOwners: (orphans) => workspaceGlobOwners(root, projects, orphans),
-      })
-      affectedByFilter.set(f, names)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return { error: msg }
-    }
-  }
-
-  const unmatched: string[] = []
-  const selected = applyFilters({
-    filters: parsed,
-    projects,
-    graph,
-    affectedByFilter,
-    // A `[<since>]` selector matching nothing is the ordinary "nothing
-    // changed" outcome, reported below; only a name/path pattern that
-    // matched nothing is worth flagging as a probable typo.
-    onNoMatch: (f) => {
-      if (f.gitSince === undefined) unmatched.push(f.raw)
-    },
-  })
-  if (selected.size === 0) {
-    // "Nothing changed" is a legitimate outcome, not a typo — a docs-only
-    // commit must not red `vx run … --affected=origin/main`. Only report an
-    // error when the user named something concrete that failed to resolve.
-    const includes = parsed.filter((f) => !f.negate)
-    if (includes.length > 0 && includes.every((f) => f.gitSince !== undefined)) {
-      const refs = includes.map((f) => f.gitSince).join(', ')
-      return { empty: `nothing affected since ${refs}` }
-    }
-    // One line, not a warning per pattern and then an error saying the same:
-    // the patterns are in the error, and the nearest project name is the
-    // hint a typo needs.
-    return {
-      error: `no projects matched filter(s): ${raw.join(', ')}${didYouMeanProject(unmatched, projects)}`,
-    }
-  }
-  // Something matched, so the run proceeds; a pattern that matched nothing
-  // alongside it is still worth a line — it is probably a typo.
-  for (const f of unmatched) process.stderr.write(`vx: filter "${f}" matched no projects\n`)
-  return { names: [...selected].sort() }
-}
-
-interface PickedTask {
-  project: string
-  task: string
-  description?: string
-}
-
-export async function pickTask(
-  cwd: string,
-  io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {},
-): Promise<PickedTask | null> {
-  const projects = await loadWorkspaceProjects(cwd)
-  const entries: PickedTask[] = []
-  for (const meta of projects) {
-    if (!meta.configPath) continue
-    const config = await loadProjectConfig(meta.configPath)
-    const taskNames = Object.keys(config.tasks ?? {}).sort()
-    for (const t of taskNames) {
-      const desc = config.tasks?.[t]?.description
-      entries.push({ project: meta.name, task: t, ...(desc ? { description: desc } : {}) })
-    }
-  }
-  if (entries.length === 0) {
-    process.stderr.write(`vx run: no tasks declared in any project\n`)
-    return null
-  }
-  const out = io.output ?? process.stdout
-  const numW = String(entries.length).length
-  const idW = Math.max(...entries.map((e) => `${e.project}#${e.task}`.length))
-  out.write('Tasks:\n')
-  entries.forEach((e, i) => {
-    const n = String(i + 1).padStart(numW, ' ')
-    const id = `${e.project}#${e.task}`.padEnd(idW)
-    const desc = e.description ? `  ${e.description}` : ''
-    out.write(`  ${n}. ${id}${desc}\n`)
-  })
-  const rl = readline.createInterface({
-    input: io.input ?? process.stdin,
-    output: io.output ?? process.stdout,
-  })
-  try {
-    const answer = (await rl.question(`Pick a task [1-${entries.length}]: `)).trim()
-    const n = Number(answer)
-    if (!Number.isInteger(n) || n < 1 || n > entries.length) {
-      process.stderr.write(`vx run: invalid selection: ${answer}\n`)
-      return null
-    }
-    return entries[n - 1] ?? null
-  } finally {
-    rl.close()
-  }
-}
-
 function printSummary(summary: RunResult): void {
   const rows = summary.outcomes.map((o) => formatRow(o))
   if (rows.length === 0) return
@@ -817,37 +637,19 @@ function formatRow(o: OutcomeView): { task: string; status: string; duration: st
   }
 }
 
-/** `. Did you mean @acme/app?` for the first unmatched pattern within two edits of a project name. */
-function didYouMeanProject(
-  unmatched: readonly string[],
-  projects: Iterable<{ name: string }>,
-): string {
-  let best: string | undefined
-  let bestD = 3
-  for (const pattern of unmatched) {
-    const bare = pattern.replace(/^!|\.\.\.$|^\.\.\.|\^/g, '')
-    for (const p of projects) {
-      const d = editDistance(bare, p.name)
-      if (d < bestD) {
-        bestD = d
-        best = p.name
-      }
-    }
-  }
-  return best === undefined ? '' : `. Did you mean ${best}?`
-}
-
 /** `(did you mean --concurrency?)` for a flag within two edits of a documented one. */
 function didYouMeanFlag(flag: string): string {
   const name = flag.replace(/=.*$/, '')
-  let best: string | undefined
-  let bestD = 3
-  for (const f of documentedFlags('run')) {
-    const d = editDistance(name, f)
-    if (d < bestD) {
-      bestD = d
-      best = f
-    }
-  }
-  return best === undefined || best === name ? '' : ` (did you mean ${best}?)`
+  const flags = documentedFlags('run')
+  // The usual two edits; a third only between flags that share their
+  // first five characters, so `--retries` reaches `--retry` (the i/y)
+  // while `--zzz` does not reach `--all` — a plain three-edit budget did.
+  const best =
+    nearest(name, flags) ??
+    nearest(
+      name,
+      flags.filter((f) => f.slice(0, 5) === name.slice(0, 5)),
+      3,
+    )
+  return best === undefined ? '' : ` (did you mean ${best}?)`
 }

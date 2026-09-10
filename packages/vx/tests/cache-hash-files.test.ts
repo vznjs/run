@@ -61,10 +61,31 @@ describe('Cache.hashFiles', () => {
   })
 
   it('a file changed within the racy window is hashed but not memoised', async () => {
-    const a = path.join(dir, 'fresh.txt')
-    await writeFile(a, 'fresh\n')
-    expect((await cache.hashFiles([a])).get(a)).toBe(await cache.hashFile(a))
-    const rows = cache.dbHandle().query('SELECT path FROM file_hashes').all()
-    expect(rows).toEqual([])
+    // The first miss in a store also spawns `git rev-parse` for the object
+    // format; pay that on an aged file so the timed part below is only the
+    // stat, the digest and the memo query.
+    const warm = path.join(dir, 'warm.txt')
+    await aged(warm, 'warm\n')
+    await cache.hashFiles([warm])
+    // The claim holds only while the calls complete inside the window of
+    // the write — on a loaded CI runner one attempt can take longer (seen
+    // 2026-09-09: 417 ms on ubuntu, the row memoised). The clock decides
+    // whether an attempt can judge: assert only when the elapsed time
+    // bounds `now - ctime` under the window, else try a fresh file again.
+    let judged = false
+    for (let attempt = 0; attempt < 20 && !judged; attempt++) {
+      const a = path.join(dir, `fresh-${attempt}.txt`)
+      const t0 = Date.now()
+      await writeFile(a, 'fresh\n')
+      const batch = (await cache.hashFiles([a])).get(a)
+      const single = await cache.hashFile(a)
+      const elapsed = Date.now() - t0
+      expect(batch).toBe(single)
+      if (elapsed >= FILE_HASH_RACY_MS) continue
+      const rows = cache.dbHandle().query('SELECT path FROM file_hashes WHERE path = ?').all(a)
+      expect(rows).toEqual([])
+      judged = true
+    }
+    expect(judged).toBe(true)
   })
 })

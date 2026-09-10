@@ -3,8 +3,8 @@
 // This is the stable cross-package contract — any plugin or integration
 // package imports everything it needs from here via the bare
 // `'@vzn/vx'` specifier (never a deep `src/...` path). The surface is pinned
-// by tests/package-boundaries.test.ts; a widening updates that snapshot
-// deliberately. See docs/design/core-cloud-split-2026-06.md §3.5.
+// by tests/package-boundaries.unsafe.test.ts; a widening updates that snapshot
+// deliberately. The boundary law: docs/architecture.md § Repository shape.
 
 export { VERSION } from './version.js'
 
@@ -99,10 +99,11 @@ export type { CacheLayer, RemoteCacheLayer, RunRecord, InvocationRecord } from '
 // Workspace discovery + the project/config catalog surface — an
 // out-of-process service/CLI needs these. `readLockfile` is THE one reader
 // of vx-lock.json (the format carries its own version sentinel; a second
-// parser in a sibling package would drift), and the loader chain
-// (`loadWorkspace` → `listProjectMetas` → `loadProjectConfig`) is the same
-// one `vx show` uses. Workspace's `listProjects` re-exports as
-// `listProjectMetas` (the bare name once belonged to a metrics query).
+// parser in a sibling package would drift). `loadProjectConfig` is the RAW
+// per-file load (`vx lock` freezes exactly that); the resolved view a run
+// or `vx show` sees — plugin stages applied — is `loadResolvedProjects`
+// below. Workspace's `listProjects` re-exports as `listProjectMetas` (the
+// bare name once belonged to a metrics query).
 export { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from './workspace/index.js'
 export { readLockfile, LOCKFILE_NAME } from './workspace/index.js'
 export type { Lockfile, LockfileEntry } from './workspace/index.js'
@@ -112,6 +113,22 @@ export {
   listProjects as listProjectMetas,
 } from './workspace/index.js'
 export type { ProjectMeta } from './workspace/index.js'
+// The run path's RESOLVED view — plugin `config` and `project` stages
+// applied, cached evaluations served — for a reader outside the CLI (the
+// MCP server's `listTasks`, an embedder's task catalog). What `vx show`
+// prints.
+export { loadResolvedProjects } from './orchestrator/index.js'
+export type { ProjectEntry } from './workspace/index.js'
+// The Turbo mapper `vx migrate` renders from and `@vzn/vx-turbo` runs live —
+// one mapping, so a repo reads the same under either.
+export { mapTurboWorkspace } from './workspace/index.js'
+export type {
+  MapTurboOptions,
+  TurboGlobal,
+  TurboMappedProject,
+  TurboMappedTask,
+  TurboMapping,
+} from './workspace/index.js'
 
 // Plugin API — the run-level extension points. Behavior capabilities
 // (executor / cache) change WHAT/HOW work runs; the observe-only `telemetry`

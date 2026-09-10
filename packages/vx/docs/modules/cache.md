@@ -6,6 +6,33 @@ Compute cache keys, store cache entries, retrieve them, restore output
 files on hit, record run history. The on-disk format, SQLite schema,
 and key derivation logic live here.
 
+## Files (2026-09-09 split, pure moves)
+
+- `layer.ts` — the CONTRACT (`CacheLayer`) and every shape that crosses
+  it: `CacheKeyInput`, `CacheEntry`, `RunRecord`, `InvocationRecord`,
+  output fingerprint rows, stats and prune options, `CorruptArtifactError`.
+  No implementation.
+- `policy.ts` — `CachePolicy` (local/remote × read/write) and the
+  `--cache=<spec>` grammar.
+- `zstd.ts` — artifact framing: the declared-size gate against a
+  decompression bomb, the bounded one-call and streamed decoders.
+- `file-hashes.ts` — `FileHashStore`: the per-file blob-OID memo over
+  `file_hashes` (a symlink hashes as its target string) and the repo's
+  object format.
+- `config-evals.ts` — `ConfigEvalTable`: the `config_evals` /
+  `config_closures` tables behind the `ConfigEvalStore` contract, with
+  their retention.
+- `output-index.ts` — `OutputIndex`: `output_files` / `output_dirs` rows
+  and the two proofs a hit runs before skipping a restore.
+- `run-history.ts` — `RunHistory`: `runs` + `invocations` writes (one
+  transaction per run), the SQL binders, and the 30-day retention.
+- `cache.ts` — the schema (the one place every table is declared), the
+  entry store (get / save / ingest / restore / prune), and the `Cache`
+  class that composes the four slices above over one handle and
+  delegates to them. Re-exports `layer.ts`, `policy.ts` and `zstd.ts`
+  so `./cache.js` stays one import path for the index, the sibling
+  layers and the tests.
+
 ## Public surface
 
 ```ts
@@ -31,6 +58,9 @@ export interface CacheLayer {
   recordRunBundle(bundle: { runs: readonly RunRecord[]; invocation: InvocationRecord }): void
   stats(): CacheStats
   prune(options: PruneOptions): Promise<PruneResult>
+  // `Cache` only (not the layer contract): what prune's orphan sweep
+  // would reap right now — `vx info`'s `orphans` row.
+  orphanStats(): Promise<{ orphans: number; orphanBytes: number }>
   close(): void
 }
 
@@ -331,12 +361,11 @@ Surfaced by `vx info` (and its `vx stats` alias).
 
 ## What this does NOT do
 
-- Doesn't compress entries. `dist/` of typical projects is ~1–10MB
-  per entry; uncompressed is fine for local cache. Remote cache should
-  add tar+zstd at the wire.
 - Doesn't garbage-collect old entries automatically. Eviction is
   user-driven via `vx cache prune --older-than <d>` / `--max-size <s>`
-  (calls into `Cache.prune`).
+  (calls into `Cache.prune`), which also sweeps artifacts and temps the
+  index has no row for, once they are an hour old (`docs/caching.md`
+  § Storage layout).
 - Doesn't verify entries are intact byte-for-byte. The file existence
   check is the integrity gate for the artifact as a whole; `restore
 Outputs` additionally refuses when the archive cannot produce an output
@@ -349,7 +378,7 @@ Outputs` additionally refuses when the archive cannot produce an output
 ## `CACHE_VERSION` / `SCHEMA_VERSION`
 
 `CACHE_VERSION` is currently `'vx-cache-v27'`; `SCHEMA_VERSION` is
-`'v22'`. Bump `CACHE_VERSION` when:
+`'v25'`. Bump `CACHE_VERSION` when:
 
 - A new field is added to the cache KEY derivation (folded inside
   `key()`).
@@ -360,12 +389,17 @@ Outputs` additionally refuses when the archive cannot produce an output
   modes lost at pack time, long entry names dropped at parse time).
 
 Bump `SCHEMA_VERSION` (independently — the gate drops + recreates
-tables) when the SQLite schema changes. A new `CacheKeyInput` field that
-is **NOT folded** (a pure side-channel like `captureInto` /
-`upstreamIds`) needs neither bump: the key is byte-identical. The Tier-3
-tables (`invocations`, `entry_inputs`) rolled `SCHEMA_VERSION` to `v22`
-but left `CACHE_VERSION` at `v24` for exactly this reason — they persist
-components already fed to `key()`.
+tables) when the SQLite schema changes. The open that drops them says
+so: `Cache.schemaReset` carries `{ from, to }` on that one open (null on
+every later one), and `noteSchemaReset` prints one line — on the run's
+status line, or a verb's stderr — `[vx] cache index reset: schema v24 →
+v25 (vx upgraded); every cached task misses once and re-saves, and
+\`vx cache prune\` reclaims the old artifacts`. An upgrade's all-miss
+run, and the `vx last` with nothing to show after it, are explained
+rather than silent (`tests/schema-reset-notice.test.ts`). A new `CacheKeyInput`field that
+is **NOT folded** (a pure side-channel like`captureInto`/`upstreamIds`) needs neither bump: the key is byte-identical. The Tier-3
+tables (`invocations`, `entry_inputs`) rolled `SCHEMA_VERSION`to`v22`but left`CACHE_VERSION`at`v24`for exactly this reason — they persist
+components already fed to`key()`.
 
 Bumping `CACHE_VERSION` invalidates every previously-stored entry.
 Pre-alpha tolerates this freely. See
@@ -389,8 +423,10 @@ End-to-end cache write/read/restore is also covered by
 
 ## Replacing this module
 
-Most likely replacement: **remote cache** (see
-`docs/design/native-cache-wire-2026-07.md`).
+Most likely replacement: **remote cache** — already a layer, not a
+replacement: `docs/modules/layered-cache.md` is the seam, and
+`@vzn/vx-turbo-cache`, `@vzn/vx-nx-cache` and `@vzn/vx-reapi` are the
+wires that fill it.
 
 The contract is small: `key()` is pure given inputs; `get()`, `save()`,
 `restoreOutputs()` are the three I/O methods. A remote implementation

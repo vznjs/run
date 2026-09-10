@@ -2,40 +2,23 @@
 // config loading + the git-files cache plumbed into PreparedRun.
 
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import {
+  addProject as addProjectTo,
+  makeWorkspace as makeWorkspaceRoot,
+} from './helpers/workspace.js'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { prepareRun } from '../src/orchestrator/prepare.ts'
 import { defaultLogger } from '../src/orchestrator/logger.ts'
 
-async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-prepare-perf-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'root', private: true }))
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git for input enumeration.
-  const run = (...args: string[]): void => {
-    Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-  }
-  run('init', '-q')
-  run('config', 'user.email', 'test@vx.local')
-  run('config', 'user.name', 'vx test')
-  return root
+function makeWorkspace(): Promise<string> {
+  return makeWorkspaceRoot({ prefix: 'vx-prepare-perf-', rootName: 'root' })
 }
 
 async function addProject(root: string, name: string): Promise<void> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(
-    path.join(dir, 'vx.config.mjs'),
+  await addProjectTo(
+    root,
+    name,
     `export default { tasks: { build: { exec: { command: 'echo ${name}' } } } }`,
   )
 }

@@ -25,7 +25,6 @@
 
 import path from 'node:path'
 import os from 'node:os'
-import { lstatSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { mkdir, unlink } from 'node:fs/promises'
 import type { SandboxConfig } from '../config.js'
 import {
@@ -39,6 +38,9 @@ import {
   type RunResult,
 } from './runner.js'
 import { UserError, xxh3hex } from '../util/index.js'
+import { buildCustomConfig } from './sandbox-binds.js'
+import { toRealPath, unique } from './sandbox-paths.js'
+import { parseStraceViolations, reportableViolations } from './sandbox-violations.js'
 
 type SrtModule = typeof import('@anthropic-ai/sandbox-runtime')
 let srtPromise: Promise<SrtModule> | undefined
@@ -139,6 +141,21 @@ function applyPolicyHere(): SandboxAvailability {
   return { available: false, reason: `sandbox-exec failed: ${stderr || `exit ${proc.exitCode}`}` }
 }
 
+/**
+ * Why the probe's sandboxed `true` failed, in the user's terms. The hint
+ * names the CONFIG field (`exec.sandbox.weakerWhenNested`), not the
+ * runtime option it maps to — a user who followed the runtime's name into
+ * their config met the loader's unknown-field refusal instead of a fix
+ * (`tests/sandbox-hint.test.ts` pins every field the hint names against
+ * the loader).
+ */
+export function unavailableReason(exitCode: number | null, stderr: string): string {
+  const hint = stderr.includes('uid_map')
+    ? " — the runtime's seccomp helper cannot create its nested user namespace here (root inside a container, or a kernel that forbids nested user namespaces): run as a non-root user, or set `sandbox.weakerWhenNested: true` on every sandboxed task"
+    : ''
+  return `a sandboxed \`true\` failed (exit ${exitCode}): ${stderr.slice(0, 200)}${hint}`
+}
+
 async function trySandboxedTrue(
   SandboxManager: SrtModule['SandboxManager'],
   weakerNested: boolean,
@@ -157,13 +174,7 @@ async function trySandboxedTrue(
     const stderr = (await new Response(proc.stderr).text()).trim()
     await proc.exited
     if (proc.exitCode === 0) return { available: true, reason: '' }
-    const hint = stderr.includes('uid_map')
-      ? " — the runtime's seccomp helper cannot create its nested user namespace here (root inside a container, or a kernel that forbids nested user namespaces): run as a non-root user, or set `sandbox.enableWeakerNestedSandbox: true` on every sandboxed task"
-      : ''
-    return {
-      available: false,
-      reason: `a sandboxed \`true\` failed (exit ${proc.exitCode}): ${stderr.slice(0, 200)}${hint}`,
-    }
+    return { available: false, reason: unavailableReason(proc.exitCode, stderr) }
   } catch (err) {
     return { available: false, reason: `sandbox probe threw: ${(err as Error).message}` }
   }
@@ -179,7 +190,7 @@ async function trySandboxedTrue(
  *
  * Format mirrors SRT's: `'*'` is a wildcard pattern; entries in the
  * array are substring-matched against the violation details line.
- * Users can ADD to this via per-task `sandbox.ignoreViolations`;
+ * Users can ADD to this via per-task `sandbox.ignore`;
  * those are applied at violation read-back time, on top of the
  * defaults installed here.
  */
@@ -313,26 +324,6 @@ export interface ResolvedSandboxConfig {
     write?: readonly string[]
     systemInfo?: readonly string[]
     network?: readonly string[]
-  }
-}
-
-/**
- * Canonicalize a path with realpath, tolerating paths that don't exist
- * yet: resolve the longest existing ancestor and re-append the rest.
- *
- * Why: the sandbox policy matches on canonical paths (macOS seatbelt
- * evaluates real vnode paths), and SRT's own normalization refuses to
- * canonicalize bare symlinked roots like `/tmp` → `/private/tmp` (its
- * boundary check only whitelists `/tmp/<child>` forms). Without this,
- * `allowWrite: ['/tmp']` silently never matches on macOS.
- */
-function toRealPath(p: string): string {
-  try {
-    return realpathSync(p)
-  } catch {
-    const parent = path.dirname(p)
-    if (parent === p) return p
-    return path.join(toRealPath(parent), path.basename(p))
   }
 }
 
@@ -859,460 +850,4 @@ async function wantsStraceDetection(): Promise<false | 'plain' | 'seccomp'> {
     straceAvailableCache = false
   }
   return straceAvailableCache
-}
-
-/**
- * Parse a strace log for denied filesystem syscalls and convert each
- * one inside the workspace deny anchor (and not in allowRead) into a
- * SandboxViolation. Dedups by (syscall, abs-path) so a tool that
- * statx's the same missing path 10 times in a row produces one line.
- *
- * strace line shape (with -f):
- *   <pid> openat(AT_FDCWD, "<path>", <flags>) = -1 ENOENT (...)
- *   <pid> access("<path>", <mode>) = -1 EACCES (...)
- *   <pid> statx(AT_FDCWD, "<path>", <flags>, <mask>, ...) = -1 ENOENT (...)
- *
- * …but ONLY when the syscall completes without another traced process
- * interleaving. Under `-f` strace splits an interrupted call across two
- * lines and the result never appears next to the path:
- *   <pid> openat(AT_FDCWD, "<path>", <flags> <unfinished ...>
- *   <pid> <... openat resumed>)             = -1 ENOENT (...)
- * A single-line regex silently drops every one of those, so a task that
- * forks concurrent children reading undeclared files reported an
- * INCOMPLETE violation list — a sandboxed task that tripped would look
- * clean. We pair them by pid instead (a process has at most
- * one syscall in flight, so the pid is a sufficient key).
- *
- * We capture the first quoted-string argument as the path. paths that
- * are relative resolve against the task's cwd (set by Bun.spawn).
- */
-const SYSCALLS = 'openat|access|statx|newfstatat'
-const STRACE_DONE_RE = new RegExp(
-  `^(\\d+)\\s+(${SYSCALLS})\\([^"]*"([^"]+)"[^)]*\\)\\s*=\\s*-1\\s+(ENOENT|EACCES|EPERM)`,
-)
-const STRACE_UNFINISHED_RE = new RegExp(`^(\\d+)\\s+(${SYSCALLS})\\([^"]*"([^"]+)"[^)]*<unfinished`)
-const STRACE_RESUMED_RE = new RegExp(
-  `^(\\d+)\\s+<\\.\\.\\. (${SYSCALLS}) resumed>.*?=\\s*-1\\s+(ENOENT|EACCES|EPERM)`,
-)
-/** A resumed call that SUCCEEDED — clears the pending entry, emits nothing. */
-const STRACE_RESUMED_OK_RE = new RegExp(`^(\\d+)\\s+<\\.\\.\\. (${SYSCALLS}) resumed>`)
-
-/** One denied syscall, however strace chose to lay it out. */
-export interface DeniedCall {
-  syscall: string
-  rawPath: string
-  errno: string
-}
-
-/**
- * Walk the trace, pairing `<unfinished ...>` with its `<... resumed>` line.
- *
- * Exported for testing: this is the security-relevant half of the Linux
- * detector, and a synthetic trace pins the split-line shapes deterministically
- * where an end-to-end run only produces them when strace happens to interleave.
- */
-export function deniedCalls(text: string): DeniedCall[] {
-  const pending = new Map<string, { syscall: string; rawPath: string }>()
-  const out: DeniedCall[] = []
-  for (const line of text.split('\n')) {
-    const done = STRACE_DONE_RE.exec(line)
-    if (done?.[2] !== undefined && done[3] !== undefined && done[4] !== undefined) {
-      out.push({ syscall: done[2], rawPath: done[3], errno: done[4] })
-      continue
-    }
-    const unfinished = STRACE_UNFINISHED_RE.exec(line)
-    if (
-      unfinished?.[1] !== undefined &&
-      unfinished[2] !== undefined &&
-      unfinished[3] !== undefined
-    ) {
-      pending.set(unfinished[1], { syscall: unfinished[2], rawPath: unfinished[3] })
-      continue
-    }
-    const resumedOk = STRACE_RESUMED_OK_RE.exec(line)
-    if (resumedOk?.[1] === undefined) continue
-    const held = pending.get(resumedOk[1])
-    pending.delete(resumedOk[1])
-    const resumed = STRACE_RESUMED_RE.exec(line)
-    // Only a resume that carries a DENIAL is a violation; a successful
-    // resume just retires the pending entry.
-    if (held !== undefined && resumed?.[3] !== undefined) {
-      out.push({ syscall: held.syscall, rawPath: held.rawPath, errno: resumed[3] })
-    }
-  }
-  return out
-}
-
-async function parseStraceViolations(
-  logPath: string,
-  args: SandboxedRunArgs,
-  baselines: { allowRead: readonly string[]; denyRead: readonly string[]; cwd: string },
-): Promise<SandboxViolation[]> {
-  const text = await Bun.file(logPath).text()
-  if (text.length === 0) return []
-
-  // Treat every baseAllow + sandbox.allowRead path as "this was
-  // explicitly permitted; any -ENOENT here is the user's own missing
-  // file, not a sandbox-induced denial". Same for absolute denyRead
-  // checks below. Canonical on BOTH sides — the policy is expressed in
-  // real paths (see `canonicalBaselines`), so comparing a link-path here
-  // would report an explicitly-allowed read as a violation.
-  const allowAbs = new Set<string>(
-    [...baselines.allowRead, ...args.config.allowRead].map((p) => toRealPath(absolutize(p))),
-  )
-  const denyAnchors = baselines.denyRead.map((p) => toRealPath(absolutize(p)))
-
-  const seen = new Set<string>()
-  const out: SandboxViolation[] = []
-  for (const { syscall, rawPath, errno } of deniedCalls(text)) {
-    const abs = toRealPath(absolutize(rawPath, baselines.cwd))
-    // Only report paths under the workspace-root deny anchor — system
-    // libs / /proc / /sys / etc. probes are not interesting violations.
-    if (!denyAnchors.some((root) => abs === root || abs.startsWith(root + path.sep))) continue
-    // Skip paths the user explicitly allowed (and their descendants).
-    if (isUnderAny(abs, allowAbs)) continue
-    const key = `${syscall}|${abs}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({
-      line: `${syscall}(${rawPath}) = -1 ${errno}  [${abs}]`,
-      timestamp: new Date(),
-      target: abs,
-      path: abs,
-      // The trace is `-e trace=openat`, and an openat is a read or a
-      // write depending on flags the trace does not carry — so either
-      // list can silence it.
-      ignorable: ['read', 'write'],
-    })
-  }
-  return out
-}
-
-function absolutize(p: string, cwd?: string): string {
-  if (p.startsWith('~')) return path.join(os.homedir(), p.slice(1))
-  if (path.isAbsolute(p)) return p
-  return path.resolve(cwd ?? process.cwd(), p)
-}
-
-function isUnderAny(abs: string, allow: Set<string>): boolean {
-  if (allow.has(abs)) return true
-  for (const a of allow) {
-    if (abs === a || abs.startsWith(a + path.sep)) return true
-  }
-  return false
-}
-
-/**
- * Apply the task's user-provided `sandbox.ignoreViolations` map on top
- * of whatever the macOS log monitor + Linux strace pass produced.
- * Mirrors SRT's own substring-match semantics:
- *   - `'*'` entries match every command
- *   - other keys match commands whose userCommand string CONTAINS the key
- *   - the array of strings under each key is substring-matched against
- *     the violation line
- *
- * The defaults installed in `initSandbox` already filter on the macOS
- * side; this pass catches per-task additions + Linux strace results.
- */
-/**
- * Does a violation line match something the task said to ignore?
- *
- * The line names an operation and a target — `deny(1) file-write-create
- * /path/x`, `deny(1) system-info vfs.disk-space` — so the operation picks
- * the list and the target is matched against its patterns. Anything
- * unparseable is NOT ignored: a record we cannot classify is exactly the
- * one worth seeing.
- */
-function matchesIgnore(
-  v: SandboxViolation,
-  ignore: NonNullable<ResolvedSandboxConfig['ignore']>,
-): boolean {
-  if (v.target === undefined || v.ignorable === undefined) return false
-  for (const which of v.ignorable) {
-    const patterns = ignore[which]
-    if (patterns === undefined) continue
-    if (patterns.some((pat) => pat === v.target || new Bun.Glob(pat).match(v.target!))) return true
-  }
-  return false
-}
-
-/**
- * Split a seatbelt record into the pieces the filters need. A record with
- * no path (a `system-info` probe) keeps its target — it is not a boundary
- * crossing, and the task can grant it.
- */
-function describeMacViolation(line: string): Partial<SandboxViolation> {
-  const m = /deny\(\d+\)\s+(\S+)\s+(.+?)\s*$/.exec(line)
-  if (m === null) return {}
-  const [op, target] = [m[1]!, m[2]!]
-  const which = op.startsWith('file-read')
-    ? 'read'
-    : op.startsWith('file-write')
-      ? 'write'
-      : op === 'system-info' || op === 'sysctl-read'
-        ? 'systemInfo'
-        : op.startsWith('network')
-          ? 'network'
-          : undefined
-  return {
-    target,
-    ...(target.startsWith('/') ? { path: toRealPath(target) } : {}),
-    ...(which !== undefined ? { ignorable: [which] } : {}),
-  }
-}
-
-/**
- * The violations a task's report should carry: inside the project,
- * minus the loopback denial no config can avoid, minus what the task
- * chose to ignore. Exported so a test can drive it with either
- * platform's line shape without needing that platform.
- */
-export function reportableViolations(
-  violations: readonly SandboxViolation[],
-  opts: { within: string; config: ResolvedSandboxConfig },
-): SandboxViolation[] {
-  // A record the producer did not describe is a seatbelt one, straight
-  // from SRT's store — parse it here so the filters below never see a
-  // platform's line format.
-  const described = violations.map((v) =>
-    v.target === undefined ? { ...v, ...describeMacViolation(v.line) } : v,
-  )
-  return filterIgnored(
-    loopbackNoise(withinReported(described, opts.within), opts.config),
-    opts.config.ignore,
-  )
-}
-
-/**
- * Drop the loopback denial no grant can avoid.
- *
- * A runtime that opens a dual-stack socket reaches 127.0.0.1 as
- * ::ffff:127.0.0.1, and seatbelt's only host tokens are `localhost` and
- * `*` — no rule vx or SRT can write names that form. The first connect is
- * denied, the runtime retries on AF_INET and succeeds (measured
- * 2026-09-05: `fetch` to its own `Bun.serve` port returns 200 with one
- * `deny(1) network-outbound` logged). It happens for a task's own server
- * under `localBinding`, and again for SRT's filtering proxy whenever the
- * task declared any network at all. The record has no address and no
- * config can silence it, so under either grant it is noise.
- *
- * It is not a hole for the traffic that matters: a connection that tried
- * to leave the machine goes through that proxy, which reports it WITH its
- * host and port — a line this keeps.
- */
-function loopbackNoise(
-  violations: SandboxViolation[],
-  config: ResolvedSandboxConfig,
-): SandboxViolation[] {
-  const loopbackGranted = config.localBinding === true || config.network !== undefined
-  if (!loopbackGranted) return violations
-  return violations.filter((v) => !/deny\(\d+\)\s+network-outbound\s*$/.test(v.line))
-}
-
-/**
- * Keep only denials on a path inside `within`.
- *
- * A task may not leave its project — that is enforced by the deny anchor at
- * the workspace root — but being STOPPED at the wall is the sandbox
- * working, not a finding. Every process walks from `/` down to its own cwd
- * (`bun build --compile` lists each directory on the way; traced
- * 2026-09-05), and no configuration can declare that away.
- *
- * What is worth reporting is an undeclared touch of the project's OWN
- * files: the cache key folds this project's inputs, so that is the read
- * that makes a cached artifact wrong. A record with no path at all — a
- * `system-info` probe — is kept, since it is not a boundary crossing and
- * the task can grant it.
- */
-function withinReported(violations: SandboxViolation[], within: string): SandboxViolation[] {
-  const root = toRealPath(within)
-  // `root === '/'` would otherwise compare against `'//'` and drop
-  // everything — the one prefix that needs no separator appended.
-  const prefix = root.endsWith(path.sep) ? root : root + path.sep
-  return violations.filter(
-    (v) => v.path === undefined || v.path === root || v.path.startsWith(prefix),
-  )
-}
-
-function filterIgnored(
-  violations: SandboxViolation[],
-  ignore: ResolvedSandboxConfig['ignore'],
-): SandboxViolation[] {
-  if (ignore === undefined) return violations
-  return violations.filter((v) => !matchesIgnore(v, ignore))
-}
-
-/**
- * Write grants as bwrap can actually honour them.
- *
- * A grant naming a FILE becomes a bwrap file bind, and you cannot rename
- * onto an active mount point: any tool that writes its output by staging
- * beside it and renaming — `bun build --compile`, most compilers, every
- * atomic writer — dies with EBUSY. Minimal repro, 2026-09-05: under
- * `bwrap --bind /w/dist/out.bin /w/dist/out.bin`, `mv /w/s /w/dist/out.bin`
- * is "Device or resource busy"; binding `/w/dist` instead succeeds.
- *
- * So on Linux a file-shaped grant is widened to its directory. That IS a
- * widening — the task may write its siblings — and it is the narrowest
- * grant the mechanism can express: the alternative is a declared output
- * the task cannot produce. macOS needs none of this (seatbelt matches
- * paths, it does not mount), so the grant stays exact there.
- */
-function bindableWrites(paths: readonly string[]): string[] {
-  if (process.platform !== 'linux') return [...paths]
-  return unique(
-    paths.map((p) => {
-      if (/[*?[\]]/.test(p)) return p
-      try {
-        if (statSync(p).isDirectory()) return p
-      } catch {
-        // Does not exist yet: `prepareOutputsForBind` creates a file for a
-        // file-shaped grant, so treat it as one.
-      }
-      return path.dirname(p)
-    }),
-  )
-}
-
-/** Directories already warned about below — once per process, not per spawn. */
-const warnedSymlinkPunch = new Set<string>()
-
-/**
- * Expand a read grant so it is never an ANCESTOR of a write grant.
- *
- * bwrap builds the sandbox out of mounts, and SRT emits them write-first:
- * `--bind <out>` then `--ro-bind <readPath>`. When the read path is an
- * ancestor of the write path the read-only mount lands ON TOP of the
- * writable one and every write fails with `Read-only file system`
- * (`pushReadDenyDirMounts`, SRT 0.0.75 — its skip only covers the reverse
- * nesting). Verified in a Linux container 2026-09-05:
- *
- *   read=[proj]     write=[proj/dist]  → mkdir: Read-only file system
- *   read=[proj/src] write=[proj/dist]  → ok
- *   read=[proj]     no writes          → ok
- *
- * So punch the write paths out: grant the ancestor's children instead,
- * recursing only along the branches that actually contain one. Same probe,
- * same command: `read=[src, lib, package.json] write=[dist]` → ok. macOS
- * never needed this (seatbelt is precedence-based, not mounts), and it is
- * harmless there, so both platforms take the same path.
- *
- * A grant with no write path under it is returned untouched — the common
- * case costs nothing, not even a readdir.
- */
-export function punchWritePaths(readPath: string, writePaths: readonly string[]): string[] {
-  // Linux only. The shadowing is a property of bwrap MOUNTS; macOS seatbelt
-  // evaluates rules by precedence, so a read grant on a directory and a
-  // write grant inside it coexist. Punching there costs the directory
-  // ENTRY: granting every child is not granting the dir, so a command that
-  // stats its own cwd — `bun build` — is denied it and dies with
-  // `error: An unknown error occurred (Unexpected)` (2026-09-05).
-  if (process.platform !== 'linux') return [readPath]
-  const under = writePaths.filter((w) => w !== readPath && w.startsWith(readPath + path.sep))
-  if (under.length === 0) return [readPath]
-  let entries: string[]
-  try {
-    entries = readdirSync(readPath)
-  } catch {
-    // Unreadable or not a directory: nothing to expand, hand it over as is.
-    return [readPath]
-  }
-  const out: string[] = []
-  const linked: string[] = []
-  for (const entry of entries) {
-    const child = path.join(readPath, entry)
-    // A write path is already bound read-write, which is readable.
-    if (under.includes(child)) continue
-    // bwrap resolves a bind SOURCE, so a symlinked child is mounted as the
-    // directory it points at: inside the sandbox the link is gone. For a
-    // package in Bun's isolated node_modules layout that severs it from
-    // the `.bun/` siblings its own dependencies resolve through — astro
-    // could not find `yargs-parser` for four days of red CI (2026-09-09).
-    // SRT's config carries no `--symlink`, so the only fix is the grant:
-    // say which one, loudly.
-    try {
-      if (lstatSync(child).isSymbolicLink()) linked.push(child)
-    } catch {
-      // vanished between readdir and lstat: nothing to bind either way
-    }
-    out.push(...punchWritePaths(child, under))
-  }
-  if (linked.length > 0 && !warnedSymlinkPunch.has(readPath)) {
-    warnedSymlinkPunch.add(readPath)
-    process.stderr.write(
-      `[vx] sandbox: a write grant under ${readPath} makes its ${linked.length} symlinked ` +
-        `entr${linked.length === 1 ? 'y' : 'ies'} (${linked
-          .slice(0, 3)
-          .map((l) => path.basename(l))
-          .join(', ')}${linked.length > 3 ? ', …' : ''}) plain directories inside the sandbox — ` +
-        `a package resolved through one loses its siblings. Move the write grant (${under
-          .map((w) => path.relative(readPath, w))
-          .join(', ')}) out of it.\n`,
-    )
-  }
-  return out
-}
-
-/**
- * Merge the orchestrator-provided baseline (declared inputs / outputs /
- * workspace-root anchor) with the user's resolved sandbox block to
- * produce the SRT customConfig. Path arrays are unioned and deduped; every
- * read grant is punched around the write grants (`punchWritePaths`).
- *
- * Network: `allow.network` missing → block all (allowedDomains: []);
- * `true` → allow all (['*']); a domain list → exactly that list.
- * `deny.network` is always passed as deniedDomains.
- */
-function buildCustomConfig(
-  args: Pick<SandboxedRunArgs, 'config'>,
-  baselines: {
-    allowRead: readonly string[]
-    allowWrite: readonly string[]
-    denyRead: readonly string[]
-  },
-): Parameters<SrtModule['SandboxManager']['wrapWithSandbox']>[2] {
-  const c = args.config
-  const denyRead = unique([...baselines.denyRead])
-  const allowWrite = bindableWrites(unique([...baselines.allowWrite, ...c.allowWrite]))
-  const allowRead = unique(
-    [...baselines.allowRead, ...c.allowRead].flatMap((r) => punchWritePaths(r, allowWrite)),
-  )
-
-  const custom: Parameters<SrtModule['SandboxManager']['wrapWithSandbox']>[2] = {
-    filesystem: {
-      denyRead,
-      allowRead,
-      allowWrite,
-      denyWrite: [],
-      ...(c.gitConfig !== undefined ? { allowGitConfig: c.gitConfig } : {}),
-    },
-  }
-
-  // `allow.network` / `deny.network` become SRT's domain lists. SRT requires
-  // both to be present on any network config, so we always supply both;
-  // omitted means no network at all.
-  custom.network = {
-    allowedDomains: c.network === true ? ['*'] : [...(c.network ?? [])],
-    deniedDomains: [...(c.denyNetwork ?? [])],
-    ...(c.unixSockets === true
-      ? { allowAllUnixSockets: true }
-      : c.unixSockets !== undefined
-        ? { allowUnixSockets: [...c.unixSockets] }
-        : {}),
-    ...(c.localBinding !== undefined ? { allowLocalBinding: c.localBinding } : {}),
-    ...(c.machLookup !== undefined ? { allowMachLookup: [...c.machLookup] } : {}),
-  }
-
-  if (c.pty !== undefined) custom.allowPty = c.pty
-  if (c.weakerWhenNested !== undefined) {
-    custom.enableWeakerNestedSandbox = c.weakerWhenNested
-  }
-  if (c.weakerNetworkIsolation !== undefined) {
-    custom.enableWeakerNetworkIsolation = c.weakerNetworkIsolation
-  }
-  return custom
-}
-
-function unique(arr: readonly string[]): string[] {
-  return [...new Set(arr)]
 }

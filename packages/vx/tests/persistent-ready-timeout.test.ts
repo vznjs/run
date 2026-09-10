@@ -5,11 +5,12 @@
 // forever (found while refuting the zombie-child report, June 2026).
 
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { isAlive } from './helpers/alive.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import type { Logger } from '../src/orchestrator/index.js'
 import { run } from '../src/orchestrator/index.js'
 import { loadProjectConfig } from '../src/workspace/project-loader.js'
@@ -38,47 +39,8 @@ const silentLogger = (f: Fixture): Logger => ({
 })
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-timeout-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  const git = (...args: string[]) => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) throw new Error(new TextDecoder().decode(p.stderr))
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-ready-timeout-' })
   return { root, log: [], err: [] }
-}
-
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0' }, null, 2),
-  )
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
 }
 
 describe('exec.timeout — normal task', () => {
@@ -183,7 +145,11 @@ describe('exec.timeout — persistent task (readiness bound)', () => {
       expect(r.outcomes[0]!.status).toBe('failed')
       // Fast failure, not a 30s hang on the sleep.
       expect(Date.now() - started).toBeLessThan(5000)
-      expect(stderrText).toContain('not ready within 300ms')
+      // The reason reaches the TASK's stderr stream — the frame, and an
+      // embedder's logger — not the process's stderr, which a custom
+      // logger never sees (this pin used to assert the bare write).
+      expect(fixture.err.join('\n')).toContain('not ready within 300ms')
+      expect(stderrText).not.toContain('not ready within 300ms')
       // The child must be dead once the run returns. `exec` in the fixture is
       // what gives this assertion teeth: `$$` is the shell's pid and exec keeps
       // that pid while replacing the image, so pid.txt names the SLEEPER. As a

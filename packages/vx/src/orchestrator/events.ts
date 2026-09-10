@@ -59,7 +59,7 @@ export function createEventBus(): EventBus {
       // depends on it), so emit must never reorder or defer.
       //
       // A throwing subscriber must NEVER break the run — the whole point
-      // of the bus is that a surface (the devframe dev server, a future
+      // of the bus is that a surface (an embedder's renderer, a future
       // TUI) is isolated from execution. We swallow per-subscriber so one
       // bad surface can't crash the user's build (mirrors the deleted
       // Observer's makeSafeObserver contract). The terminal renderer is
@@ -138,9 +138,9 @@ export function terminalSubscriber(sink: Logger): RunEventSubscriber {
 
 /**
  * A bus subscriber that projects each event to its `WireEvent` and hands
- * it to `send` — the shared run→consumer forwarding path (the `vx dev`
- * hub frames each as NDJSON; the `vx serve` protocol wraps each in an
- * envelope). Group-task start/complete events are dropped (no command,
+ * it to `send` — the shared run→consumer forwarding path for whatever an
+ * embedder builds on it (an NDJSON stream, an enveloped protocol; core
+ * ships neither). Group-task start/complete events are dropped (no command,
  * pure scheduling noise). `run()` emits run:end twice (normal + finally)
  * plus trailing summary status lines; we forward the run once and then go
  * quiet, so a consumer sees exactly one terminal frame per run. `send`
@@ -151,8 +151,8 @@ export function wireForwarder(send: (event: WireEvent) => void): RunEventSubscri
   // run() emits run:end TWICE (normal + finally), with the summary footer
   // (run:status lines) emitted in BETWEEN. Drop the duplicate run:end, but
   // keep forwarding everything else — including those post-run:end status
-  // lines, so a consumer that renders them (the serve client) gets the
-  // footer. A consumer that ignores run:status (the dev hub) is unaffected.
+  // lines, so a consumer that renders them gets the footer, and one that
+  // ignores run:status is unaffected.
   let endForwarded = false
   // Which tasks the consumer has been told about. A skipped task never
   // reaches the scheduler's onStart, so its completion arrives with no
@@ -181,7 +181,7 @@ export function wireForwarder(send: (event: WireEvent) => void): RunEventSubscri
   }
 }
 
-// --- Serializable projections (the off-thread / devframe wire form) ----
+// --- Serializable projections (the off-thread wire form) ---------------
 //
 // The in-process bus carries live refs; crossing a worker postMessage or
 // an RPC needs a JSON/structured-clone-safe form. Two concrete blockers
@@ -275,7 +275,7 @@ export function projectOutcome(outcome: TaskOutcome): OutcomeView {
 
 /**
  * The serializable form of a RunEvent — JSON / structured-clone safe, the
- * wire contract a non-local consumer (devframe, `vx serve` client) reads.
+ * wire contract a non-local consumer (an embedder's client) reads.
  * `task:start` carries the full `TaskView` so a consumer can rebuild a
  * node-shaped object incrementally (no upfront table needed); later
  * task events reference the id, which the consumer already holds.

@@ -12,7 +12,9 @@ Defines every interface the rest of the codebase consumes:
 
 Exports two helpers — `defineProject` and `defineWorkspace` — that
 exist purely so TypeScript can narrow the user's literal types via the
-generic parameter.
+generic parameter. A config that imports them at runtime loads a
+second copy of core into the run (~17 ms measured); the scaffolds use
+the type-only `satisfies` form instead, which types the same.
 
 ## Public surface
 

@@ -2,37 +2,21 @@
 // real CLI: the graph expansion + scheduling + the group-transparency path
 // only compose across a real invocation.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import {
+  addProject as addProjectTo,
+  gitIn,
+  makeWorkspace as makeWorkspaceRoot,
+} from './helpers/workspace.js'
 
 setDefaultTimeout(30_000)
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 
-function git(cwd: string, ...args: string[]): void {
-  const p = Bun.spawnSync({
-    cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-    cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  if (p.exitCode !== 0)
-    throw new Error(`git ${args.join(' ')}: ${new TextDecoder().decode(p.stderr)}`)
-}
-
-async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-wildcard-e2e-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'root', private: true }))
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  git(root, 'init', '-q')
-  git(root, 'config', 'user.email', 't@vx.local')
-  git(root, 'config', 'user.name', 'vx')
-  return root
+function makeWorkspace(): Promise<string> {
+  return makeWorkspaceRoot({ prefix: 'vx-wildcard-e2e-', rootName: 'root' })
 }
 
 async function addProject(
@@ -41,13 +25,7 @@ async function addProject(
   config: string,
   deps: Record<string, string> = {},
 ): Promise<void> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0', dependencies: deps }),
-  )
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
+  await addProjectTo(root, name, { config, deps })
 }
 
 async function vx(root: string, args: string[]) {
@@ -157,7 +135,7 @@ describe('dependsOn patterns e2e', () => {
     const dir = path.join(root, 'packages', 'app')
     await writeFile(path.join(dir, 'src.txt'), 'v1')
     await writeFile(path.join(dir, 'top-src.txt'), 'const')
-    git(root, 'add', '-A')
+    gitIn(root)('add', '-A')
 
     expect((await vx(root, ['run', 'app#top'])).code).toBe(0)
     expect(await Bun.file(path.join(dir, 'final.txt')).text()).toBe('v1')
@@ -208,7 +186,7 @@ describe('dependsOn patterns e2e', () => {
     const app = path.join(root, 'packages', 'app')
     await writeFile(path.join(core, 'src.txt'), 'v1')
     await writeFile(path.join(app, 'src.txt'), 'const')
-    git(root, 'add', '-A')
+    gitIn(root)('add', '-A')
 
     expect((await vx(root, ['run', 'app#build'])).code).toBe(0)
     expect((await Bun.file(path.join(app, 'ran.log')).text()).trim().split('\n')).toHaveLength(1)

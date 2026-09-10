@@ -117,6 +117,53 @@ describe('project stage', () => {
   )
 
   it(
+    'visits a package with NO config file, so a plugin can give it tasks; without the stage it stays invisible',
+    async () => {
+      // The zero-migration shape: `b` has a package.json and scripts but never
+      // wrote a vx.config — a `project` plugin maps them onto tasks.
+      await pkg('a', build)
+      const bDir = path.join(root, 'packages', 'b')
+      await mkdir(bDir, { recursive: true })
+      await writeFile(
+        path.join(bDir, 'package.json'),
+        JSON.stringify({ name: 'b', version: '1.0.0', scripts: { build: 'echo from-scripts' } }),
+      )
+      await workspace([
+        `{
+          name: 'org/scripts',
+          project(config, ctx) {
+            const scripts = ctx.packageJson.scripts ?? {}
+            config.tasks ??= {}
+            for (const [name, command] of Object.entries(scripts)) {
+              config.tasks[name] ??= { exec: { command } }
+            }
+          },
+        }`,
+      ])
+      const plan = await planRun({ cwd: root, tasks: ['build'], log: silent() })
+      expect(plan.tasks.map((t) => t.node.id).sort()).toEqual(['a#build', 'b#build'])
+      expect(plan.tasks.find((t) => t.node.id === 'b#build')!.node.config.exec?.command).toBe(
+        'echo from-scripts',
+      )
+      const summary = await run({
+        cwd: root,
+        tasks: ['build'],
+        log: silent(),
+        handleSignals: false,
+      })
+      expect(summary.ok).toBe(true)
+      expect(summary.outcomes.map((o) => o.node.id).sort()).toEqual(['a#build', 'b#build'])
+
+      // Control: no `project` plugin → a config-less package declares nothing
+      // and is never loaded, exactly as before the stage could reach it.
+      await workspace([])
+      const plain = await planRun({ cwd: root, tasks: ['build'], log: silent() })
+      expect(plain.tasks.map((t) => t.node.id)).toEqual(['a#build'])
+    },
+    TIMEOUT,
+  )
+
+  it(
     'runs in declaration order — the second plugin sees the first one’s edit',
     async () => {
       await pkg('a', build)
@@ -153,9 +200,14 @@ describe('project stage', () => {
     'a plugin that produces an invalid task is refused like a user would be',
     async () => {
       await pkg('a', build)
-      await workspace([`{ name: 'org/broken', project(config) { config.tasks.build.exec = 5 } }`])
+      // Two plugins in the stage: the refusal names the one whose edit broke
+      // the task, not "plugins" — the fix is in THAT plugin.
+      await workspace([
+        `{ name: 'org/fine', project(config) { config.tasks.build.description = 'ok' } }`,
+        `{ name: 'org/broken', project(config) { config.tasks.build.exec = 5 } }`,
+      ])
       await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
-        /after plugins/,
+        /vx\.config\.mjs \(after plugin 'org\/broken'\): tasks\.build\.exec must be an object/,
       )
     },
     TIMEOUT,
@@ -285,6 +337,12 @@ describe('key stage', () => {
       await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
         /plugin 'org\/tool' failed in key: value for 'n'/,
       )
+      // A non-record return is refused too: a string used to fold its
+      // characters into the key as parts named '0', '1', '2'.
+      await workspace([`{ name: 'org/tool', key() { return 'v22' } }`])
+      await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
+        "plugin 'org/tool' failed in key: returned a string, not a record of string values",
+      )
     },
     TIMEOUT,
   )
@@ -377,6 +435,32 @@ describe('schedule stage', () => {
       await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
         /plugin 'org\/nan' failed in schedule/,
       )
+      // Not a Map: a string's characters matched no task and the plugin was
+      // a silent no-op.
+      await workspace([`{ name: 'org/str', schedule() { return 'fast' } }`])
+      await expect(planRun({ cwd: root, tasks: ['build'], log: silent() })).rejects.toThrow(
+        "plugin 'org/str' failed in schedule: returned a string, not a Map of task id → weight",
+      )
+    },
+    TIMEOUT,
+  )
+})
+
+describe('telemetry stage', () => {
+  it(
+    'a sink that handles nothing is disabled with a word, never a failed run',
+    async () => {
+      // Every handler is optional, so `{ nope: true }` used to be a valid
+      // sink: subscribed, silent, "on".
+      await pkg('a', build)
+      await workspace([`{ name: 'org/deaf', telemetry() { return { nope: true } } }`])
+      const lines: string[] = []
+      const log = Object.assign(silent(), { status: (line: string) => lines.push(line) })
+      const summary = await run({ cwd: root, tasks: ['build'], log, handleSignals: false })
+      expect(summary.ok).toBe(true)
+      expect(lines.filter((l) => l.includes('org/deaf'))).toEqual([
+        "[vx] plugin 'org/deaf' telemetry failed to initialize; disabled for this run: telemetry sink handles nothing: neither onRecord nor onRunSummary is a function",
+      ])
     },
     TIMEOUT,
   )

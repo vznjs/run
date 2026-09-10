@@ -40,12 +40,16 @@ terminal and a task succeeding or failing. Read it alongside
  │       names (hard error with both paths).
  │    5. SCOPED config loading — only in-scope projects plus their
  │       transitive dependency closure evaluate ('^task' frontier
- │       expansion never escapes the closure). Under --frozen, configs
- │       load from vx-lock.json after a content-hash tripwire — no
- │       evaluation, frozen-env semantics; a missing lock or entry is
- │       a hard UserError. Otherwise loadProjectConfig per project:
- │       native Bun await import() with a content-hash query-string
- │       bust; the loader validates each TaskConfig shape.
+ │       expansion never escapes the closure); one staged load,
+ │       loadProjects, shared with every reading verb. Under --frozen,
+ │       configs load from vx-lock.json — no evaluation, no staleness
+ │       check of its own (vx lock --check is the audit), frozen-env
+ │       semantics; a missing lock or entry is a hard UserError.
+ │       Otherwise loadProjectConfigs in one batch: native Bun await
+ │       import() with a content-hash query-string bust, cached
+ │       evaluations served for pure configs; the loader validates
+ │       each TaskConfig shape, and the plugin `project` stage runs
+ │       on each config with a re-validation after every plugin.
  │    6. buildPackageGraph — workspace dep edges from package.json.
  │    7. computeNestedProjectDirs — set of projects rooted inside each
  │       project, computed over EVERY config-bearing project (loaded

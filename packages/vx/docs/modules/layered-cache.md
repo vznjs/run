@@ -3,7 +3,7 @@
 ## Purpose
 
 Wraps the local `Cache` with a **`RemoteCacheLayer`** — the plugin seam
-for remote caching (`docs/design/native-cache-wire-2026-07.md`) — and
+for remote caching — and
 exposes the same `CacheLayer` interface. The orchestrator doesn't know
 which layer it's talking to, and core ships **no wire client**: the
 remote layer comes from a plugin's `cache` capability (e.g. the

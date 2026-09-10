@@ -11,17 +11,14 @@ export {
   LOCKFILE_NAME,
   LOCKFILE_VERSION,
   lockfilePath,
+  FROZEN_WITHOUT_LOCK,
   readLockfile,
   writeLockfile,
   type Lockfile,
   type LockfileEntry,
 } from './lockfile.js'
-export {
-  loadProjectConfig,
-  loadProjectConfigs,
-  loadWorkspaceConfig,
-  validateProjectConfig,
-} from './project-loader.js'
+export { loadProjectConfig, loadProjectConfigs, loadWorkspaceConfig } from './project-loader.js'
+export { validateProjectConfig } from './config-schema.js'
 export type { LoadProjectConfigOptions } from './project-loader.js'
 export {
   blobOidOf,
@@ -37,3 +34,11 @@ export {
   type ProjectEntry,
   type ProjectMeta,
 } from './workspace.js'
+export {
+  mapTurboWorkspace,
+  type MapTurboOptions,
+  type TurboGlobal,
+  type TurboMappedProject,
+  type TurboMappedTask,
+  type TurboMapping,
+} from './turbo.js'

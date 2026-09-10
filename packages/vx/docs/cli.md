@@ -25,7 +25,7 @@ vx cache prune [--older-than <duration>] [--max-size <bytes>]
 vx lock [--check]
 vx init [--dry] [--force]
 vx migrate [--from turbo|nx|scripts] [--dry] [--force]
-vx show [PROJECT[#TASK]] [--format pretty|json]
+vx show [PROJECT[#TASK] | TASK] [--format pretty|json]
 vx info
 vx stats              # deprecated alias of vx info
 vx upgrade [tag]      # self-update a compiled binary
@@ -214,32 +214,32 @@ stays clean).
 
 ### Flags
 
-| Flag                              | Type           | Default                            | Description                                                                                                                                                                                                                                                                                   |
-| --------------------------------- | -------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--filter <pattern>`              | repeatable     | (none)                             | pnpm-style filter DSL (see above). `--filter=<pattern>` form too.                                                                                                                                                                                                                             |
-| `--all`                           | boolean        | off                                | Select every project that declares the task.                                                                                                                                                                                                                                                  |
-| `--affected[=<base>]`             | optional value | off                                | Filter to projects changed since `<base>` (default `origin/HEAD`).                                                                                                                                                                                                                            |
-| `--excludeDependencies[=<names>]` | optional value | off                                | Drop `dependsOn` edges. No value = all (just the requested task runs); comma-list = drop only those names. An empty `=` value is a parse error (ambiguous — see below).                                                                                                                       |
-| `--concurrency <n>`               | positive int   | `navigator.hardwareConcurrency`    | Maximum parallel tasks. `1` serializes. `--concurrency=<n>` form too.                                                                                                                                                                                                                         |
-| `--no-cache`                      | boolean        | off                                | Disable caching entirely (no reads, no writes); output globs are NOT cleaned.                                                                                                                                                                                                                 |
-| `--force`                         | boolean        | off                                | Re-execute everything (skip cache reads) but still REFRESH the cache (writes stay on). Output globs are cleaned (so the saved snapshot is clean).                                                                                                                                             |
-| `--cache <spec>`                  | value          | all axes on                        | Per-layer read/write control. See below. An EMPTY spec (`--cache=`) is a parse error — it applied nothing and left every axis on; pass `--no-cache` to disable them all.                                                                                                                      |
-| `--cache-dir <path>`              | value          | workspace `cacheDir` / `.vx/cache` | Cache directory override, resolved relative to cwd (absolute paths used as-is). Beats the `defineWorkspace({ cacheDir })` field and the `.vx/cache` default. A per-run knob — never folded into a cache key. `--cache-dir=<path>` form too; the space form rejects a value starting with `-`. |
-| `--retry <n>`                     | value          | `0`                                | Re-run a failed task up to `n` more times. Run-level default only: a task's own `exec.retries` wins (even an explicit `0`). Never affects cache keys. `--retry=<n>` form too.                                                                                                                 |
-| `--continue[=<mode>]`             | value          | `deps-ok`                          | What a failed task takes down with it. `never` stops dispatch on the first failure; `deps-ok` (default) skips only its dependents; `always` (bare `--continue`) runs dependents anyway. See § Failure propagation.                                                                            |
-| `--timeout <ms>`                  | positive int   | none                               | Default per-task timeout for tasks without their own `exec.timeout`. Sits above `VX_TASK_TIMEOUT` + workspace `timeout`; per-task `exec.timeout` always wins. A runaway task is killed + `failed`. Never affects cache keys. `--timeout=<ms>` form too.                                       |
-| `--memory <size>`                 | size           | total system RAM                   | Memory budget that per-task `exec.resources.memory` reservations pack against (`8GB`, `512MB`). Pass it in cgroup-limited containers — the default reads the HOST's RAM. Reservations are per-task config, not flags. Never affects cache keys. `--memory=<size>` form too.                   |
-| `--frozen`                        | boolean        | off                                | Load configs from `vx-lock.json` instead of evaluating (CI). See § `--frozen`.                                                                                                                                                                                                                |
-| `--output-logs <mode>`            | value          | flow-derived                       | `full` \| `errors-only` \| `hash-only` \| `none` — explicit output override. See § `--output-logs`. `--output-logs=<mode>` form too.                                                                                                                                                          |
-| `--download <mode>`               | value          | `all`                              | `all` \| `toplevel` \| `none` — where a REMOTELY-executed task's outputs land. `none` leaves them in the remote CAS and fetches lazily, only when a locally-placed task needs them. Never affects cache keys. See § `--download`. `--download=<mode>` form too.                               |
-| `--verbosity <n>`                 | int (0+)       | `0`                                | `1` prints a per-task summary table after the framed blocks; `2+` reserved. `--verbosity=<n>` form too.                                                                                                                                                                                       |
-| `--dry[=text\|json]`              | optional value | off                                | Print the task graph + predicted cache hit/miss; skip execution.                                                                                                                                                                                                                              |
-| `--graph[=<path>]`                | optional value | off                                | Emit Graphviz DOT (stdout if no path); skip execution.                                                                                                                                                                                                                                        |
-| `--summarize[=<path>]`            | optional value | off                                | Write per-run JSON to `<cacheDir>/runs/<run_id>.json` (or the explicit path).                                                                                                                                                                                                                 |
-| `--profile[=<path>]`              | optional value | off (`profile.json` when set)      | Write Chrome-trace JSON of the run's wallclock spans.                                                                                                                                                                                                                                         |
-| `--tag <k=v>`                     | repeatable     | (none)                             | Label this invocation. Recorded on the run's `invocations` row so dashboards can filter runs. `--tag=k=v` form too.                                                                                                                                                                           |
-| `--report[=markdown]`             | optional value | off                                | After the run, print a markdown run report to stdout. Only `markdown` is supported (`json` is reserved).                                                                                                                                                                                      |
-| `--report-file <path>`            | value          | off                                | After the run, APPEND the same markdown report to `<path>`. Use this for `$GITHUB_STEP_SUMMARY` — redirecting stdout captures the whole run log too. `--report-file=<path>` form too.                                                                                                         |
+| Flag                              | Type           | Default                            | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------------------------- | -------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--filter <pattern>`              | repeatable     | (none)                             | pnpm-style filter DSL (see above). `--filter=<pattern>` form too.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `--all`                           | boolean        | off                                | Select every project that declares the task.                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `--affected[=<base>]`             | optional value | off                                | Filter to projects changed since `<base>` (default `origin/HEAD`).                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `--excludeDependencies[=<names>]` | optional value | off                                | Drop `dependsOn` edges. No value = all (just the requested task runs); comma-list = drop only those names. An empty `=` value is a parse error (ambiguous — see below).                                                                                                                                                                                                                                                                                                                    |
+| `--concurrency <n>`               | positive int   | `navigator.hardwareConcurrency`    | Maximum parallel tasks. `1` serializes. `--concurrency=<n>` form too.                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `--no-cache`                      | boolean        | off                                | Disable caching entirely (no reads, no writes); output globs are NOT cleaned.                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--force`                         | boolean        | off                                | Re-execute everything (skip cache reads) but still REFRESH the cache (writes stay on). Output globs are cleaned (so the saved snapshot is clean).                                                                                                                                                                                                                                                                                                                                          |
+| `--cache <spec>`                  | value          | all axes on                        | Per-layer read/write control. See below. An EMPTY spec (`--cache=`) is a parse error — it applied nothing and left every axis on; pass `--no-cache` to disable them all.                                                                                                                                                                                                                                                                                                                   |
+| `--cache-dir <path>`              | value          | workspace `cacheDir` / `.vx/cache` | Cache directory override, resolved relative to cwd (absolute paths used as-is). Beats the `defineWorkspace({ cacheDir })` field and the `.vx/cache` default, for every cache the run opens — the config-evaluation cache that `--affected` owners, the picker and the watch sweep read included, so the workspace's default dir is not created beside it. A per-run knob — never folded into a cache key. `--cache-dir=<path>` form too; the space form rejects a value starting with `-`. |
+| `--retry <n>`                     | value          | `0`                                | Re-run a failed task up to `n` more times. Run-level default only: a task's own `exec.retries` wins (even an explicit `0`). Never affects cache keys. `--retry=<n>` form too.                                                                                                                                                                                                                                                                                                              |
+| `--continue[=<mode>]`             | value          | `deps-ok`                          | What a failed task takes down with it. `never` stops dispatch on the first failure; `deps-ok` (default) skips only its dependents; `always` (bare `--continue`) runs dependents anyway. See § Failure propagation.                                                                                                                                                                                                                                                                         |
+| `--timeout <ms>`                  | positive int   | none                               | Default per-task timeout for tasks without their own `exec.timeout`. Sits above `VX_TASK_TIMEOUT` + workspace `timeout`; per-task `exec.timeout` always wins. A runaway task is killed + `failed`. Never affects cache keys. `--timeout=<ms>` form too.                                                                                                                                                                                                                                    |
+| `--memory <size>`                 | size           | total system RAM                   | Memory budget that per-task `exec.resources.memory` reservations pack against (`8GB`, `512MB`). Pass it in cgroup-limited containers — the default reads the HOST's RAM. Reservations are per-task config, not flags. Never affects cache keys. `--memory=<size>` form too.                                                                                                                                                                                                                |
+| `--frozen`                        | boolean        | off                                | Load configs from `vx-lock.json` instead of evaluating (CI) — the run's, and the ones `--affected` owners and the picker select from. See § `--frozen`.                                                                                                                                                                                                                                                                                                                                    |
+| `--output-logs <mode>`            | value          | flow-derived                       | `full` \| `errors-only` \| `hash-only` \| `none` — explicit output override. See § `--output-logs`. `--output-logs=<mode>` form too.                                                                                                                                                                                                                                                                                                                                                       |
+| `--download <mode>`               | value          | `all`                              | `all` \| `toplevel` \| `none` — where a REMOTELY-executed task's outputs land. `none` leaves them in the remote CAS and fetches lazily, only when a locally-placed task needs them. Never affects cache keys. See § `--download`. `--download=<mode>` form too.                                                                                                                                                                                                                            |
+| `--verbosity <n>`                 | int (0+)       | `0`                                | `1` prints a per-task summary table after the framed blocks; `2+` reserved. `--verbosity=<n>` form too.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `--dry[=text\|json]`              | optional value | off                                | Print the task graph + predicted cache hit/miss; skip execution.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `--graph[=<path>]`                | optional value | off                                | Emit Graphviz DOT (stdout if no path); skip execution.                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `--summarize[=<path>]`            | optional value | off                                | Write per-run JSON to `<cacheDir>/runs/<run_id>.json` (or the explicit path).                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `--profile[=<path>]`              | optional value | off (`profile.json` when set)      | Write Chrome-trace JSON of the run's wallclock spans.                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `--tag <k=v>`                     | repeatable     | (none)                             | Label this invocation. Recorded on the run's `invocations` row so dashboards can filter runs. `--tag=k=v` form too.                                                                                                                                                                                                                                                                                                                                                                        |
+| `--report[=markdown]`             | optional value | off                                | After the run, print a markdown run report to stdout. Only `markdown` is supported (`json` is reserved).                                                                                                                                                                                                                                                                                                                                                                                   |
+| `--report-file <path>`            | value          | off                                | After the run, APPEND the same markdown report to `<path>`. Use this for `$GITHUB_STEP_SUMMARY` — redirecting stdout captures the whole run log too. `--report-file=<path>` form too.                                                                                                                                                                                                                                                                                                      |
 
 Mutual exclusion:
 
@@ -558,6 +558,17 @@ no history count as 0 and are called out (`N tasks without history
 (+?)`) — the totals are honest lower bounds. The footer is omitted
 when nothing would run or when no would-run task has history.
 
+**Placement.** When the workspace's plugins supply more than one
+executor, each row carries the one the task would land on (`@spy-remote`;
+`@local` for the floor; `@noop` for an `exec.remote: 'only'` task no
+remote accepts, which the run would skip rather than run here) and the
+JSON object carries it as `executor`. With one executor there is
+nothing to choose and the column is absent. If an executor hook throws
+or returns something that is not an executor, the plan still prints —
+`--dry` never fails over a label — but says so on the status line, in
+the plugin's name: `[vx] placement not shown — plugin 'x' … (the run
+would refuse on it)`.
+
 Status legend:
 
 | Symbol | Meaning                                                      |
@@ -852,8 +863,9 @@ run...` precedes it.
    directory in scope is watched recursively. The workspace root is
    watched (non-recursively) for lockfile / `pnpm-workspace.yaml`
    changes. A task's own declared outputs (`cache.outputs.files`,
-   `outputs.workspaceFiles`) never trigger a re-run — a cycle that
-   writes `dist/` is not an edit — and neither do `node_modules`,
+   `outputs.workspaceFiles`; a plugin's `project` stage counts, as in
+   a run) never trigger a re-run — a cycle that writes `dist/` is not
+   an edit — and neither do `node_modules`,
    `.git` or the cache directory. A write the task did NOT declare (a
    task with no `cache` block declares nothing) is caught by content:
    a file whose bytes did not change since the loop last saw it is not
@@ -942,6 +954,18 @@ At least one of `--older-than` / `--max-size` is required. Both may
 be combined: age-based eviction runs first, then LRU eviction if the
 total is still over the size cap.
 
+After eviction, prune sweeps the cache directory for **orphans**: a
+`<hash>.tar.zst` the index has no row for (a `SCHEMA_VERSION` bump
+drops every table and leaves the artifacts behind — the first run
+after the upgrade says `cache index reset: schema v24 → v25` and names
+this verb; a deleted `cache.db` does the same) and a `<hash>.tar.zst.tmp-*` a save that
+crashed never renamed. Nothing else reclaims them — a lookup starts at
+the row, so an orphan is never a hit, and only a save of the same key
+overwrites it. Files younger than one hour are left alone: a save
+renames its artifact into place before the row commits, so a fresh
+row-less file is a save in flight. The sweep runs on every prune, under
+either flag, and reports separately from the policy's evictions.
+
 Both flags take either form: `--older-than 30d` or `--older-than=30d`.
 
 **Duration units**: `s`, `m`, `h`, `d`, case-insensitive. Examples:
@@ -964,6 +988,9 @@ Pruned 42 entries (1.3 GB freed)
 
 $ vx cache prune --older-than 7d --max-size 500M
 Pruned 18 entries (320.1 MB freed)
+
+$ vx cache prune --older-than 30d      # after a SCHEMA_VERSION bump
+Pruned 0 entries (0 B freed), reaped 42 orphaned artifacts (1.3 GB)
 ```
 
 Exit codes:
@@ -1061,8 +1088,12 @@ generated config is typed for the editor through
 `import type { ProjectConfig } from '@vzn/vx'` and `satisfies
 ProjectConfig` — a type-only import Bun erases, so the file loads in a
 workspace that runs the `vx` binary without the package installed. The
-workspace file DOES import `@vzn/vx` at runtime; a run in a workspace
-without it says so and names the install command.
+workspace file takes the same form (`satisfies WorkspaceConfig`): a
+runtime `import { defineWorkspace } from '@vzn/vx'` loads a second copy
+of core into every run — ~17 ms on a two-package workspace, measured
+2026-09-09, for an identity function — so the scaffold never pays it. A
+workspace that does import `@vzn/vx` (or a plugin package) at runtime
+without having installed it is told so, with the install command.
 
 Each script becomes a task with its command verbatim. `build` gets
 `dependsOn: ['^build']` and **no cache block** — under a
@@ -1076,6 +1107,11 @@ wrong tree for every package that writes elsewhere. `test` / `typecheck` wait fo
 `build` when the package has one (`lint` reads sources and gets no
 edge); `dev` / `start` / `serve` / `watch` /
 `preview` become persistent tasks with a TODO to add `readyWhen`.
+
+On a repo that already has `turbo.json` or an Nx workspace, `init`
+still maps scripts only and says so, naming the richer path:
+`vx migrate` (which auto-detects the source) or `plugins: [turbo()]`
+from `@vzn/vx-turbo`.
 
 A run in a root with no `vx.workspace.*` at all fails before any task
 with `no vx.workspace.ts found — run vx init …` ahead of the usual
@@ -1192,21 +1228,26 @@ detection error, or overwrite conflict without `--force`.
 ## `vx show`
 
 Introspect the workspace's **live resolved configs** — what a run
-would see right now. Configs are evaluated with the same loader the
-run path uses; `vx show` never reads `vx-lock.json` (the lock is
-already the frozen JSON — open it directly if you want the frozen
-view).
+would see right now. Configs load through the same path a run uses,
+plugin `config` and `project` stages included, so a package a plugin
+gives tasks to (the zero-migration Turbo shape) shows them; cached
+evaluations are served from the local cache like a run's. `vx show`
+never reads `vx-lock.json` (the lock is already the frozen JSON — open
+it directly if you want the frozen view).
 
 ```
 vx show                          # list every project
 vx show <project>                # one project's resolved config
 vx show <pkg>#<task>             # a single task
+vx show <task>                   # that task in every project declaring it
 vx show ... --format json        # machine-readable (default: pretty)
 ```
 
-No target: one line per project — name, root-relative dir, declared
-task count, and a `(no vx config)` marker for config-less packages.
-With `--format json` it's an array of `{ name, dir, tasks: string[] }`.
+No target: one line per project — name, root-relative dir, task count,
+and a `(no vx config)` marker for config-less packages; one whose
+tasks all come from plugins reads `N tasks (no vx config; from
+plugins)`. With `--format json` it's an array of `{ name, dir, tasks:
+string[] }`.
 
 ```
 $ vx show
@@ -1214,12 +1255,18 @@ app   packages/app   3 tasks
 bare  packages/bare  (no vx config)
 ```
 
-`vx show <project>` prints a block per task: description, command
-(`(group)` for group tasks), `dependsOn`, `cache.inputs.files` /
-`.env` / `.tasks`, `cache.outputs.files`, and persistent fields.
-`--format json` emits `{ name, dir, config }` with the config exactly
-as resolved. `vx show <pkg>#<task>` narrows to one task
-(`{ name, dir, task, config }` in JSON).
+`vx show <project>` prints a block per task with every field the run
+reads: description, command (`(group)` for group tasks), `dependsOn`,
+`timeout`, `retries`, `env.passThrough` / `env.define`, `remote`,
+`resources`, `sandbox`, `persistent`, and the cache block
+(`inputs.files` / `.workspaceFiles` / `.env` / `.tasks` / `.runtime` /
+`.workspaceRuntime`, `outputs.files` / `.workspaceFiles`). Fields the
+task does not set are not printed. `--format json` emits `{ name, dir,
+config }` with the config exactly as resolved. `vx show <pkg>#<task>`
+narrows to one task (`{ name, dir, task, config }` in JSON). A bare
+name that is no project is a task: `vx show build` prints the block
+from every project declaring `build` (an array of the one-task shape
+in JSON).
 
 ```
 $ vx show app#build
@@ -1234,15 +1281,18 @@ build
   outputs.files: dist/**
 ```
 
-Unknown project / task names exit `1` with includes-match suggestions
-(`unknown project: "ap" — did you mean app?`).
+Unknown project / task names exit `1` with the same near-miss hint
+every verb gives (two edits, or a partial name); a bare name that is
+neither reads `unknown project or task: "buidl" — did you mean build?`.
 
 Exit codes: `0` success; `1` parse error or unknown target.
 
 ## `vx info`
 
 Workspace doctor — one screen of facts for bug reports and sanity
-checks (pretty only):
+checks (pretty only). The task count comes from the same load a run
+uses, plugin stages included; a config that fails to load counts as
+zero rather than failing the doctor:
 
 ```
 $ vx info
@@ -1252,8 +1302,11 @@ git:               2.53.0
 git status cache:  core.fsmonitor, core.untrackedCache off — `git config core.fsmonitor true` makes every run's status walk near-free on a large tree
 workspace root:    /work/repo
 projects:       12 (34 tasks)
+plugins:        2 — @vzn/vx-reapi (executor, cache); @vzn/vx-otel (telemetry)
 cache dir:      /work/repo/.vx/cache
+cache versions: keys vx-cache-v27 · index schema v25
 cache entries:  42 (1.3 GB)
+orphans:        3 artifacts (12.4 MB) the index does not know — `vx cache prune` reaps them
 runs (24h):     7 (5 cache hits)
 vx-lock.json:   yes
 ```
@@ -1266,6 +1319,20 @@ vx-lock.json:   yes
   critical path. git's `core.fsmonitor` (a daemon that watches the
   worktree) and `core.untrackedCache` make it near-free after the first
   run; both are off by default, so `vx info` says when they are.
+- `plugins` names every plugin `vx.workspace.*` declares and the seams
+  each fills, in pipeline order (`config`, `project`, `graph`, `key`,
+  `schedule`, `executor`, `cache`, `telemetry`, `setup`, `commands`),
+  or `none`. It reads the declarations: a plugin that declines a task
+  at run time still lists its seam here.
+- `cache versions` are the two constants a bug report needs and the
+  reset notice names: the key prefix (`CACHE_VERSION`; a bump orphans
+  every entry) and the index schema (`SCHEMA_VERSION`; a mismatch drops
+  every table on the next open, which the run then says once).
+- `orphans` appears only when the cache directory holds artifacts or
+  save temps the index has no row for, older than an hour (what a
+  `SCHEMA_VERSION` reset leaves behind; a fresh one is a save in
+  flight). They are never a hit and nothing but `vx cache prune`
+  reclaims them, so the doctor says so.
 - `vx stats` is a **deprecated alias** of `vx info` (info absorbed
   it); it prints byte-identical output.
 
@@ -1410,14 +1477,16 @@ export function mcp(): VxPlugin {
 ```
 
 (`@vzn/vx-mcp` ships exactly this: declare `mcp()` and `vx mcp` serves
-the four read-only run-history tools to AI agents.) The dispatcher tries
-core's verbs first — a plugin can never shadow `vx run` — and consults
-plugins only for a word core does not know,
-loading the workspace config from the cwd to find them (outside a
-workspace the verb is simply unknown). The first plugin in declaration
-order that declares the verb runs it; its return value is the exit
-code, and a thrown `UserError` prints as cleanly as core's own. `vx help`
-lists every plugin verb under "Plugin commands", with the plugin's name.
+five read-only tools to AI agents — four over the run history, one
+over the resolved task catalog.) The dispatcher tries core's verbs
+first and consults plugins only for a word core does not know, loading
+the workspace config from the cwd to find them (outside a workspace the
+verb is simply unknown). A plugin verb that names a core verb, or one
+two plugins both declare, is refused when the workspace loads — such a
+verb could never run, or would hide the other plugin's. A plugin verb's
+return value is the exit code, and a thrown `UserError` prints as
+cleanly as core's own. `vx help` lists every plugin verb under "Plugin
+commands", with the plugin's name.
 
 ## Output format
 

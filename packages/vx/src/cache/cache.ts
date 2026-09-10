@@ -30,10 +30,10 @@
 //   close           : release the SQLite handle
 
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
-import { existsSync, lstatSync, mkdirSync, readlinkSync, statSync, writeFileSync } from 'node:fs'
-import { lstat, mkdir, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdir, readdir, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { relPosix, UserError, xxh3, xxh3hex, span } from '../util/index.js'
+import { relPosix, xxh3, xxh3hex, span } from '../util/index.js'
 import {
   ArchiveSecurityError,
   extractArtifactStream,
@@ -43,6 +43,29 @@ import {
   planArtifact,
 } from './archive.js'
 import { FsCASBackend } from './cas-backend.js'
+import {
+  type CacheEntry,
+  type CacheGetContext,
+  type CacheKeyInput,
+  type CacheLayer,
+  type CacheStats,
+  type CacheStatsOptions,
+  CorruptArtifactError,
+  type IngestMeta,
+  type InvocationRecord,
+  type OutputDirRow,
+  type OutputFileRow,
+  type PruneOptions,
+  type PruneResult,
+  type RunRecord,
+  type SaveArgs,
+  type TaskInputRow,
+} from './layer.js'
+import { bytesOf, decodedTar, STREAM_DECODE_FROM, zstdEncoder } from './zstd.js'
+import { ConfigEvalTable } from './config-evals.js'
+import { FileHashStore } from './file-hashes.js'
+import { OutputIndex } from './output-index.js'
+import { RunHistory } from './run-history.js'
 
 // v17: artifact carries only logs + outputs (stdout + outputs/<rel>).
 // Local and remote layers transport the SAME tar.zst bytes — no
@@ -102,7 +125,30 @@ import { FsCASBackend } from './cas-backend.js'
 // `LayeredCache` uploads them, so the reach is a whole team's shared cache
 // rather than one developer's disk. Pre-alpha, so one cold rebuild is the
 // cheap side of that trade.
-const CACHE_VERSION = 'vx-cache-v27'
+export const CACHE_VERSION = 'vx-cache-v27'
+
+/**
+ * An artifact or temp file without an `entries` row is reaped by
+ * `prune()` only once it is this old. A save renames the artifact into
+ * place and commits its row in the same tick; a crashed save's temp is
+ * stale long before this. Generous on purpose — a false orphan costs a
+ * re-run, a leaked temp costs disk.
+ */
+const ORPHAN_GRACE_MS = 60 * 60 * 1000
+
+export interface SchemaReset {
+  from: string
+  to: string
+}
+
+/** Say once, on the channel the opener has, that an upgrade emptied the index. */
+export function noteSchemaReset(cache: Cache, warn: (message: string) => void): void {
+  if (cache.schemaReset === null) return
+  const { from, to } = cache.schemaReset
+  warn(
+    `[vx] cache index reset: schema ${from} → ${to} (vx upgraded); every cached task misses once and re-saves, and \`vx cache prune\` reclaims the old artifacts`,
+  )
+}
 // SCHEMA history (drop+recreate on mismatch; pre-alpha, no migrations):
 //   v20: file_hashes.content_hash (git blob OIDs).
 //   v21: dropped the unused outputs_hash column (pure-input hashing).
@@ -133,7 +179,13 @@ const CACHE_VERSION = 'vx-cache-v27'
 //        the memo simply stops answering wrongly, so an affected task's
 //        key moves from a WRONG value to the right one: it misses once,
 //        re-runs, re-caches. Self-healing, never a wrong hit.
-const SCHEMA_VERSION = 'v24'
+//   v25: runs.cached — whether the task declared a `cache` block. An
+//        uncached task's row looked like any executed miss, so `vx why`
+//        headlined "cache key changed (inputs differ)" for a task that
+//        runs every time by design, and `vx last` could not mark it the
+//        way the terminal summary does (`no-cache`). Analytics-only —
+//        the cache KEY is unchanged.
+export const SCHEMA_VERSION = 'v25'
 
 /**
  * SQL predicate selecting `runs` rows that record an EXECUTION.
@@ -171,806 +223,12 @@ export const KEYED_RUNS_SQL = "hash <> ''"
  */
 export const WORKSPACE_OUTPUT_PREFIX = 'workspace-outputs/'
 
-/**
- * Independent read/write control over the two cache layers (local +
- * remote). Replaces the old single `noCache` boolean: each axis can be
- * toggled on its own so `--force` (re-execute but still refresh the
- * cache) is distinct from `--no-cache` (disable everything).
- *
- * Only the task-artifact get/save path is gated. `recordRun`, `stats`,
- * `prune`, key derivation, and prefetch-ingest are never affected — they
- * are bookkeeping/analytics that a run policy has no business disabling.
- */
-export interface CachePolicy {
-  localRead: boolean
-  localWrite: boolean
-  remoteRead: boolean
-  remoteWrite: boolean
-}
-
-/** All four axes on — the default when no cache flag is passed. */
-export const FULL_CACHE_POLICY: CachePolicy = {
-  localRead: true,
-  localWrite: true,
-  remoteRead: true,
-  remoteWrite: true,
-}
-
-/**
- * Parse a `--cache=<spec>` value into a `CachePolicy`, starting from a
- * base (defaults to {@link FULL_CACHE_POLICY}). The spec is a
- * comma-separated list of `layer:flags` segments where `layer` is
- * `local` or `remote` and `flags` is any subset of `r` (read) and `w`
- * (write), order-independent and possibly empty.
- *
- * A mentioned layer is set EXACTLY to its flags (read = includes `r`,
- * write = includes `w`); an unmentioned layer keeps its base value.
- * So `local:rw,remote:r` = remote read-only, `remote:` = remote fully
- * off, `local:r` = local read-only with remote untouched.
- *
- * Throws a {@link UserError} on an unknown layer, an unknown flag, a
- * duplicated flag, a missing colon, or a repeated layer.
- */
-export function parseCachePolicy(spec: string, base: CachePolicy = FULL_CACHE_POLICY): CachePolicy {
-  const out: CachePolicy = { ...base }
-  const seen = new Set<string>()
-  for (const rawSeg of spec.split(',')) {
-    const seg = rawSeg.trim()
-    if (seg.length === 0) continue
-    const colon = seg.indexOf(':')
-    if (colon < 0) {
-      throw new UserError(`invalid --cache segment '${seg}': expected '<layer>:<flags>'`)
-    }
-    const layer = seg.slice(0, colon)
-    const flags = seg.slice(colon + 1)
-    if (layer !== 'local' && layer !== 'remote') {
-      throw new UserError(`invalid --cache layer '${layer}': expected 'local' or 'remote'`)
-    }
-    if (seen.has(layer)) {
-      throw new UserError(`--cache layer '${layer}' specified twice`)
-    }
-    seen.add(layer)
-    const flagSet = new Set<string>()
-    for (const ch of flags) {
-      if (ch !== 'r' && ch !== 'w') {
-        throw new UserError(`invalid --cache flag '${ch}' for '${layer}': expected 'r' and/or 'w'`)
-      }
-      if (flagSet.has(ch)) {
-        throw new UserError(`--cache flag '${ch}' repeated for '${layer}'`)
-      }
-      flagSet.add(ch)
-    }
-    if (layer === 'local') {
-      out.localRead = flagSet.has('r')
-      out.localWrite = flagSet.has('w')
-    } else {
-      out.remoteRead = flagSet.has('r')
-      out.remoteWrite = flagSet.has('w')
-    }
-  }
-  return out
-}
-
-export interface CacheKeyInput {
-  taskId: string
-  /**
-   * Hash of the resolved task config (post-evaluation). Folds in everything
-   * the user wrote — command, env declarations (passThrough names + define
-   * key/value pairs), dependsOn, cache.inputs declarations, outputs — including
-   * values that arrived via `import` at config-load time.
-   */
-  taskConfigHash: string
-  /**
-   * Runtime values of declared cache-input env names (from parent at hash
-   * time). Independent of `exec.env`; lives here for cache identity.
-   */
-  envValues: Array<[name: string, value: string]>
-  /**
-   * Resolved `cache.inputs.runtime` commands as [command, output] pairs
-   * (output = trimmed stdout+stderr, resolved live at hash time). Folded
-   * into the key in a namespace distinct from workspaceRuntimeValues.
-   */
-  runtimeValues?: Array<[command: string, output: string]>
-  /** Resolved `cache.inputs.workspaceRuntime` pairs (root-cwd commands). */
-  workspaceRuntimeValues?: Array<[command: string, output: string]>
-  /** Absolute paths to input files. */
-  inputFiles: string[]
-  workspaceRoot: string
-  /** Cache keys of upstream tasks this one depends on, sorted. */
-  upstreamHashes: string[]
-  /**
-   * Upstream hash → upstream task id, for `captureInto` row NAMING only.
-   * Never folded into the digest — the key already folds the sorted
-   * hashes. Lets the persisted `entry_inputs` row name which upstream
-   * task a hash came from (the diff reads better than a bare hash). When
-   * absent, the captured `upstream` row falls back to `name = hash`.
-   */
-  upstreamIds?: ReadonlyMap<string, string>
-  /**
-   * The task's DEPENDENCY closure with GROUP tasks expanded into the real
-   * tasks they stand for — what an input-shipping executor must place in the
-   * input root. A different question from what the key folds, and derived
-   * differently in both directions:
-   *
-   * - It expands groups, which contribute a synthetic roll-up hash and no
-   *   outputs of their own, so a dependent of one would otherwise describe
-   *   an empty closure.
-   * - It ignores `cache.inputs.tasks`. That filter says which upstream KEYS
-   *   this task's key folds; what the task may READ is `dependsOn`, and
-   *   locally every dependency's outputs are on disk before the command runs
-   *   however the filter is written.
-   *
-   * NEVER folded into the digest — the key cascades through a group's own
-   * roll-up hash already, and folding either difference in would move every
-   * existing dependent's key without telling it anything new.
-   */
-  upstreamGraft?: ReadonlyArray<{
-    readonly taskId: string
-    readonly hash: string
-    readonly projectDir: string
-  }>
-  /**
-   * Workspace-level fingerprint — typically a hash of `pnpm-lock.yaml` +
-   * `pnpm-workspace.yaml`. Folds resolved dep versions and workspace shape
-   * into every task's key, so a lockfile bump invalidates everything.
-   */
-  workspaceFingerprint: string
-  /**
-   * CLI args forwarded to the task (after `--`). Folded into the key so that
-   * the same command with different forwarded args is treated as a distinct
-   * run, never a spurious cache hit.
-   */
-  forwardArgs?: readonly string[]
-  /**
-   * Hash of the project's `package.json` bytes. Folded into the key
-   * implicitly (Turbo / Nx parity) so dep changes invalidate every
-   * task in that project, even when `cache.inputs.files` doesn't
-   * cover package.json. Empty string when the project has no
-   * package.json (impossible in practice — workspace discovery
-   * requires one — but we don't fail-loud here).
-   */
-  projectPackageJsonHash: string
-  /**
-   * Precomputed content hashes (git blob OIDs) keyed by absolute
-   * path — typically the trusted-index OID map harvested by the
-   * run's bulk `git ls-files -s`. Paths present here skip `hashFile`
-   * entirely (no stat, no SQLite, no read); missing paths fall back
-   * to `hashFile`, which computes the byte-identical blob OID from
-   * disk. Pure fast path: the derived key never depends on whether a
-   * hash arrived via the map or the fallback.
-   */
-  fileHashes?: ReadonlyMap<string, string>
-  /**
-   * Material a plugin's `key` stage contributed, as sorted `[name, value]`
-   * pairs. Folded only when non-empty, so a workspace without a key plugin
-   * derives exactly the key it always did.
-   */
-  pluginParts?: ReadonlyArray<readonly [name: string, value: string]>
-  /**
-   * When set, `key()` pushes each component (kind, name, hash) it folds
-   * — at the same fold sites, in fold order. Pure SIDE-CHANNEL: it does
-   * not change the returned digest in any way. On a cache MISS the
-   * orchestrator allocates an array, passes it here, and persists the
-   * rows to `entry_inputs` (inside the entry-save transaction) so a
-   * later run can diff its inputs against this one (the Tier-3 "why did
-   * this re-run?" moat). Capturing at the fold sites keeps the
-   * recorded set in lockstep with the key by construction: a future
-   * component that forgets to capture is a one-line miss, not silent
-   * drift. The per-file OIDs are already awaited here, so file rows cost
-   * zero extra I/O — just array pushes.
-   */
-  captureInto?: Array<{ kind: string; name: string; hash: string }>
-}
-
-export interface CacheEntry {
-  hash: string
-  taskId: string
-  command: string
-  exitCode: number
-  durationMs: number
-  outputFiles: string[]
-  /**
-   * The `output_files` rows behind `outputFiles` (size / mode / mtime), when
-   * the layer that produced this entry had them in hand. `restoreHit` reads
-   * them for its tree-is-current check instead of re-querying — one SQL
-   * round trip per cache hit, saved.
-   */
-  outputRows?: OutputFileRow[]
-  /**
-   * The `output_dirs` rows behind the directory short-circuit, when the
-   * batched `getMany` loaded them — one query for the run instead of one
-   * per hit (0.12 ms each across a warm 1000-project run before this).
-   */
-  outputDirRows?: OutputDirRow[]
-  /** Captured stdout, always present (may be empty). stderr is not cached. */
-  stdout: string
-  storedAt: string
-  /**
-   * Where this hit was resolved from. `'local'` for a SQLite-backed
-   * Cache; `'remote'` when LayeredCache pulled the artifact from the
-   * remote layer this lookup (even though it's been materialized into
-   * local for next time). Lets the orchestrator surface
-   * `cache-hit-remote` so users see when remote caching actually saved
-   * them work vs. a stale-local replay.
-   */
-  source?: 'local' | 'remote'
-}
-
-export interface RunRecord {
-  /**
-   * The task's cache key. ABSENT when the outcome never derived one — a
-   * `skipped` task (its upstream failed, so it never probed) or a
-   * `persistent` one (a dev server is never cached). Such a row is still a
-   * task of the run and must be recorded, so the column keeps a `''`
-   * sentinel rather than going nullable: `''` is impossible for a real key
-   * (`Cache.key` returns 16 hex chars), the reads that must not treat it as
-   * a key already guard it, and it matches what the cloud `task_runs.hash`
-   * column has stored for the same concept since its first migration.
-   */
-  hash?: string
-  project: string
-  task: string
-  status: 'success' | 'failed' | 'cache-hit' | 'cache-hit-remote' | 'skipped'
-  exitCode: number
-  durationMs: number
-  forwardArgs?: readonly string[]
-  startedAt: number // ms-epoch wall clock
-  endedAt: number // ms-epoch wall clock
-  /**
-   * Optional analytics columns. Populated by the orchestrator/runner;
-   * stored as NULL on rows from older runs. Surfaced via `vx stats`
-   * and consumable from CI by reading cache.db directly.
-   */
-  runId?: string // ULID shared across every task in one `vx run` invocation
-  cpuMs?: number // sum of user + system CPU time for the child process
-  peakRssBytes?: number // peak resident set size of the child process
-  wallclockStartNs?: bigint // hrtime span relative to run t=0
-  wallclockEndNs?: bigint
-  cacheHit?: boolean // convenience for flamegraph color; derivable from status
-  attempts?: number // >1 when the task retried; the direct within-run flaky signal
-}
-
-/**
- * One header row per `vx run` invocation (the `invocations` table). All
- * fields mirror the columns; nullable VCS/host columns are `null` when
- * the probe failed (not a git repo, hostname unavailable). Recorded
- * once per run inside the same transaction as the per-task `runs` rows.
- */
-export interface InvocationRecord {
-  runId: string
-  command: string
-  /** JSON-serialized `string[]` of the requested task names. */
-  requestedTasks: string
-  /** Compact policy flags, e.g. `'lR,lW,rR,rW'` (an axis omitted = off). */
-  cachePolicy: string
-  concurrency: number
-  flow: 'focused' | 'broad' | null
-  startedAt: number
-  endedAt: number
-  totalDurationMs: number
-  taskCount: number
-  failedCount: number
-  hitCount: number
-  hitLocalCount: number
-  hitRemoteCount: number
-  exitOk: boolean
-  commitSha: string | null
-  branch: string | null
-  dirty: boolean | null
-  ci: boolean
-  ciProvider: string | null
-  host: string | null
-  os: string | null
-  arch: string | null
-  vxVersion: string
-  /** JSON object `{k:v}` of `--tag` pairs. */
-  tags: string
-}
-
-/**
- * One cache-key component row for the `entry_inputs` table — keyed by
- * the cache-entry HASH it belongs to, not a run. Written inside the
- * entry-save transaction (`writeArtifactAndIndex`) on a miss/save; a
- * cache HIT does not save, so it persists nothing (warm runs are free).
- * The diff (Phase B/B1) reads these by the run's task hash
- * (`runs.hash → entry_inputs[entry_hash]`).
- */
-export interface TaskInputRow {
-  entryHash: string
-  kind: string
-  name: string
-  hash: string
-}
-
-export interface CacheStats {
-  entryCount: number
-  totalBytes: number
-  runCountLast24h: number
-  hitCountLast24h: number
-}
-
-export interface CacheStatsOptions {
-  /** Narrow every aggregate to one project. Absent = the whole workspace. */
-  project?: string
-}
-
-export interface PruneOptions {
-  /** Drop entries last accessed before this ms-epoch threshold. */
-  olderThanMs?: number
-  /**
-   * After applying olderThanMs, if the cache still exceeds this size in
-   * bytes, evict LRU (smallest `accessed_at` first) until under it.
-   */
-  maxBytes?: number
-}
-
-export interface PruneResult {
-  evicted: number
-  bytesFreed: number
-}
-
-/**
- * Per-output-file fingerprint, scoped by the cache entry that
- * produced it. Batch-loaded once at the top of a run via
- * `loadOutputFilesBatch(hashes)` so the orchestrator's "is this
- * tree already current?" probe becomes an in-memory Map lookup
- * plus N parallel stat calls.
- *
- * `path` is project-relative (e.g. `dist/index.js`), matching how
- * outputs are addressed under `<projectDir>/` — except workspace
- * outputs, which carry the full `workspace-outputs/<rel-to-root>`
- * tar entry name (see `WORKSPACE_OUTPUT_PREFIX`); callers split on
- * the prefix and anchor those at the workspace root.
- */
-export interface OutputFileRow {
-  path: string
-  size: number
-  mode: number
-  mtimeMs: number
-}
-
-/** One directory under a whole-subtree output glob, as it stood after the last save or restore on THIS machine. */
-export interface OutputDirRow {
-  path: string
-  mtimeMs: number
-}
-
-/** More directories than this under a task's output prefixes: record nothing, keep the walk. */
-export const OUTPUT_DIRS_CAP = 256
-
-/**
- * A directory whose mtime lies within this many ms of the snapshot is RACY
- * and the whole snapshot is dropped. File timestamps are coarse on Linux
- * (a kernel tick, up to 10 ms), so a write landing in the same tick as the
- * one that made the directory's recorded mtime leaves the mtime unchanged
- * and the change invisible — git's index distrusts stats this young for
- * the same reason (a stray survived a hit on the ubuntu job, 2026-09-03).
- * The next hit walks, and once the tree is older than the window it is
- * recorded for good.
- */
-export const OUTPUT_DIRS_RACY_MS = 50
-
-/** The stat memo's twin of `OUTPUT_DIRS_RACY_MS`: a file changed within this window of the stat is not memoised. */
-export const FILE_HASH_RACY_MS = 50
-
-/**
- * The shape every cache implementation honors. `Cache` (the local v10
- * implementation) and `LayeredCache` both `implements` this so the
- * orchestrator's `executeTask` can take either without a discriminated
- * union and we get a compile-time guarantee the surfaces stay congruent.
- */
-/**
- * Context passed to `get()`. Optional, but required when the lookup
- * may resolve through the remote layer — the local SQL row inserted on
- * remote-hit needs `taskId` + `command` to be queryable later (the
- * artifact itself doesn't carry them). `Cache` (local) ignores this
- * field; `LayeredCache` forwards it to `Cache.ingest`.
- */
-export interface CacheGetContext {
-  taskId: string
-  command: string
-}
-
-/** Metadata supplied at ingest time — values the artifact does not carry. */
-export interface IngestMeta {
-  taskId: string
-  command: string
-  /** Wall-clock time of the original task execution. */
-  durationMs: number
-  /**
-   * Cache-key components (Tier-3 input fingerprint) to persist into
-   * `entry_inputs` in the same transaction as the entry row. Omitted on
-   * the remote-hit ingest path (the artifact doesn't carry them — the
-   * fingerprint is the saving machine's local moat). Only computed on a
-   * miss/save, so a cache hit never reaches here.
-   */
-  inputComponents?: readonly TaskInputRow[]
-}
-
-/**
- * The supplied artifact bytes don't decompress/parse as a vx artifact.
- * Thrown by `save`/`ingest` BEFORE anything reaches the final cache
- * path — a rejected artifact leaves no `<hash>.tar.zst` and no SQL row.
- * The LayeredCache treats this as a remote fault on the remote-hit
- * path (degrades to a cache miss).
- */
-export class CorruptArtifactError extends Error {
-  constructor(
-    public readonly hash: string,
-    reason: string,
-    public override readonly cause?: unknown,
-  ) {
-    super(`cache: corrupt artifact for ${hash}: ${reason}`)
-    this.name = 'CorruptArtifactError'
-  }
-}
-
-/**
- * A decompressed artifact above this is refused as a zstd bomb rather than
- * expanded into memory. 2 GiB comfortably exceeds any real build output while
- * bounding a malicious/compromised remote's ability to OOM a victim who takes
- * a cache hit.
- */
-const MAX_DECOMPRESSED_ARTIFACT_BYTES = 2 * 1024 * 1024 * 1024
-
-/**
- * Read a zstd frame's declared Frame_Content_Size (RFC 8878 §3.1.1) WITHOUT
- * decompressing. Returns null when the frame omits it (streaming frames) or
- * the header is too short to parse. vx's own producer (single-shot
- * `Bun.zstdCompress` of a known buffer) always writes it, so an artifact that
- * declares an enormous size can be rejected before a byte is allocated.
- *
- * Exported for tests: pins the per-`fcsFlag` byte layouts (incl. the 2-byte
- * `+256` adjustment and the `dictIdFlag` offset) that a bomb-refusal e2e can't
- * discriminate (their max declarable sizes sit below the ceiling).
- */
-export function zstdContentSize(b: Uint8Array): bigint | null {
-  if (b.length < 5) return null
-  // Magic_Number 0xFD2FB528, little-endian.
-  if (b[0] !== 0x28 || b[1] !== 0xb5 || b[2] !== 0x2f || b[3] !== 0xfd) return null
-  const desc = b[4]!
-  const fcsFlag = desc >> 6
-  const singleSegment = (desc >> 5) & 1
-  const dictIdFlag = desc & 3
-  let off = 5
-  if (singleSegment === 0) off += 1 // Window_Descriptor byte
-  off += dictIdFlag === 3 ? 4 : dictIdFlag // Dictionary_ID: 0,1,2,4 bytes
-  let fcsSize: number
-  if (fcsFlag === 0) fcsSize = singleSegment === 1 ? 1 : 0
-  else if (fcsFlag === 1) fcsSize = 2
-  else if (fcsFlag === 2) fcsSize = 4
-  else fcsSize = 8
-  if (fcsSize === 0 || b.length < off + fcsSize) return null
-  let v = 0n
-  for (let i = 0; i < fcsSize; i++) v |= BigInt(b[off + i]!) << BigInt(8 * i)
-  if (fcsSize === 2) v += 256n // per spec, the 2-byte field stores value − 256
-  return v
-}
-
-/**
- * Decompress a zstd artifact that DECLARES its content size, with a hard
- * output ceiling: refused before a byte is allocated when the declaration
- * is over the cap, and again on the actual length. A frame with no
- * declaration (a streamed producer's — vx's own, above 4 MiB) never comes
- * here: `decodedTar` decodes it as a stream under the running count, so
- * a sizeless bomb has nowhere to expand.
- */
-async function zstdDecompressBounded(compressed: Uint8Array, hash: string): Promise<Uint8Array> {
-  assertDeclaredSize(compressed, hash)
-  const out = await Bun.zstdDecompress(compressed)
-  if (out.length > MAX_DECOMPRESSED_ARTIFACT_BYTES) {
-    throw new CorruptArtifactError(
-      hash,
-      `decompressed to ${out.length} bytes (> ${MAX_DECOMPRESSED_ARTIFACT_BYTES} cap)`,
-    )
-  }
-  return out
-}
-
-/** The pre-decompress half of the ceiling: the frame header's own claim, when it makes one. */
-function assertDeclaredSize(compressed: Uint8Array, hash: string): bigint | null {
-  const declared = zstdContentSize(compressed)
-  if (declared !== null && declared > BigInt(MAX_DECOMPRESSED_ARTIFACT_BYTES)) {
-    throw new CorruptArtifactError(
-      hash,
-      `declares ${declared} decompressed bytes (> ${MAX_DECOMPRESSED_ARTIFACT_BYTES} cap)`,
-    )
-  }
-  return declared
-}
-
-/** Compressed artifacts above this size are decoded as a stream, on restore and on ingest. */
-const STREAM_DECODE_FROM = 4 * 1024 * 1024
-
-/** Collect a byte stream; only ever used where the seam wants bytes. */
-async function bytesOf(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  return new Uint8Array(await new Response(stream).arrayBuffer())
-}
-
-/**
- * Bun's `CompressionStream` types do not satisfy `pipeThrough`'s pair
- * (its readable side is typed `NonSharedUint8Array`); the runtime object
- * is a plain byte transform.
- */
-const zstdEncoder = (): TransformStream<Uint8Array, Uint8Array> =>
-  new CompressionStream('zstd') as unknown as TransformStream<Uint8Array, Uint8Array>
-
-const oneChunk = (bytes: Uint8Array): ReadableStream<Uint8Array> =>
-  new ReadableStream({
-    start(c) {
-      c.enqueue(bytes)
-      c.close()
-    },
-  })
-
-/**
- * The decoded tar as a stream: one call for a small artifact that
- * declares its size, a streamed decode otherwise — the stream setup is
- * ~35 µs, which matters at a thousand one-file artifacts and nowhere
- * else. Bytes in memory are only ever the small case (a large source
- * must be a FILE: a Blob copies its bytes and hands the decoder
- * everything at once, measured +519 MiB on 150 MiB against +448 for the
- * plain decode). The 2 GiB ceiling applies either way: the declaration
- * and the result length in one call, a running count on the stream.
- */
-async function decodedTar(
-  source: Uint8Array | Bun.BunFile,
-  hash: string,
-): Promise<ReadableStream<Uint8Array>> {
-  if (source instanceof Uint8Array) {
-    if (assertDeclaredSize(source, hash) === null) return zstdDecodeStream(new Blob([source]), hash)
-    return oneChunk(await zstdDecompressBounded(source, hash))
-  }
-  if (source.size <= STREAM_DECODE_FROM) {
-    const bytes = await source.bytes()
-    if (assertDeclaredSize(bytes, hash) === null) return zstdDecodeStream(source, hash)
-    return oneChunk(await zstdDecompressBounded(bytes, hash))
-  }
-  assertDeclaredSize(await source.slice(0, 32).bytes(), hash)
-  return zstdDecodeStream(source, hash)
-}
-
-/**
- * The streaming twin of `zstdDecompressBounded`: the decoded bytes as a
- * stream, refused past the same ceiling. A malicious frame cannot expand
- * past the cap here either — the count runs as bytes are produced, before
- * any of them reach the reader's next entry.
- */
-function zstdDecodeStream(source: Blob, hash: string): ReadableStream<Uint8Array> {
-  let total = 0
-  return source
-    .stream()
-    .pipeThrough(new DecompressionStream('zstd'))
-    .pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          total += chunk.byteLength
-          if (total > MAX_DECOMPRESSED_ARTIFACT_BYTES) {
-            controller.error(
-              new CorruptArtifactError(
-                hash,
-                `decompresses past ${MAX_DECOMPRESSED_ARTIFACT_BYTES} bytes (cap)`,
-              ),
-            )
-            return
-          }
-          controller.enqueue(chunk)
-        },
-      }),
-    )
-}
-
-export interface CacheLayer {
-  /**
-   * The local handle this layer wraps, when it wraps one (`LayeredCache`).
-   * `resolveCache` uses it to drop a bare local layer another declared layer
-   * already contains, so a plugin that layers over the local handle does
-   * not write the
-   * local store twice.
-   */
-  readonly local?: Cache | undefined
-  /**
-   * `true` iff a REMOTE cache sits behind this layer. THE answer to "can
-   * the remote axes of the cache policy do anything on this run?" — the
-   * orchestrator clamps `remoteRead`/`remoteWrite` off when it is absent,
-   * skips the up-front local classify when it is present (that classify's
-   * `cache.get` would be a remote read-through awaited before scheduling),
-   * and drives the prefetch pass off it.
-   *
-   * A layer must answer TRUTHFULLY: identity against the local cache
-   * ("something other than the handle I passed in") is NOT the same
-   * question — an ordinary pass-through decorator with no remote at all
-   * answers yes to it. `LayeredCache` sets it, a bare `Cache` denies it,
-   * and a third-party layer opts in when, and only when, it really has a
-   * remote. Optional so a layer written before this contract keeps
-   * type-checking; absent reads as "no remote", the safe answer.
-   */
-  readonly hasRemote?: boolean
-  /**
-   * Batch existence probe over the remote — the subset of `hashes` stored
-   * remotely, in ONE round-trip, or `null` for "no batch info; use
-   * per-hash". Only meaningful with `hasRemote`; a remote layer that can't
-   * batch omits it and the prefetch pass falls back to per-hash GETs.
-   */
-  remoteHasMany?(hashes: readonly string[]): Promise<Set<string> | null>
-  /**
-   * Record that the remote has NO artifact for each of `hashes` (from a
-   * batch probe), so a later `get`/`prefetch` short-circuits to a miss with
-   * no round-trip. Only meaningful with `hasRemote`.
-   */
-  markRemoteAbsent?(hashes: Iterable<string>): void
-  /**
-   * Resolve once every background write-through upload settles. The
-   * orchestrator awaits it before `close()` — an upload reading layer state
-   * after close would race. Only meaningful with `hasRemote`; a layer that
-   * uploads synchronously (or not at all) omits it.
-   */
-  drainUploads?(): Promise<void>
-  key(input: CacheKeyInput): Promise<string>
-  get(hash: string, ctx?: CacheGetContext): Promise<CacheEntry | null>
-  /**
-   * Optional batched `get` (same answers, fewer round trips). The
-   * short-circuit probe uses it when a layer offers one; a layer without it
-   * is probed hash by hash.
-   */
-  getMany?(hashes: readonly string[]): Promise<Map<string, CacheEntry>>
-  /**
-   * Lightweight existence probe. `'local'` / `'remote'` names the layer
-   * that holds the artifact; `null` is a miss. NEVER moves bytes: no
-   * artifact read, no remote download, no local ingest, no accessed_at
-   * bump (the LayeredCache's remote side is an HTTP HEAD). Planning
-   * (`--dry` / `--graph`) predicts hits with this instead of `get` so a
-   * dry run can't pull N artifacts over the network. Remote errors
-   * degrade to `null` — an existence probe never fails anything.
-   */
-  has(hash: string): Promise<'local' | 'remote' | null>
-  /**
-   * Best-effort warm of `hash` from a slower layer (the remote cache)
-   * into this one, so a later `get(hash)` resolves locally without a
-   * round-trip on the task's critical path. Returns `true` if the
-   * artifact is now present locally, `false` on a miss / error
-   * (degrades, never throws). The local `Cache` is a no-op (nothing
-   * slower to warm from); `LayeredCache` owns the real implementation
-   * plus the in-flight de-dup so prefetch + get share ONE remote GET.
-   */
-  prefetch(hash: string, ctx?: CacheGetContext): Promise<boolean>
-  /**
-   * Batched lookup of per-output-file fingerprints for many cache
-   * entries in one SQL round-trip. Returns a Map keyed by entry hash.
-   *
-   * Orchestrator pattern: call this once at `prepareRun` for every
-   * task whose hash is known up-front, then per-task `executeCachedTask`
-   * does a Map.get (O(1)) + parallel stat checks to decide whether the
-   * on-disk tree is already current.
-   *
-   * Hashes with no rows (cache misses) are absent from the result.
-   */
-  loadOutputFilesBatch(hashes: readonly string[]): Map<string, OutputFileRow[]>
-  /**
-   * Stat each `expected` row's target under `projectDir` and return
-   * `true` iff every (size, mode, mtime) matches. Missing files,
-   * stat errors, or any mismatch → `false`.
-   *
-   * Pure FS check — no DB access. Caller batches the expected rows
-   * via `loadOutputFilesBatch`. Lets the orchestrator skip
-   * `cleanOutputs + restoreOutputs` entirely when the cached
-   * snapshot is already in place. Integrity-preserving: detects
-   * out-of-band file edits or deletions and falls through to a real
-   * restore.
-   */
-  isOutputsCurrent(projectDir: string, expected: readonly OutputFileRow[]): Promise<boolean>
-  /**
-   * The directory-mtime short-circuit behind a warm hit (optional — a layer
-   * without it keeps the output walk). `recordOutputDirs` snapshots every
-   * directory under each of `prefixes` (project-relative, whole-subtree
-   * globs only — see `wholeSubtreePrefixes`) after a save or restore;
-   * `loadOutputDirsBatch` reads them back; `outputDirsCurrent` is true iff
-   * every recorded directory still carries its recorded mtime, which proves
-   * no file was added or removed anywhere the glob could see. Machine-local
-   * state, like the output rows: a remote ingest records none.
-   */
-  recordOutputDirs?(hash: string, projectDir: string, prefixes: readonly string[]): Promise<void>
-  loadOutputDirsBatch?(hashes: readonly string[]): Map<string, OutputDirRow[]>
-  outputDirsCurrent?(projectDir: string, rows: readonly OutputDirRow[]): Promise<boolean>
-  /**
-   * Extract the artifact's `outputs/` entries into `projectDir` and —
-   * when `workspaceRoot` is given — its `workspace-outputs/` entries
-   * into the workspace root. Callers restoring entries that may carry
-   * workspace outputs must pass `workspaceRoot`.
-   */
-  restoreOutputs(hash: string, projectDir: string, workspaceRoot?: string): Promise<void>
-  save(args: {
-    hash: string
-    /**
-     * `exitCode` is deliberately NOT accepted: vx caches only successes, so
-     * the stored value is pinned to 0 and there is nothing for a caller to
-     * decide. Accepting a number and discarding it invited the one shape that
-     * launders a failure into a success — cache a failing task's outputs, read
-     * the entry back as exit 0, and the hit classifies `cache-hit` while the
-     * broken build's files are restored over a good tree. Unrepresentable
-     * beats guarded.
-     */
-    entry: Omit<CacheEntry, 'hash' | 'storedAt' | 'outputFiles' | 'exitCode'>
-    projectDir: string
-    outputFiles: string[]
-    /**
-     * Set only by ChainedCache when an EARLIER layer in the chain already
-     * wrote this artifact to the same local handle: the local pack + write
-     * is skipped and only the layer's remote side acts. A layer with no
-     * remote side treats it as a full no-op.
-     */
-    skipLocalWrite?: boolean
-    /**
-     * Resolved `outputs.workspaceFiles` (absolute paths) + the root
-     * they're relative to. Packed under `workspace-outputs/<rel>`.
-     * Omitted → artifact bytes identical to the pre-workspaceFiles
-     * format.
-     */
-    workspaceOutputFiles?: string[]
-    workspaceRoot?: string
-    /**
-     * Cache-key components for this entry (the Tier-3 input
-     * fingerprint). Persisted to `entry_inputs` inside the same
-     * transaction as the entry row, via `INSERT OR IGNORE` (a re-save
-     * of the same hash is a no-op). Omitted/empty → nothing written.
-     * Only computed on the miss/save path — never on a hit.
-     */
-    inputComponents?: readonly TaskInputRow[]
-  }): Promise<void>
-  /**
-   * Adopt an artifact produced elsewhere — the remote-hit path. Writes
-   * the compressed bytes to `<cacheDir>/<hash>.tar.zst`, parses the
-   * tar headers to populate the `output_files` rows, and inserts the
-   * `entries` row using the caller-supplied `meta`. After this returns,
-   * the next `get(hash)` resolves locally.
-   */
-  ingest(hash: string, compressed: Uint8Array, meta: IngestMeta): Promise<void>
-  recordRun(run: RunRecord): void
-  /**
-   * Append every run in `runs` to the history in a single SQLite
-   * transaction. ~10× faster than calling `recordRun` in a loop when
-   * `runs.length > ~50` (one fsync vs. N).
-   */
-  recordRuns(runs: readonly RunRecord[]): void
-  /**
-   * Record a whole `vx run` atomically: the per-task `runs` rows and
-   * the one `invocations` header row — in a SINGLE transaction (one
-   * fsync). Replaces the bare `recordRuns` call in the orchestrator's
-   * end-of-run path. Input-fingerprint rows are NOT written here — they
-   * ride the entry-save transaction (`save`/`ingest`) so a warm
-   * all-cache-hit run writes nothing.
-   */
-  recordRunBundle(bundle: { runs: readonly RunRecord[]; invocation: InvocationRecord }): void
-  stats(opts?: CacheStatsOptions): CacheStats
-  /**
-   * Content-hash a file with an mtime+size fast path. If the
-   * `(mtime_ms, size_bytes)` of `filePath` match a previously seen
-   * row, return the stored xxh3 digest instead of re-reading the
-   * bytes. Otherwise read + hash + upsert. The hash is byte-for-byte
-   * identical to what a fresh content-hash would produce — pure
-   * optimization, no cache-key change.
-   */
-  hashFile(filePath: string): Promise<string>
-  /**
-   * Absolute path to the on-disk outputs artifact for a hash —
-   * `<cacheDir>/<hash>.tar.zst`. Returns the path whether or
-   * not the artifact exists. Exposed for telemetry / dashboards;
-   * `restoreOutputs` is the canonical way to materialize the bytes.
-   */
-  outputsPath(hash: string): string
-  prune(options: PruneOptions): Promise<PruneResult>
-  close(): void
-}
-
-/**
- * Convenience alias for the `save()` args. Used by `LayeredCache` to
- * forward call args without redeclaring the structural shape — NOT
- * part of the conceptual cache contract; consumers should call
- * `CacheLayer.save({ ... })` directly.
- *
- * @internal
- */
-export type SaveArgs = Parameters<CacheLayer['save']>[0]
+// The contract, the policy grammar and the zstd framing live beside this
+// file; they are re-exported here so an importer of `./cache.js` — the
+// module index, the sibling layers, the tests — keeps one path.
+export * from './layer.js'
+export * from './policy.js'
+export { zstdContentSize } from './zstd.js'
 
 interface EntryRow {
   hash: string
@@ -1009,19 +267,12 @@ export class Cache implements CacheLayer {
   private readonly selectEntry: ReturnType<Database['prepare']>
   private readonly bumpAccessed: ReturnType<Database['prepare']>
   private readonly touched = new Set<string>()
-  private readonly insertRun: ReturnType<Database['prepare']>
-  private readonly insertInvocation: ReturnType<Database['prepare']>
   private readonly insertEntryInput: ReturnType<Database['prepare']>
-  private readonly selectFileHash: ReturnType<Database['prepare']>
-  private readonly upsertFileHash: ReturnType<Database['prepare']>
-  private readonly insertOutputFile: ReturnType<Database['prepare']>
-  private readonly insertOutputDir: ReturnType<Database['prepare']>
-  private readonly deleteOutputDirs: ReturnType<Database['prepare']>
-  private readonly deleteOutputFiles: ReturnType<Database['prepare']>
-  private readonly selectConfigEval: ReturnType<Database['prepare']>
-  private readonly insertConfigEval: ReturnType<Database['prepare']>
   /** Memoized repo object format for blob-OID hashing (lazy-detected). */
-  private objectFormat: 'sha1' | 'sha256' | null = null
+  private readonly files: FileHashStore
+  private readonly configEvals: ConfigEvalTable
+  private readonly outputs: OutputIndex
+  private readonly history: RunHistory
 
   /**
    * Local-layer read/write gates for the task ARTIFACT path only.
@@ -1032,6 +283,16 @@ export class Cache implements CacheLayer {
    */
   private readonly read: boolean
   private readonly write: boolean
+
+  /**
+   * Set when THIS open found an index written by another `SCHEMA_VERSION`
+   * and dropped every table. The next open sees the current version and
+   * reports null, so whoever opened first is the one that can say so —
+   * `noteSchemaReset` is that one line, at every opener that has a
+   * channel. Without it an upgrade empties the cache and the history in
+   * silence, and the all-miss run that follows looks like a bug.
+   */
+  readonly schemaReset: SchemaReset | null = null
 
   constructor(
     private readonly cacheDir: string,
@@ -1073,12 +334,15 @@ export class Cache implements CacheLayer {
     // Schema-version gate runs BEFORE the rest of the schema lands so
     // a column rename (e.g. v15's `sha256` → `content_hash`) actually
     // takes effect on stale DBs. Pre-alpha: no migrations, just drop
-    // and recreate. Outputs on disk become orphans; they'll be ignored
-    // on next miss and reaped by `vx cache prune`.
+    // and recreate. Artifacts on disk become orphans: a lookup never
+    // sees them (rows first, then the file), the next save of the same
+    // key renames over them, and `prune()`'s orphan sweep unlinks the
+    // rest.
     const meta = this.db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").get() as
       | { value: string }
       | undefined
     if (meta && meta.value !== SCHEMA_VERSION) {
+      this.schemaReset = { from: meta.value, to: SCHEMA_VERSION }
       this.db.exec(
         'DROP TABLE IF EXISTS entries; DROP TABLE IF EXISTS runs; DROP TABLE IF EXISTS file_hashes; DROP TABLE IF EXISTS output_files; DROP TABLE IF EXISTS invocations; DROP TABLE IF EXISTS run_task_inputs; DROP TABLE IF EXISTS entry_inputs; DROP TABLE IF EXISTS config_evals;',
       )
@@ -1141,7 +405,10 @@ export class Cache implements CacheLayer {
         cache_hit           INTEGER,
         -- v23: attempts a retried task took (>1); NULL for a once-run task.
         -- The direct within-run flaky signal.
-        attempts            INTEGER
+        attempts            INTEGER,
+        -- v25: 1 when the task declared a cache block, 0 when it runs every
+        -- time by design; NULL on rows older than the column.
+        cached              INTEGER
       );
       -- Two indexes only, and both APPEND: every row of a run carries the
       -- same run_id and a started_at newer than everything before it, so
@@ -1286,27 +553,6 @@ export class Cache implements CacheLayer {
     `)
     this.selectEntry = this.db.prepare('SELECT * FROM entries WHERE hash = ?')
     this.bumpAccessed = this.db.prepare('UPDATE entries SET accessed_at = ? WHERE hash = ?')
-    this.insertRun = this.db.prepare(`
-      INSERT INTO runs(
-        hash, project, task, status, exit_code, duration_ms, forward_args,
-        started_at, ended_at,
-        run_id, cpu_ms, peak_rss_bytes, wallclock_start_ns, wallclock_end_ns,
-        cache_hit, attempts
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?,  ?, ?)
-    `)
-    this.insertInvocation = this.db.prepare(`
-      INSERT INTO invocations(
-        run_id, command, requested_tasks, cache_policy, concurrency, flow,
-        started_at, ended_at, total_duration_ms,
-        task_count, failed_count, hit_count, hit_local_count, hit_remote_count,
-        exit_ok,
-        commit_sha, branch, dirty, ci, ci_provider,
-        host, os, arch, vx_version, tags
-      )
-      VALUES (?, ?, ?, ?, ?, ?,  ?, ?, ?,  ?, ?, ?, ?, ?,  ?,  ?, ?, ?, ?, ?,  ?, ?, ?, ?, ?)
-      ON CONFLICT(run_id) DO NOTHING
-    `)
     // INSERT OR IGNORE: re-saving the same hash (idempotent ingest /
     // overlapping concurrent saves) leaves the existing rows untouched —
     // identical inputs derive the identical hash, so the rows are too.
@@ -1314,320 +560,37 @@ export class Cache implements CacheLayer {
       INSERT OR IGNORE INTO entry_inputs(entry_hash, kind, name, hash)
       VALUES (?, ?, ?, ?)
     `)
-    this.selectFileHash = this.db.prepare(
-      'SELECT mtime_ms, size_bytes, ctime_ms, ino, content_hash FROM file_hashes WHERE path = ?',
-    )
-    this.upsertFileHash = this.db.prepare(`
-      INSERT INTO file_hashes(path, mtime_ms, size_bytes, ctime_ms, ino, content_hash, seen_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(path) DO UPDATE SET
-        mtime_ms     = excluded.mtime_ms,
-        size_bytes   = excluded.size_bytes,
-        ctime_ms     = excluded.ctime_ms,
-        ino          = excluded.ino,
-        content_hash = excluded.content_hash,
-        seen_at      = excluded.seen_at
-    `)
-    this.insertOutputFile = this.db.prepare(`
-      INSERT INTO output_files(entry_hash, path, size_bytes, mode, mtime_ms)
-      VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(entry_hash, path) DO UPDATE SET
-        size_bytes = excluded.size_bytes,
-        mode       = excluded.mode,
-        mtime_ms   = excluded.mtime_ms
-    `)
-    this.deleteOutputFiles = this.db.prepare('DELETE FROM output_files WHERE entry_hash = ?')
-    this.insertOutputDir = this.db.prepare(
-      'INSERT INTO output_dirs(entry_hash, path, mtime_ms) VALUES (?, ?, ?)',
-    )
-    this.deleteOutputDirs = this.db.prepare('DELETE FROM output_dirs WHERE entry_hash = ?')
-    this.selectConfigEval = this.db.prepare('SELECT json FROM config_evals WHERE key = ?')
-    this.insertConfigEval = this.db.prepare(
-      'INSERT OR REPLACE INTO config_evals(key, json, created_at) VALUES (?, ?, ?)',
-    )
+    // The slices: each owns its statements over this handle and its table(s);
+    // the schema above is the one place every table is declared.
+    this.files = new FileHashStore(this.db, cacheDir)
+    this.configEvals = new ConfigEvalTable(this.db, localPolicy)
+    this.outputs = new OutputIndex(this.db)
+    this.history = new RunHistory(this.db)
   }
 
-  /** `ConfigEvalStore`: a cached config evaluation, honouring the local READ axis. */
+  // --- config evaluations: `ConfigEvalStore`, delegated to `ConfigEvalTable` ---
   getConfigEval(key: string): string | null {
-    if (!this.read) return null
-    const row = this.selectConfigEval.get(key) as { json: string } | null
-    return row?.json ?? null
+    return this.configEvals.getConfigEval(key)
   }
-
-  /** `ConfigEvalStore`: each config's ordered closure, one `IN` query per 900 paths. */
   getConfigClosures(configPaths: readonly string[]): Map<string, string[]> {
-    const out = new Map<string, string[]>()
-    if (!this.read || configPaths.length === 0) return out
-    for (let i = 0; i < configPaths.length; i += 900) {
-      const chunk = configPaths.slice(i, i + 900)
-      const rows = this.db
-        .query(
-          `SELECT config_path, files_json FROM config_closures WHERE config_path IN (${chunk.map(() => '?').join(',')})`,
-        )
-        .all(...(chunk as readonly SQLQueryBindings[])) as Array<{
-        config_path: string
-        files_json: string
-      }>
-      for (const r of rows) out.set(r.config_path, JSON.parse(r.files_json) as string[])
-    }
-    return out
+    return this.configEvals.getConfigClosures(configPaths)
   }
-
-  /** `ConfigEvalStore`: remember a config's ordered closure, honouring the local WRITE axis. */
   putConfigClosure(configPath: string, files: readonly string[]): void {
-    if (!this.write) return
-    this.db
-      .prepare(
-        'INSERT INTO config_closures(config_path, files_json, created_at) VALUES (?, ?, ?) ON CONFLICT(config_path) DO UPDATE SET files_json = excluded.files_json, created_at = excluded.created_at',
-      )
-      .run(configPath, JSON.stringify(files), Date.now())
+    this.configEvals.putConfigClosure(configPath, files)
   }
-
-  /** `ConfigEvalStore`: the batched read — one `IN` query per 900 keys, honouring the local READ axis. */
   getConfigEvals(keys: readonly string[]): Map<string, string> {
-    const out = new Map<string, string>()
-    if (!this.read || keys.length === 0) return out
-    for (let i = 0; i < keys.length; i += 900) {
-      const chunk = keys.slice(i, i + 900)
-      const rows = this.db
-        .query(
-          `SELECT key, json FROM config_evals WHERE key IN (${chunk.map(() => '?').join(',')})`,
-        )
-        .all(...(chunk as readonly SQLQueryBindings[])) as Array<{ key: string; json: string }>
-      for (const r of rows) out.set(r.key, r.json)
-    }
-    return out
+    return this.configEvals.getConfigEvals(keys)
   }
-
-  /** `ConfigEvalStore`: remember a validated evaluation, honouring the local WRITE axis. */
   putConfigEval(key: string, json: string): void {
-    if (!this.write) return
-    this.insertConfigEval.run(key, json, Date.now())
+    this.configEvals.putConfigEval(key, json)
   }
-
-  /**
-   * Content-hash a file (as a git blob OID, v20) with an mtime+size
-   * fast path. If the `file_hashes` table has a row for `path` whose
-   * `(mtime_ms, size_bytes, ctime_ms, ino)` all match the current
-   * stat, we reuse the stored content_hash (a memory + SQLite lookup,
-   * no disk read). Otherwise we read + hash + upsert. All four fields
-   * are load-bearing — see the comment at the comparison.
-   *
-   * The OID is byte-identical to what `git hash-object` (and the git
-   * index) computes for the same content — for a symlink, the index's
-   * mode-120000 blob of the link text — so this fallback and the
-   * `CacheKeyInput.fileHashes` index-OID fast path agree on any file
-   * git stores verbatim. They do NOT agree when a clean filter
-   * (`text`/`eol`/`ident`) is active: the index blob is the filtered
-   * form while this hashes the worktree bytes, so `inputs.ts` drops
-   * the index OID for those paths and routes them here.
-   */
-  async hashFile(filePath: string): Promise<string> {
-    // lstatSync intentional: a single stat is ~1.6µs (Bun 1.3); the
-    // async-stat equivalent adds ~75µs of Promise machinery per call.
-    // Promise.all over the batched callers (key derivation) gives no
-    // I/O parallelism benefit because the stat is faster than the
-    // threadpool dispatch overhead. lstat, not stat, so a symlink is
-    // seen as one.
-    let st
-    try {
-      st = lstatSync(filePath)
-    } catch {
-      // Caller is responsible for skipping files that don't exist;
-      // fall through to the content-hash path which will throw with
-      // a more useful error.
-      return await this.hashFileFromDisk(filePath)
-    }
-    // A symlink folds as git folds it: the blob of its TARGET STRING, which
-    // is its mode-120000 index OID. Not the bytes behind it — a link to a
-    // directory has none, a dangling one has none, and a link to a file
-    // outside the project would fold bytes `git diff` and `--affected`
-    // cannot see. A link to a file inside the project still tracks that
-    // file's content, because the file is an input in its own right. No
-    // memo: readlink is one syscall, and the row would be keyed on the
-    // link's own stat, not its target's.
-    if (st.isSymbolicLink()) return this.hashBlob(new TextEncoder().encode(readlinkSync(filePath)))
-    const mtimeMs = Math.floor(st.mtimeMs)
-    const size = st.size
-    // ctime + ino are what make this memo SAFE, not merely fast. mtime is
-    // caller-settable, so (mtime, size) alone hands back the previous run's
-    // digest for genuinely different bytes whenever a producer preserves
-    // mtime — `tar -x`, `unzip`, `cp -p`, `rsync --times`, any
-    // SOURCE_DATE_EPOCH generator — which is a stale cache hit. `utimes`
-    // cannot suppress ctime without root, and an atomic write-then-rename
-    // changes the inode; git's own index keys on ctime+ino+dev for exactly
-    // this reason. Both fields come from the stat we already took.
-    const ctimeMs = Math.floor(st.ctimeMs)
-    const ino = Number(st.ino)
-    const row = this.selectFileHash.get(filePath) as
-      | {
-          mtime_ms: number
-          size_bytes: number
-          ctime_ms: number
-          ino: number
-          content_hash: string
-        }
-      | undefined
-    if (
-      row &&
-      row.mtime_ms === mtimeMs &&
-      row.size_bytes === size &&
-      row.ctime_ms === ctimeMs &&
-      row.ino === ino
-    ) {
-      return row.content_hash
-    }
-    const ch = await this.hashFileFromDisk(filePath)
-    // git's racy-clean rule, applied to the memo: a stat taken in the same
-    // tick as the file's last change cannot be trusted next time, because a
-    // rewrite landing in that tick keeps ctime (and, with mtime restored,
-    // every other field) equal and would hand back THIS digest for other
-    // bytes — seen once on ubuntu CI, on a docs-only commit. So a file
-    // changed within the window is hashed again on its next call rather
-    // than memoised; the warm path never meets it (keys are derived long
-    // after the files were written).
-    if (Date.now() - ctimeMs >= FILE_HASH_RACY_MS) {
-      this.upsertFileHash.run(filePath, mtimeMs, size, ctimeMs, ino, ch, Date.now())
-    }
-    return ch
+  // --- input file hashes: delegated to `FileHashStore` (see file-hashes.ts) ---
+  hashFile(filePath: string): Promise<string> {
+    return this.files.hashFile(filePath)
   }
-
-  /**
-   * `hashFile` for many paths at once, with ONE memo query. The per-file
-   * form costs a SQLite point lookup each; a warm config load keys 1,000
-   * closures that way (7.7 ms of `get` in a 2026-09-09 profile), where one
-   * `IN` query over all of them costs well under a millisecond. Same stat
-   * fields, same racy-clean rule, same digest. A path that cannot be
-   * stat'ed is absent from the result (the caller decides what a missing
-   * identity means) rather than thrown, so one vanished preset does not
-   * fail the batch for every other config.
-   */
-  async hashFiles(paths: readonly string[]): Promise<Map<string, string>> {
-    const out = new Map<string, string>()
-    if (paths.length === 0) return out
-    interface Stat {
-      mtimeMs: number
-      size: number
-      ctimeMs: number
-      ino: number
-    }
-    const stats = new Map<string, Stat>()
-    for (const p of paths) {
-      if (stats.has(p)) continue
-      try {
-        const st = statSync(p)
-        stats.set(p, {
-          mtimeMs: Math.floor(st.mtimeMs),
-          size: st.size,
-          ctimeMs: Math.floor(st.ctimeMs),
-          ino: Number(st.ino),
-        })
-      } catch {
-        // absent from the result
-      }
-    }
-    const wanted = [...stats.keys()]
-    const misses: string[] = []
-    // SQLite's bound-variable ceiling is 32,766 (999 on old builds); 500
-    // keeps a closure list of any size inside either.
-    for (let i = 0; i < wanted.length; i += 500) {
-      const chunk = wanted.slice(i, i + 500)
-      const rows = this.db
-        .query(
-          `SELECT path, mtime_ms, size_bytes, ctime_ms, ino, content_hash FROM file_hashes WHERE path IN (${chunk.map(() => '?').join(',')})`,
-        )
-        .all(...chunk) as Array<{
-        path: string
-        mtime_ms: number
-        size_bytes: number
-        ctime_ms: number
-        ino: number
-        content_hash: string
-      }>
-      const byPath = new Map(rows.map((r) => [r.path, r]))
-      for (const p of chunk) {
-        const st = stats.get(p)!
-        const row = byPath.get(p)
-        if (
-          row &&
-          row.mtime_ms === st.mtimeMs &&
-          row.size_bytes === st.size &&
-          row.ctime_ms === st.ctimeMs &&
-          row.ino === st.ino
-        ) {
-          out.set(p, row.content_hash)
-        } else misses.push(p)
-      }
-    }
-    if (misses.length === 0) return out
-    const digests = await Promise.all(
-      misses.map((p) => this.hashFileFromDisk(p).catch(() => undefined)),
-    )
-    const now = Date.now()
-    this.db.transaction(() => {
-      for (let i = 0; i < misses.length; i++) {
-        const digest = digests[i]
-        if (digest === undefined) continue
-        const p = misses[i]!
-        const st = stats.get(p)!
-        out.set(p, digest)
-        // The same racy-clean rule as `hashFile`: a stat taken within the
-        // window of the file's last change is not memoised.
-        if (now - st.ctimeMs >= FILE_HASH_RACY_MS) {
-          this.upsertFileHash.run(p, st.mtimeMs, st.size, st.ctimeMs, st.ino, digest, now)
-        }
-      }
-    })()
-    return out
+  hashFiles(paths: readonly string[]): Promise<Map<string, string>> {
+    return this.files.hashFiles(paths)
   }
-
-  /**
-   * Git blob OID of the file's bytes:
-   * `hex(HASH("blob " + byteLength + "\0" + content))`, where HASH is
-   * the repo's object format. Same value `git hash-object` prints and
-   * the same value the index stores. Computed in-process — no git
-   * spawn per file.
-   */
-  private async hashFileFromDisk(filePath: string): Promise<string> {
-    return this.hashBlob(await Bun.file(filePath).bytes(), filePath)
-  }
-
-  /** `git hash-object` of `bytes`: the blob OID in the repo's object format. */
-  private hashBlob(bytes: Uint8Array, nearPath?: string): string {
-    const hasher = new Bun.CryptoHasher(
-      this.objectFormat ?? this.detectObjectFormat(nearPath ?? this.cacheDir),
-    )
-    hasher.update(`blob ${bytes.byteLength}\0`)
-    hasher.update(bytes)
-    return hasher.digest('hex')
-  }
-
-  /**
-   * Repo object format — sha1 unless the repo was created with
-   * `--object-format=sha256`. One `git rev-parse` spawn per Cache
-   * lifetime, and only when at least one file misses the mtime+size
-   * memo. Outside a repo (unit fixtures) we default to sha1, which is
-   * still a deterministic blob-OID domain.
-   */
-  private detectObjectFormat(nearPath: string): 'sha1' | 'sha256' {
-    let detected: 'sha1' | 'sha256' = 'sha1'
-    try {
-      const proc = Bun.spawnSync({
-        cmd: ['git', 'rev-parse', '--show-object-format'],
-        cwd: path.dirname(nearPath),
-        stdout: 'pipe',
-        stderr: 'pipe',
-      })
-      if (proc.exitCode === 0 && new TextDecoder().decode(proc.stdout).trim() === 'sha256') {
-        detected = 'sha256'
-      }
-    } catch {
-      // git unavailable → sha1 default keeps hashing deterministic.
-    }
-    this.objectFormat = detected
-    return detected
-  }
-
   async key(input: CacheKeyInput): Promise<string> {
     // Seed-chained xxHash3: each step folds one field into the
     // running digest via `xxh3(part, prevDigest)`. Equivalent to the
@@ -1737,7 +700,7 @@ export class Cache implements CacheLayer {
     // Local reads disabled (e.g. `--force` / `--cache=local:w`): report a
     // miss so the task re-executes. The artifact + index are untouched.
     if (!this.read) return null
-    return await this.readEntry(hash)
+    return this.readEntry(hash)
   }
 
   /**
@@ -1749,8 +712,8 @@ export class Cache implements CacheLayer {
    * `ingest` had just written, so the task re-executed and re-uploaded on
    * every single run.
    */
-  async getIngested(hash: string): Promise<CacheEntry | null> {
-    return await this.readEntry(hash)
+  getIngested(hash: string): Promise<CacheEntry | null> {
+    return this.readEntry(hash)
   }
 
   private async readEntry(hash: string): Promise<CacheEntry | null> {
@@ -1830,168 +793,34 @@ export class Cache implements CacheLayer {
     return false
   }
 
+  // --- output fingerprints: delegated to `OutputIndex` (see output-index.ts) ---
+  // The slices' proofs and hashes are returned as the slice's own promise —
+  // no `async` wrapper, no `return await`: each of those added a promise and
+  // a microtask hop per call, and a 1,000-hit warm run pays the proofs
+  // 2,000 times (measured 2026-09-10: +3 ms on `classify + probe`).
   loadOutputFilesBatch(hashes: readonly string[]): Map<string, OutputFileRow[]> {
-    const out = new Map<string, OutputFileRow[]>()
-    if (hashes.length === 0) return out
-    // Inline placeholders for an IN-list — bun:sqlite doesn't ship
-    // rarray, but `IN (?, ?, …)` with N≤~999 is fast and avoids per-
-    // hash select.get() overhead. `db.query` (not `db.prepare`) caches the
-    // compiled statement keyed by the SQL text — so the dominant single-hash
-    // warm-hit path (called up to 3× per hit) reuses one statement instead of
-    // recompiling on every call.
-    const placeholders = hashes.map(() => '?').join(',')
-    const stmt = this.db.query(
-      `SELECT entry_hash, path, size_bytes, mode, mtime_ms FROM output_files WHERE entry_hash IN (${placeholders})`,
-    )
-    const rows = stmt.all(...(hashes as readonly SQLQueryBindings[])) as Array<{
-      entry_hash: string
-      path: string
-      size_bytes: number
-      mode: number
-      mtime_ms: number
-    }>
-    for (const r of rows) {
-      let list = out.get(r.entry_hash)
-      if (!list) {
-        list = []
-        out.set(r.entry_hash, list)
-      }
-      list.push({ path: r.path, size: r.size_bytes, mode: r.mode, mtimeMs: r.mtime_ms })
-    }
-    return out
+    return this.outputs.loadOutputFilesBatch(hashes)
   }
-
-  async isOutputsCurrent(projectDir: string, expected: readonly OutputFileRow[]): Promise<boolean> {
-    // Empty manifest case (a task produced no outputs) → trivially
-    // current; the on-disk tree under projectDir is whatever it was,
-    // and nothing was supposed to land there.
-    if (expected.length === 0) return true
-    // statSync, deliberately. The async form measured faster on 2026-09-02,
-    // when a hit walked its whole output tree; since the directory
-    // short-circuit (`outputDirsCurrent`) a warm hit stats a handful of
-    // paths, and each async stat costs a thread-pool round trip the
-    // scheduler cannot overlap away (its concurrency is the worker count).
-    // Re-measured 2026-09-09, 1,000 warm hits, interleaved A/B: the run
-    // graph stage 100 → 54 ms, the whole process 422 → 368 ms.
-    const results = expected.map((e) => {
-      try {
-        const s = statSync(path.join(projectDir, e.path))
-        return (
-          s.size === e.size &&
-          (s.mode & 0o777) === (e.mode & 0o777) &&
-          // MILLISECOND comparison (sub-ms tolerance for the float
-          // round-trip through utimes). Save rows carry stat-ms and
-          // restoreOutputs re-syncs restored files to the row value,
-          // so equality holds exactly in steady state; legacy
-          // second-precision rows converge on their first restore.
-          // Residual blind spot: a same-size edit landing in the SAME
-          // millisecond as the recorded write, or a deliberately
-          // forged mtime (touch -r) — the trade every mtime-based
-          // skip check accepts.
-          Math.abs(s.mtimeMs - e.mtimeMs) < 1
-        )
-      } catch {
-        return false
-      }
-    })
-    return results.every(Boolean)
+  isOutputsCurrent(projectDir: string, expected: readonly OutputFileRow[]): Promise<boolean> {
+    return this.outputs.isOutputsCurrent(projectDir, expected)
   }
-
   outputsPath(hash: string): string {
     return this.tarPath(hash)
   }
 
-  /**
-   * Snapshot every directory under each of `prefixes` for `hash`. Called
-   * after a save and after a restore, when the tree is known to equal the
-   * entry's set. Symlinked directories are not descended (the output walk
-   * refuses them too). Over `OUTPUT_DIRS_CAP` directories, or on any
-   * error, the rows are cleared and the next hit keeps the walk.
-   */
   async recordOutputDirs(
     hash: string,
     projectDir: string,
     prefixes: readonly string[],
   ): Promise<void> {
-    const rows: Array<[string, number]> = []
-    const walk = async (rel: string): Promise<boolean> => {
-      const abs = path.join(projectDir, rel)
-      let st
-      try {
-        st = await lstat(abs)
-      } catch {
-        return false
-      }
-      if (!st.isDirectory()) return false
-      rows.push([rel, st.mtimeMs])
-      if (rows.length > OUTPUT_DIRS_CAP) return false
-      let entries
-      try {
-        entries = await readdir(abs, { withFileTypes: true })
-      } catch {
-        return false
-      }
-      for (const e of entries) {
-        if (e.isDirectory() && !e.isSymbolicLink()) {
-          if (!(await walk(`${rel}/${e.name}`))) return false
-        }
-      }
-      return true
-    }
-    let ok = true
-    for (const prefix of prefixes) {
-      if (!(await walk(prefix))) {
-        ok = false
-        break
-      }
-    }
-    // All or nothing: a racy directory dropped alone would leave its
-    // parent trusted while an addition inside it bumps only the dropped one.
-    const youngest = Date.now() - OUTPUT_DIRS_RACY_MS
-    if (rows.some(([, mtime]) => mtime > youngest)) ok = false
-    this.db.transaction(() => {
-      this.deleteOutputDirs.run(hash)
-      if (!ok) return
-      for (const [rel, mtime] of rows) this.insertOutputDir.run(hash, rel, mtime)
-    })()
+    await this.outputs.recordOutputDirs(hash, projectDir, prefixes)
   }
-
   loadOutputDirsBatch(hashes: readonly string[]): Map<string, OutputDirRow[]> {
-    const out = new Map<string, OutputDirRow[]>()
-    if (hashes.length === 0) return out
-    const placeholders = hashes.map(() => '?').join(',')
-    const rows = this.db
-      .query(
-        `SELECT entry_hash, path, mtime_ms FROM output_dirs WHERE entry_hash IN (${placeholders})`,
-      )
-      .all(...(hashes as readonly SQLQueryBindings[])) as Array<{
-      entry_hash: string
-      path: string
-      mtime_ms: number
-    }>
-    for (const r of rows) {
-      const list = out.get(r.entry_hash)
-      const row = { path: r.path, mtimeMs: r.mtime_ms }
-      if (list) list.push(row)
-      else out.set(r.entry_hash, [row])
-    }
-    return out
+    return this.outputs.loadOutputDirsBatch(hashes)
   }
-
-  /** True iff every recorded directory exists with its recorded mtime (ms). Same forged-mtime trade as the file check. */
-  async outputDirsCurrent(projectDir: string, rows: readonly OutputDirRow[]): Promise<boolean> {
-    if (rows.length === 0) return false
-    const results = rows.map((r) => {
-      try {
-        const st = statSync(path.join(projectDir, r.path))
-        return st.isDirectory() && Math.abs(st.mtimeMs - r.mtimeMs) < 1
-      } catch {
-        return false
-      }
-    })
-    return results.every(Boolean)
+  outputDirsCurrent(projectDir: string, rows: readonly OutputDirRow[]): Promise<boolean> {
+    return this.outputs.outputDirsCurrent(projectDir, rows)
   }
-
   async restoreOutputs(hash: string, projectDir: string, workspaceRoot?: string): Promise<void> {
     // In-process extraction — no fork+exec on the hot path
     // (~5-10ms reclaimed per hit vs the prior subprocess `tar -xf`).
@@ -2108,8 +937,8 @@ export class Cache implements CacheLayer {
    * index. Used by the LayeredCache when local writes are disabled but
    * a remote upload still needs the artifact bytes.
    */
-  async packArtifactBytes(args: SaveArgs): Promise<Uint8Array> {
-    return await this.packArtifact(args)
+  packArtifactBytes(args: SaveArgs): Promise<Uint8Array> {
+    return this.packArtifact(args)
   }
 
   async ingest(hash: string, compressed: Uint8Array, meta: IngestMeta): Promise<void> {
@@ -2166,7 +995,7 @@ export class Cache implements CacheLayer {
     })
     if (plan.size <= STREAM_DECODE_FROM)
       return await Bun.zstdCompress(await packArtifactBytes(plan))
-    return await bytesOf(packArtifactStream(plan).pipeThrough(zstdEncoder()))
+    return bytesOf(packArtifactStream(plan).pipeThrough(zstdEncoder()))
   }
 
   /**
@@ -2320,8 +1149,7 @@ export class Cache implements CacheLayer {
     // (not the per-run path) so a warm all-cache-hit run — which never
     // saves — writes none of them.
     const insertEntry = this.insertEntry
-    const insertOutputFile = this.insertOutputFile
-    const deleteOutputFiles = this.deleteOutputFiles
+    const outputs = this.outputs
     const insertEntryInput = this.insertEntryInput
     const inputComponents = meta.inputComponents
     const tx = this.db.transaction(() => {
@@ -2342,12 +1170,7 @@ export class Cache implements CacheLayer {
         now,
         now,
       )
-      // Replace the entry's existing output_files rows (an UPDATE on
-      // the same hash should refresh, not append).
-      deleteOutputFiles.run(hash)
-      for (const [rel, size, mode, mtime] of outputFileRows) {
-        insertOutputFile.run(hash, rel, size, mode, mtime)
-      }
+      outputs.replaceFileRows(hash, outputFileRows)
       // INSERT OR IGNORE: identical inputs derive this same hash, so a
       // re-save's rows are identical — keep the first set, skip the rest.
       if (inputComponents !== undefined) {
@@ -2390,52 +1213,30 @@ export class Cache implements CacheLayer {
   }
 
   /**
-   * Content-addressed storage view over the same artifacts directory.
-   * Returns an `FsCASBackend` pointing at `cacheDir`, so external
-   * subsystems (R2 mirror, REAPI CAS bridge, analytics scanners) can
-   * read raw bytes with a `Digest`-keyed API without coupling to
-   * Cache's internal save path. Read/write semantics match what
-   * Cache.save writes (`<cacheDir>/<hash>.tar.zst`).
+   * Content-addressed view over the same artifacts directory: an
+   * `FsCASBackend` rooted at `cacheDir`, reading and writing the
+   * `<hash>.tar.zst` files `Cache.save` produces, keyed by `Digest`.
+   * A write through it lands `<digest.hash>.tar.zst` with no index row:
+   * under a hash no row references it is an orphan `prune()` reaps after
+   * the in-flight grace window; under a hash a LIVE row references it
+   * REPLACES that entry's bytes, and the next lookup serves them. So it is
+   * a raw bytes view of the artifacts directory, not a save path — nothing
+   * in core writes through it, and a consumer that does owns that risk.
    */
   contentBackend(): FsCASBackend {
     return new FsCASBackend(this.cacheDir)
   }
 
+  // --- run history: delegated to `RunHistory` (see run-history.ts) ---
   recordRun(run: RunRecord): void {
-    this.insertRun.run(...bindRun(run))
+    this.history.recordRun(run)
   }
-
   recordRuns(runs: readonly RunRecord[]): void {
-    if (runs.length === 0) return
-    if (runs.length === 1) {
-      this.insertRun.run(...bindRun(runs[0]!))
-      return
-    }
-    // `bun:sqlite`'s `transaction()` returns a callable that wraps the
-    // body in BEGIN/COMMIT, fsyncing once at the end. For a 200-task
-    // run that's one fsync instead of 200.
-    const insert = this.insertRun
-    const tx = this.db.transaction((batch: readonly RunRecord[]) => {
-      for (const r of batch) insert.run(...bindRun(r))
-    })
-    tx(runs)
+    this.history.recordRuns(runs)
   }
-
   recordRunBundle(bundle: { runs: readonly RunRecord[]; invocation: InvocationRecord }): void {
-    // Whole run records atomically — one transaction, one fsync: the
-    // per-task `runs` rows and the one `invocations` header. The
-    // input-fingerprint rows do NOT live here: they're written inside
-    // the entry-save transaction (`save`/`ingest`) so a warm
-    // all-cache-hit run — which writes no `runs`-vs-`entry_inputs`
-    // mismatch — pays nothing for the moat it isn't refreshing.
-    const insertRun = this.insertRun
-    const insertInvocation = this.insertInvocation
-    this.db.transaction(() => {
-      for (const r of bundle.runs) insertRun.run(...bindRun(r))
-      insertInvocation.run(...bindInvocation(bundle.invocation))
-    })()
+    this.history.recordRunBundle(bundle)
   }
-
   stats(opts: CacheStatsOptions = {}): CacheStats {
     this.flushAccessed()
     const project = opts.project
@@ -2526,7 +1327,83 @@ export class Cache implements CacheLayer {
       await Promise.all(hashes.map((h) => rm(this.tarPath(h), { force: true })))
     }
 
-    return { evicted: victims.size, bytesFreed }
+    const orphans = await this.reapOrphans()
+    return { evicted: victims.size, bytesFreed, ...orphans }
+  }
+
+  /**
+   * Unlink artifacts the index does not know: a `<hash>.tar.zst` with no
+   * `entries` row (a `SCHEMA_VERSION` drop, a `cache.db` deleted by hand)
+   * and a `<hash>.tar.zst.tmp-*` a crashed save never renamed. Nothing
+   * else reaps them — a lookup starts at the row, and a save of the same
+   * key renames over the file, so a key that never recurs leaks its bytes
+   * forever. Files younger than the grace window are left alone: a save
+   * renames the artifact into place BEFORE its row commits, and its temp
+   * exists while the bytes are still being written, so a fresh file
+   * without a row is a save in flight, not an orphan.
+   */
+  private async reapOrphans(): Promise<{ orphans: number; orphanBytes: number }> {
+    let orphans = 0
+    let orphanBytes = 0
+    await Promise.all(
+      (await this.scanOrphans()).map(async (o) => {
+        try {
+          // unlink, not `rm({ force })`: force swallows ENOENT, and a file a
+          // concurrent prune took first must not be counted as ours.
+          await unlink(o.file)
+          orphans += 1
+          orphanBytes += o.size
+        } catch {
+          // Gone under us (a concurrent prune, a save's own cleanup): not ours.
+        }
+      }),
+    )
+    return { orphans, orphanBytes }
+  }
+
+  /** What `prune()` would reap right now, for `vx info` to say before anyone prunes. */
+  async orphanStats(): Promise<{ orphans: number; orphanBytes: number }> {
+    const found = await this.scanOrphans()
+    let orphanBytes = 0
+    for (const o of found) orphanBytes += o.size
+    return { orphans: found.length, orphanBytes }
+  }
+
+  /** Row-less artifacts and temps past the in-flight grace window: one readdir, one stat per candidate. */
+  private async scanOrphans(): Promise<Array<{ file: string; size: number }>> {
+    let names: string[]
+    try {
+      names = await readdir(this.cacheDir)
+    } catch {
+      return []
+    }
+    const indexed = new Set(
+      (this.db.prepare('SELECT hash FROM entries').all() as Array<{ hash: string }>).map(
+        (r) => r.hash,
+      ),
+    )
+    const cutoff = Date.now() - ORPHAN_GRACE_MS
+    const candidates: string[] = []
+    for (const name of names) {
+      if (name.indexOf('.tar.zst.tmp-') > 0) {
+        candidates.push(name)
+      } else if (name.endsWith('.tar.zst') && !indexed.has(name.slice(0, -'.tar.zst'.length))) {
+        candidates.push(name)
+      }
+    }
+    const found: Array<{ file: string; size: number }> = []
+    await Promise.all(
+      candidates.map(async (name) => {
+        const file = path.join(this.cacheDir, name)
+        try {
+          const st = await stat(file)
+          if (st.isFile() && st.mtimeMs <= cutoff) found.push({ file, size: st.size })
+        } catch {
+          // Gone between readdir and stat: not an orphan any more.
+        }
+      }),
+    )
+    return found
   }
 
   close(): void {
@@ -2541,12 +1418,8 @@ export class Cache implements CacheLayer {
     // table would grow unbounded on a long-lived checkout.
     try {
       const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
-      this.db.prepare('DELETE FROM runs WHERE started_at < ?').run(cutoff)
-      this.db.prepare('DELETE FROM invocations WHERE started_at < ?').run(cutoff)
-      // A config that has not been loaded in 30 days was edited (its key
-      // moved) or its project left; either way the row is dead weight.
-      this.db.prepare('DELETE FROM config_evals WHERE created_at < ?').run(cutoff)
-      this.db.prepare('DELETE FROM config_closures WHERE created_at < ?').run(cutoff)
+      this.history.pruneOlderThan(cutoff)
+      this.configEvals.pruneOlderThan(cutoff)
     } catch {
       // Retention is best-effort; never block closing the handle.
     }
@@ -2568,69 +1441,6 @@ export class Cache implements CacheLayer {
   private tarPath(hash: string): string {
     return path.join(this.cacheDir, `${hash}.tar.zst`)
   }
-}
-
-/**
- * Bind a RunRecord to the positional parameters expected by the
- * `insertRun` prepared statement (17 columns). Shared between the
- * single and batched record paths.
- */
-function bindRun(run: RunRecord): SQLQueryBindings[] {
-  return [
-    // The ONE place the no-key sentinel is applied, so the column's
-    // NOT NULL invariant can't be violated from a call site.
-    run.hash ?? '',
-    run.project,
-    run.task,
-    run.status,
-    run.exitCode,
-    run.durationMs,
-    run.forwardArgs ? JSON.stringify(run.forwardArgs) : null,
-    run.startedAt,
-    run.endedAt,
-    run.runId ?? null,
-    run.cpuMs ?? null,
-    run.peakRssBytes ?? null,
-    run.wallclockStartNs !== undefined ? run.wallclockStartNs : null,
-    run.wallclockEndNs !== undefined ? run.wallclockEndNs : null,
-    run.cacheHit === undefined ? null : run.cacheHit ? 1 : 0,
-    run.attempts ?? null,
-  ]
-}
-
-/**
- * Bind an InvocationRecord to the positional parameters of the
- * `insertInvocation` prepared statement (25 columns). Booleans map to
- * 0/1; null-or-bool columns (`dirty`) keep null distinct from 0.
- */
-function bindInvocation(inv: InvocationRecord): SQLQueryBindings[] {
-  return [
-    inv.runId,
-    inv.command,
-    inv.requestedTasks,
-    inv.cachePolicy,
-    inv.concurrency,
-    inv.flow,
-    inv.startedAt,
-    inv.endedAt,
-    inv.totalDurationMs,
-    inv.taskCount,
-    inv.failedCount,
-    inv.hitCount,
-    inv.hitLocalCount,
-    inv.hitRemoteCount,
-    inv.exitOk ? 1 : 0,
-    inv.commitSha,
-    inv.branch,
-    inv.dirty === null ? null : inv.dirty ? 1 : 0,
-    inv.ci ? 1 : 0,
-    inv.ciProvider,
-    inv.host,
-    inv.os,
-    inv.arch,
-    inv.vxVersion,
-    inv.tags,
-  ]
 }
 
 function splitTaskId(id: string): [string, string] {

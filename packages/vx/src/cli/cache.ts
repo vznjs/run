@@ -1,7 +1,8 @@
-import { Cache } from '../cache/index.js'
+import { Cache, noteSchemaReset } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { parseDecimalInt, parseSize } from '../util/index.js'
-import { findWorkspaceRoot, loadWorkspaceConfig, resolveCacheDir } from '../workspace/index.js'
+import { findWorkspaceRoot } from '../workspace/index.js'
+import { loadCliWorkspace, warnToStderr } from './workspace-config.js'
 import { formatBytes } from './format.js'
 
 // parseSize moved to `util` (the orchestrator's resource resolver needs it
@@ -86,18 +87,22 @@ async function pruneCmd(args: readonly string[]): Promise<number> {
     process.stderr.write(`vx cache prune: ${(err as Error).message}\n`)
     return 1
   }
-  // Honor `defineWorkspace({ cacheDir: '...' })` — `vx run` and
-  // `vx cache prune` must operate on the same directory or prune
-  // silently no-ops against the wrong path.
-  const workspaceConfig = await loadWorkspaceConfig(root)
-  const cache = new Cache(resolveCacheDir(root, workspaceConfig))
+  // Honor `defineWorkspace({ cacheDir: '...' })` and a `config` plugin's
+  // edit of it — `vx run` and `vx cache prune` must operate on the same
+  // directory or prune silently no-ops against the wrong path.
+  const cache = new Cache((await loadCliWorkspace(root)).cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   try {
     const opts: { olderThanMs?: number; maxBytes?: number } = {}
     if (parsed.olderThanMs !== undefined) opts.olderThanMs = parsed.olderThanMs
     if (parsed.maxBytes !== undefined) opts.maxBytes = parsed.maxBytes
     const result = await cache.prune(opts)
+    const orphans =
+      result.orphans > 0
+        ? `, reaped ${result.orphans} orphaned artifact${result.orphans === 1 ? '' : 's'} (${formatBytes(result.orphanBytes)})`
+        : ''
     process.stdout.write(
-      `Pruned ${result.evicted} entr${result.evicted === 1 ? 'y' : 'ies'} (${formatBytes(result.bytesFreed)} freed)\n`,
+      `Pruned ${result.evicted} entr${result.evicted === 1 ? 'y' : 'ies'} (${formatBytes(result.bytesFreed)} freed)${orphans}\n`,
     )
   } finally {
     cache.close()

@@ -9,7 +9,7 @@ The repo is a Bun workspace. The root package is `@vzn/vx` — the core
 task runner, and the only thing a plain `vx run` ever needs. Sibling
 packages integrate with core exclusively through its public API
 (`src/index.ts`, imported as the bare `@vzn/vx` specifier — enforced
-by `tests/package-boundaries.test.ts`):
+by `tests/package-boundaries.unsafe.test.ts`):
 
 | Package                   | What                                                                                                 |
 | ------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -34,16 +34,16 @@ single root file when it has no internals to hide. The design and
 migration history live in
 [`design/module-isolation-2026-06.md`](./design/module-isolation-2026-06.md).
 
-| Module         | Form                        | Contract highlights                                                                                                                              |
-| -------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `util`         | dir + `index.ts`            | `UserError`, `xxh3*` hashing, `relPosix`/`toPosix`, `ulid`                                                                                       |
-| `config`       | single file `src/config.ts` | schema types + `defineProject`/`defineWorkspace`. Root-level: every other module consumes it                                                     |
-| `workspace`    | dir + `index.ts`            | discovery, config loaders, lockfile (`vx-lock.json`), package graph, filter DSL, affected, `computeNestedProjectDirs`, workspace fingerprint     |
-| `graph`        | dir + `index.ts`            | task-graph builder, two-tier scheduler, dependency-spec parser, `TaskNode`/`TaskOutcome`/`TaskStatus`                                            |
-| `cache`        | dir + `index.ts`            | `Cache`, `CacheLayer`, `LayeredCache`, `RemoteCache`, `CachePolicy`, input/output resolution, `CASBackend`/`Digest`. `archive.ts` stays internal |
-| `exec`         | dir + `index.ts`            | `runCommand`, `runPersistent`, sandbox runtime, env composition                                                                                  |
-| `orchestrator` | dir + `index.ts`            | `run`, `planRun`, `prepareRun`, plugin + telemetry contracts, event bus, metrics queries                                                         |
-| `cli`          | dir + `index.ts`            | dispatcher (`run(argv)`) + test-facing parser/formatter re-exports                                                                               |
+| Module         | Form                        | Contract highlights                                                                                                                                   |
+| -------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `util`         | dir + `index.ts`            | `UserError`, `xxh3*` hashing, `relPosix`/`toPosix`, `ulid`                                                                                            |
+| `config`       | single file `src/config.ts` | schema types + `defineProject`/`defineWorkspace`. Root-level: every other module consumes it                                                          |
+| `workspace`    | dir + `index.ts`            | discovery, config loaders, lockfile (`vx-lock.json`), package graph, filter DSL, affected, `computeNestedProjectDirs`, workspace fingerprint          |
+| `graph`        | dir + `index.ts`            | task-graph builder, two-tier scheduler, dependency-spec parser, `TaskNode`/`TaskOutcome`/`TaskStatus`                                                 |
+| `cache`        | dir + `index.ts`            | `Cache`, `CacheLayer`, `LayeredCache`, `RemoteCacheLayer`, `CachePolicy`, input/output resolution, `CASBackend`/`Digest`. `archive.ts` stays internal |
+| `exec`         | dir + `index.ts`            | `runCommand`, `runPersistent`, sandbox runtime, env composition                                                                                       |
+| `orchestrator` | dir + `index.ts`            | `run`, `planRun`, `prepareRun`, plugin + telemetry contracts, event bus, metrics queries                                                              |
+| `cli`          | dir + `index.ts`            | dispatcher (`run(argv)`) + test-facing parser/formatter re-exports                                                                                    |
 
 Root files outside the module set: `bin.ts` (shebang entry),
 `index.ts` (public package façade), `version.ts` (the `VERSION`
@@ -55,13 +55,13 @@ cycle through it).
 The orchestrator is the composition module; its files fall into five
 layers:
 
-| Layer                  | Files                                                                                                                                                    |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Run composition        | `run.ts`, `prepare.ts`, `options.ts`, `plan.ts`, `execute-task.ts`, `task-hash.ts`, `upstream.ts`, `run-context.ts`, `run-artifacts.ts`, `run-report.ts` |
-| Cache acceleration     | `remote-cache-setup.ts`, `remote-prefetch.ts`, `stable-keys.ts`, `local-shortcircuit.ts`                                                                 |
-| Plugin + telemetry     | `plugin.ts`, `plugin-host.ts`, `telemetry.ts`, `telemetry-host.ts`                                                                                       |
-| Events                 | `events.ts` — the run event bus and the serializable `WireEvent` any surface reads                                                                       |
-| Presentation + queries | `logger.ts`, `framed-output.ts`, `status-line.ts`, `summary.ts`, `tally.ts`, `colors.ts`, `metrics.ts`, `history.ts`, `predict.ts`                       |
+| Layer                  | Files                                                                                                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Run composition        | `run.ts`, `prepare.ts`, `options.ts`, `plan.ts`, `admission.ts`, `execute-task.ts`, `task-hash.ts`, `upstream.ts`, `run-context.ts`, `run-artifacts.ts`, `run-report.ts` |
+| Cache acceleration     | `remote-cache-setup.ts`, `remote-prefetch.ts`, `stable-keys.ts`, `local-shortcircuit.ts`                                                                                 |
+| Plugin + telemetry     | `plugin.ts`, `plugin-host.ts`, `telemetry.ts`, `telemetry-host.ts`                                                                                                       |
+| Events                 | `events.ts` — the run event bus and the serializable `WireEvent` any surface reads                                                                                       |
+| Presentation + queries | `logger.ts`, `framed-output.ts`, `status-line.ts`, `summary.ts`, `tally.ts`, `colors.ts`, `metrics.ts`, `history.ts`, `predict.ts`                                       |
 
 ```mermaid
 graph TD
@@ -118,7 +118,7 @@ scans every import specifier under `src/` and fails the suite when
 cross-module import of a contracted module targets anything but its
 `index.ts`. Every directory module is contracted. Tests under
 `tests/` are exempt — they may exercise internals. A second guard,
-`tests/package-boundaries.test.ts`, pins the cross-PACKAGE law: core
+`tests/package-boundaries.unsafe.test.ts`, pins the cross-PACKAGE law: core
 never imports `@vzn/vx-*`; sibling packages import core only via the
 bare `@vzn/vx` specifier, and the public-API symbol set is a
 deliberate snapshot.
@@ -135,7 +135,7 @@ the command string is the task (principle #3). Five capabilities:
 | ----------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `executor`  | behavior       | returns a `TaskExecutor` or declines. Consulted once per run; ALL kept in declaration order; each task is PLACED once before scheduling on the first that may take it (a `remote` executor is skipped for a task pinned local by `exec.remote: false` or a persistent dependency, then `accepts()` decides), and an executor with a `capacity` gets its own scheduler pool; core's own `localExecutor()` is appended at the TAIL, so a task every plugin declines runs here |
 | `config`    | pipeline stage | edits the workspace config in place, before anything is derived from it                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `project`   | pipeline stage | edits one loaded project's tasks in place (add / remove / edit); core re-validates after the last plugin, and the key hashes the result                                                                                                                                                                                                                                                                                                                                     |
+| `project`   | pipeline stage | edits one loaded project's tasks in place (add / remove / edit) — a package with no config file is visited as `{ tasks: {} }`; core re-validates after EACH plugin (the refusal names it), and the key hashes the result. Every reader goes through the same staged load (`loadProjects`): `vx show`, `vx info`, the watch sweep, `--affected`, the picker, the MCP catalog                                                                                                 |
 | `graph`     | pipeline stage | edits the task graph in place (`deps`, `requested`, resources); a dangling dep or a cycle is refused naming the plugin                                                                                                                                                                                                                                                                                                                                                      |
 | `key`       | pipeline stage | per task: `{ name: value }` material folded into the cache key (only when non-empty, so keys without it are unchanged) and named in `vx why` as `plugin` components                                                                                                                                                                                                                                                                                                         |
 | `schedule`  | pipeline stage | once per run: task id → weight, merged over the scheduler's structural baseline; `@vzn/vx/plugins/schedule-history` is the reference (expected remaining critical path from the local run history)                                                                                                                                                                                                                                                                          |
@@ -221,10 +221,10 @@ The cache is not a single file. It is composed:
 - **`inputs.ts`** — git-backed input enumeration (`GitFilesCache`),
   glob resolution with hard project boundaries, runtime-command
   resolution, output cleaning.
-- **`cas-backend.ts` / `digest.ts`** — the pluggable
-  content-addressed-storage seam (`CASBackend`, `Digest`). Reference
-  `Memory`/`Fs` backends ship; `cache.ts` is not yet rewired onto it
-  (roadmap: R2/S3/REAPI backends).
+- **`cas-backend.ts` / `digest.ts`** — a content-addressed view of
+  the artifacts directory (`CASBackend`, `Digest`), module-internal
+  with reference `Memory`/`Fs` backends and no consumer; `cache.ts`
+  reads and writes the directory directly, not through it.
 
 `prepareRun` constructs the local cache, then resolves the layer: an
 explicitly injected `RunOptions.remoteCache` wins outright (composed
@@ -310,9 +310,10 @@ never branches on layering.
 5. **`orchestrator/run.ts:run()`** is called with `RunOptions`.
    From here:
    1. `prepareRun` (shared with `planRun`): workspace discovery →
-      **scoped** config loading (only in-scope projects + their
-      transitive dep closure evaluate; `--frozen` loads from
-      `vx-lock.json` after a hash tripwire instead of evaluating) →
+      **scoped** config loading via `loadProjects` (only in-scope
+      projects + their transitive dep closure evaluate; `--frozen`
+      loads from `vx-lock.json` instead of evaluating, with no
+      staleness check of its own — `vx lock --check` is the audit) →
       package graph → task-graph build → cache open (local `Cache`
       with the policy's local slice, wrapped by a plugin cache or the
       env-var remote layer) → bulk `git ls-files` populate →

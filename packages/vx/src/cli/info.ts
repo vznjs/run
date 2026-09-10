@@ -2,17 +2,18 @@
 // workspace + cache facts for bug reports and quick sanity checks.
 // `vx stats` is a deprecated alias (info absorbed it).
 
-import { Cache } from '../cache/index.js'
+import { Cache, CACHE_VERSION, noteSchemaReset, SCHEMA_VERSION } from '../cache/index.js'
+import type { VxPlugin } from '../orchestrator/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
+import { loadCliProjects, loadCliWorkspace, warnToStderr } from './workspace-config.js'
 import {
   findWorkspaceRoot,
   listProjects,
   loadProjectConfig,
   loadWorkspace,
-  loadWorkspaceConfig,
   lockfilePath,
-  resolveCacheDir,
+  type ProjectMeta,
 } from '../workspace/index.js'
 import { formatBytes } from './format.js'
 
@@ -23,27 +24,25 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   }
   const root = await findWorkspaceRoot(process.cwd())
   const metas = await listProjects(await loadWorkspace(root))
-
-  let taskCount = 0
-  await Promise.all(
-    metas.map(async (meta) => {
-      if (meta.configPath === null) return
-      // A broken config must not take the doctor down with it — it
-      // just contributes zero tasks to the count.
-      try {
-        const config = await loadProjectConfig(meta.configPath)
-        taskCount += Object.keys(config.tasks ?? {}).length
-      } catch {
-        // counted as zero
-      }
-    }),
-  )
-
-  const cacheDir = resolveCacheDir(root, await loadWorkspaceConfig(root))
+  const { cacheDir, plugins } = await loadCliWorkspace(root)
   const cache = new Cache(cacheDir)
+  noteSchemaReset(cache, warnToStderr)
   let stats
+  let orphans
+  let taskCount = 0
   try {
     stats = cache.stats()
+    orphans = await cache.orphanStats()
+    // The run path's load — a plugin's `project` stage counts — so the
+    // doctor's task count is the number a run would see. A broken config
+    // must not take the doctor down with it: the count then falls back to
+    // the configs that do load, one by one, the broken ones as zero.
+    try {
+      const loaded = await loadCliProjects(root, metas)
+      for (const p of loaded.values()) taskCount += Object.keys(p.config.tasks ?? {}).length
+    } catch {
+      taskCount = await countLoadableTasks(metas)
+    }
   } finally {
     cache.close()
   }
@@ -61,8 +60,28 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
     ['git status cache', gitStatusCache(root)],
     ['workspace root', root],
     ['projects', `${metas.length} (${taskCount} task${taskCount === 1 ? '' : 's'})`],
+    // Which plugins loaded and which seams each fills, in pipeline order —
+    // the answer to "why did this task run there / cache there / not at
+    // all" before reading any config. A declined seam still costs nothing;
+    // this names the declarations, not what a run consulted.
+    ['plugins', describePlugins(plugins)],
     ['cache dir', cacheDir],
+    // The two versions a bug report needs and the reset notice names: the
+    // key prefix (a bump orphans every entry) and the index schema (a
+    // mismatch drops every table).
+    ['cache versions', `keys ${CACHE_VERSION} · index schema ${SCHEMA_VERSION}`],
     ['cache entries', `${stats.entryCount} (${formatBytes(stats.totalBytes)})`],
+    // Only when there is something to say: the index is authoritative, so a
+    // row-less artifact is bytes nothing will ever hit — and only `vx cache
+    // prune` reclaims them (after an upgrade's schema reset, most often).
+    ...(orphans.orphans > 0
+      ? ([
+          [
+            'orphans',
+            `${orphans.orphans} artifact${orphans.orphans === 1 ? '' : 's'} (${formatBytes(orphans.orphanBytes)}) the index does not know — \`vx cache prune\` reaps them`,
+          ],
+        ] as [string, string][])
+      : []),
     ['runs (24h)', `${stats.runCountLast24h} (${stats.hitCountLast24h} cache hits)`],
     ['vx-lock.json', lockPresent ? 'yes' : 'no'],
   ]
@@ -70,6 +89,29 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   const lines = rows.map(([label, value]) => `${`${label}:`.padEnd(labelW + 1)} ${value}`)
   process.stdout.write(`${lines.join('\n')}\n`)
   return 0
+}
+
+/** The seams a plugin can fill, in pipeline order (docs/design/pipeline-2026-09.md). */
+const SEAMS = [
+  'config',
+  'project',
+  'graph',
+  'key',
+  'schedule',
+  'executor',
+  'cache',
+  'telemetry',
+  'setup',
+  'commands',
+] as const
+
+export function describePlugins(plugins: readonly VxPlugin[]): string {
+  if (plugins.length === 0) return 'none'
+  const parts = plugins.map((p) => {
+    const seams = SEAMS.filter((s) => p[s as keyof VxPlugin] !== undefined)
+    return `${p.name} (${seams.length === 0 ? 'no seams' : seams.join(', ')})`
+  })
+  return `${plugins.length} — ${parts.join('; ')}`
 }
 
 /**
@@ -113,4 +155,20 @@ function gitVersion(): string {
   } catch {
     return '(not found)'
   }
+}
+
+async function countLoadableTasks(metas: readonly ProjectMeta[]): Promise<number> {
+  let count = 0
+  await Promise.all(
+    metas.map(async (meta) => {
+      if (meta.configPath === null) return
+      try {
+        const config = await loadProjectConfig(meta.configPath)
+        count += Object.keys(config.tasks ?? {}).length
+      } catch {
+        // counted as zero
+      }
+    }),
+  )
+  return count
 }

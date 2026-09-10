@@ -14,7 +14,7 @@ export function helpText(pluginCommands: readonly string[] = []): string {
     '  vx init [--dry] [--force]',
     '  vx migrate [--from turbo|nx|scripts] [--dry] [--force]',
     '  vx upgrade [tag]',
-    '  vx show [PROJECT[#TASK]] [--format pretty|json]',
+    '  vx show [PROJECT[#TASK] | TASK] [--format pretty|json]',
     '  vx info',
     '  vx why [TASK | PKG#TASK] [--run <runId>] [--format pretty|json]',
     '  vx last [RUNID] [--list[=N]] [--format pretty|json]',
@@ -97,6 +97,7 @@ export function helpText(pluginCommands: readonly string[] = []): string {
     "  vx show <project>    Print the project's LIVE resolved config (fresh",
     '                       evaluation, not the lock), one block per task.',
     "  vx show <pkg>#<task> Print a single task's resolved config.",
+    '  vx show <task>       That task in every project declaring it.',
     '      --format <fmt>   pretty (default) | json.',
     '  vx info              Workspace doctor: vx/bun/git versions, project +',
     '                       task counts, cache dir/entries/size, recent runs,',
@@ -167,3 +168,5 @@ export function documentedFlags(verb: string): string[] {
   }
   return [...flags]
 }
+
+export { CORE_VERBS } from '../util/index.js'

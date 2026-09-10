@@ -16,7 +16,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, gitInit, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { Cache } from '../src/cache/cache.js'
 import { GitFilesCache, populateGitFilesCache, resolveInputs } from '../src/cache/inputs.js'
 import { scanArtifact } from '../src/cache/archive.js'
@@ -42,12 +42,6 @@ function git(cwd: string, ...args: string[]): void {
   if (p.exitCode !== 0) {
     throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
   }
-}
-
-function initGitRepo(cwd: string): void {
-  git(cwd, 'init', '-q')
-  git(cwd, 'config', 'user.email', 'test@vx.local')
-  git(cwd, 'config', 'user.name', 'vx test')
 }
 
 // ─── Loader validation ───────────────────────────────────────────────
@@ -118,7 +112,7 @@ describe('inputs.workspaceFiles resolution', () => {
     await write(path.join(aDir, 'package.json'), '{"name":"a"}')
     await write(path.join(bDir, 'src', 'lib.ts'), 'b')
     await write(path.join(bDir, 'package.json'), '{"name":"b"}')
-    initGitRepo(root)
+    gitInit(root)
   })
 
   afterEach(async () => {
@@ -214,7 +208,7 @@ describe('GitFilesCache workspace-wide partition', () => {
     await write(path.join(root, 'shared', 'config.json'), '{}')
     await write(path.join(aDir, 'src', 'main.ts'), 'a')
     await write(path.join(bDir, 'src', 'lib.ts'), 'b')
-    initGitRepo(root)
+    gitInit(root)
     git(root, 'add', '-A')
     git(root, 'commit', '-q', '-m', 'init')
   })
@@ -382,30 +376,8 @@ const silentLogger = (fixture: Fixture): Logger => ({
 })
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-wse2e-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
-  initGitRepo(root)
+  const root = await makeWorkspaceRoot({ prefix: 'vx-wse2e-' })
   return { root, log: [] }
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  args: { files?: Record<string, string>; config?: string },
-): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  if (args.config !== undefined) await writeFile(path.join(dir, 'vx.config.mjs'), args.config)
-  for (const [rel, content] of Object.entries(args.files ?? {})) {
-    await write(path.join(dir, rel), content)
-  }
-  return dir
 }
 
 describe('workspaceFiles e2e', () => {

@@ -2,10 +2,14 @@
 
 ## Purpose
 
-Parse `vx run`'s argv, resolve project scope (cwd / `--all` / `--filter`
-/ `--affected` / picker), and invoke the orchestrator. Handles
-both real runs (`orchestrator.run`) and planning paths (`planRun` →
-text/json/DOT formatters).
+Parse `vx run`'s argv, resolve the run's options, and invoke the
+orchestrator. Handles both real runs (`orchestrator.run`) and planning
+paths (`planRun` → text/json/DOT formatters). What a run is asked to
+run — the `--filter` resolution, `--affected`'s orphan-path owners, the
+cwd project and the interactive picker — is `src/cli/select.ts`
+(split 2026-09-09, pure code motion), which run.ts calls from
+`resolveRunOptions`; every read of the workspace there goes through
+the staged load (`loadCliProjects`), so the selection is the run's.
 
 ## Public surface
 

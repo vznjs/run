@@ -21,6 +21,11 @@ export async function loadProjectConfig(configPath: string): Promise<ProjectConf
 export async function loadWorkspaceConfig(workspaceRoot: string): Promise<WorkspaceConfig | null>
 ```
 
+What the evaluated object may contain is `config-schema.ts`'s
+business (`validateProjectConfig`, `validateWorkspace`); the loader
+calls both after evaluation and re-exports `validateProjectConfig` for
+readers that reach it here.
+
 ## Loading rules
 
 - Supported extensions: `.ts`, `.mts`, `.js`, `.mjs`. Each is handed

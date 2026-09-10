@@ -118,16 +118,20 @@ describe('the tripwire that makes one definition stay one definition', () => {
   // duplicate — so adding one is a deliberate entry here, not a silent copy.
   const MAY_INLINE: ReadonlyMap<string, string> = new Map([
     [
-      'src/orchestrator/execute-task.ts',
-      'PRODUCES the status — it picks local vs remote, so it must name both.',
+      'src/orchestrator/hit-restore.ts',
+      'PRODUCES the status — the hit path picks local vs remote, so it must name both (the line moved here from execute-task.ts on 2026-09-10).',
     ],
     [
       'src/orchestrator/metrics.ts',
       'SQL text. One survivor, and it is a DIFFERENT list (it includes `failed` — the latest-state filter, not the pass set).',
     ],
     [
+      'src/cache/layer.ts',
+      '`RunRecord.status` is a deliberate SUBSET of TaskStatus (no `aborted`, which is never recorded) — and `cache` cannot import `orchestrator` under the module boundary matrix, so it cannot reach the predicate at all.',
+    ],
+    [
       'src/cache/cache.ts',
-      '`RunRecord.status` is a deliberate SUBSET of TaskStatus (no `aborted`, which is never recorded), plus SQL text — and `cache` cannot import `orchestrator` under the module boundary matrix, so it cannot reach the predicate at all.',
+      'SQL text (`stats`): the hit set as a literal list, for the same boundary reason as layer.ts.',
     ],
   ])
 

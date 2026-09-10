@@ -395,6 +395,14 @@ is on):
    fingerprint rows, and the `entry_inputs` component rows
    (`INSERT OR IGNORE`).
 
+A declared set that resolves to **nothing** is said on the run's
+status line, once, on the miss that saved: `cache.inputs matched no
+files (lib/**)` — the key would not change when the source does — and
+`cache.outputs matched no files (build/**)` — an empty artifact was
+saved and a later hit restores nothing. Both are almost always a glob
+against the wrong directory. `outputs.files: []` is a deliberate cached
+no-op and says nothing; a task with no `cache` block is never checked.
+
 If the task exits non-zero, **nothing is cached.** This is deliberate:
 
 - Caching a failure prevents retry flows. The next run gets the same
@@ -635,14 +643,28 @@ pruned (`tests/archive-security.test.ts`).
 **Key properties:** one entry is one file — eviction is a single
 unlink; no per-entry manifest, no separate `logs/` tree; and local +
 remote layers transport the exact same tar.zst bytes end-to-end.
+The index is authoritative: a lookup reads the row first and only then
+checks the file, so an artifact without a row (a `SCHEMA_VERSION` drop,
+a deleted `cache.db`) or a `.tmp-*` a crashed save left is never a hit
+and is never touched by a run — `vx cache prune` sweeps them, once they
+are older than an hour (a save renames the artifact into place before
+its row commits, so a fresh row-less file is a save in flight).
 Captured stdout is stored twice on purpose: in the artifact (so it
 survives the remote round-trip) and in the `entries` row (so a local
 hit replays it with pure SQL, never decompressing the artifact).
 
 ### SQLite tables
 
+`schema_meta.version` is the gate: an index written by another
+`SCHEMA_VERSION` is dropped whole — entries, history, memos — and
+recreated on the first open after an upgrade (pre-alpha: no migrations).
+That open says so once, on the run's status line or the verb's stderr
+(`[vx] cache index reset: schema v24 → v25 (vx upgraded); …`), so the
+all-miss run that follows is explained; the artifacts it orphaned are
+`vx cache prune`'s to reap.
+
 ```sql
--- src/cache/cache.ts schema (SCHEMA_VERSION = 'v22')
+-- src/cache/cache.ts schema (SCHEMA_VERSION = 'v25')
 
 CREATE TABLE schema_meta (
   key   TEXT PRIMARY KEY,  -- 'version'
@@ -678,7 +700,9 @@ CREATE TABLE runs (
   peak_rss_bytes      INTEGER,
   wallclock_start_ns  INTEGER,          -- bigint; serialized as SQLite INTEGER (signed 64-bit)
   wallclock_end_ns    INTEGER,
-  cache_hit           INTEGER           -- 0/1; convenience for flamegraph color
+  cache_hit           INTEGER,          -- 0/1; convenience for flamegraph color
+  attempts            INTEGER,          -- v23: attempts a retried task took (>1)
+  cached              INTEGER           -- v25: 1 = declared a cache block; 0 = runs every time
 );
 
 -- Two indexes, both append-only under a run's inserts: every row of a run

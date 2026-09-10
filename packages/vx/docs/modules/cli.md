@@ -58,6 +58,19 @@ See:
   `vx last`, `vx prune`, `vx upgrade`: documented in
   [`../cli.md`](../cli.md); no separate module doc.
 
+## Workspace loading
+
+Every verb that opens the cache or lists plugin verbs resolves the
+workspace through `cli/workspace-config.ts:loadCliWorkspace`: the
+workspace config with the plugin `config` stage applied, the plugin
+list, and the cache dir derived from the staged config. The stage
+shapes `cacheDir`, so a verb reading the file raw would open a
+directory the run never used. Plugin warnings go to stderr. A plugin
+verb the dispatcher could never reach — one naming a core verb, or one
+two plugins both declare — is refused by the workspace VALIDATOR
+(`validateWorkspace`, against `util/verbs.ts`), so a run refuses it
+exactly as a reading verb or the plugin-verb lookup does.
+
 ## What this does NOT do
 
 - No global flags (no `--debug`, no `--quiet`, no `--color`). Color

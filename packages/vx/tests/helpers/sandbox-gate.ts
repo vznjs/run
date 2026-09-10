@@ -1,7 +1,7 @@
 // The OS-sandbox availability gate, defined ONCE.
 //
-// Two suites need it — tests/sandbox-runtime.test.ts (19 tests) and
-// verify.test.ts's input-completeness block (2) — and as two copies the
+// tests/sandbox-runtime.unsafe.test.ts is its one consumer today; it was
+// two (the retired --verify suite was the other), and as two copies the
 // rule had already drifted: one file's comment claimed "we assert
 // availability rather than skipping ... local dev hosts fail loudly",
 // which the code never did, while the other claimed a clean skip. Two

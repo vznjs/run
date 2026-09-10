@@ -40,7 +40,17 @@ function checkSink(sink: unknown): TelemetrySink {
   if (wants !== undefined && !Array.isArray(wants)) {
     throw new Error(`telemetry sink 'wants' must be an array, got ${typeof wants}`)
   }
-  return sink as TelemetrySink
+  // Every handler is optional, so `{ nope: true }` was a valid sink that
+  // subscribed to the bus and heard nothing — the plugin was "on" and did
+  // nothing. Refused here, which the caller turns into the same warning
+  // a throwing hook gets: never a failed run.
+  const s = sink as TelemetrySink
+  if (typeof s.onRecord !== 'function' && typeof s.onRunSummary !== 'function') {
+    throw new Error(
+      'telemetry sink handles nothing: neither onRecord nor onRunSummary is a function',
+    )
+  }
+  return s
 }
 
 /**

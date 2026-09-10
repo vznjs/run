@@ -1,357 +1,52 @@
-// Turbo → vx mapping. Reads turbo.json (tasks in turbo 2, pipeline in
-// turbo 1), per-package turbo.json `extends` overlays, and each
-// package's scripts. A task is emitted for a package only when the
-// package declares the script (turbo semantics). Global fields become
-// a root vx-preset.ts that configs import and spread — TypeScript
-// composition replaces turbo's global config.
+// Turbo → vx migration: the RENDERING half. The mapping itself lives in
+// workspace/turbo.ts (shared with `@vzn/vx-turbo`, which runs it live);
+// this file turns turbo's global fields into a root vx-preset.ts that each
+// generated config imports and spreads — TypeScript composition replaces
+// turbo's global config.
 
 import path from 'node:path'
-import { relPosix, UserError } from '../util/index.js'
-import type { ProjectMeta } from '../workspace/index.js'
+import { relPosix } from '../util/index.js'
+import { mapTurboWorkspace, type ProjectMeta, type TurboGlobal } from '../workspace/index.js'
 import { quote } from './migrate-emit.js'
 import { PERSISTENT_TODO } from './migrate-persistent.js'
-import type { GeneratedProject, GeneratedTask, MigrationPlan, RawExpr } from './migrate.js'
-
-interface TurboTask {
-  dependsOn?: string[]
-  inputs?: string[]
-  outputs?: string[]
-  env?: string[]
-  passThroughEnv?: string[]
-  cache?: boolean
-  persistent?: boolean
-  [key: string]: unknown
-}
-
-interface TurboJson {
-  tasks?: Record<string, TurboTask>
-  pipeline?: Record<string, TurboTask>
-  globalDependencies?: string[]
-  globalEnv?: string[]
-  globalPassThroughEnv?: string[]
-}
-
-const KNOWN_TASK_KEYS = new Set([
-  'dependsOn',
-  'inputs',
-  'outputs',
-  'env',
-  'passThroughEnv',
-  'cache',
-  'persistent',
-  'extends',
-])
+import type { GeneratedProject, MigrationPlan } from './migrate.js'
 
 const PRESET_FILE = 'vx-preset.ts'
 
-interface Globals {
-  inputs: boolean
-  env: boolean
-  pass: boolean
-}
-
-async function readTurboJson(file: string, root: string): Promise<TurboJson> {
-  const text = await Bun.file(file).text()
-  try {
-    // turbo.json allows comments + trailing commas.
-    return (Bun.JSONC.parse(text) ?? {}) as TurboJson
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    throw new UserError(`failed to parse ${relPosix(root, file)}: ${msg}`)
-  }
-}
-
-function tasksOf(cfg: TurboJson): Record<string, TurboTask> {
-  return cfg.tasks ?? cfg.pipeline ?? {}
-}
-
-function scriptsOf(meta: ProjectMeta): Record<string, unknown> {
-  // package.json is a system boundary — a script value is whatever the
-  // file holds, not necessarily a string.
-  return (meta.packageJson as unknown as { scripts?: Record<string, unknown> }).scripts ?? {}
-}
-
-/** A script value that can become `exec.command` verbatim. */
-function usableScript(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
-}
-
-function describeScript(value: unknown): string {
-  if (value === null) return 'null'
-  if (typeof value === 'string') return 'an empty string'
-  if (Array.isArray(value)) return 'an array'
-  return `a ${typeof value}`
-}
-
-/** Declared task names for a package: plain root keys, `pkg#name` keys
- * for this package, and per-package turbo.json keys — in that order. */
-function taskNamesFor(
-  pkgName: string,
-  rootTasks: Record<string, TurboTask>,
-  pkgTasks: Record<string, TurboTask> | undefined,
-): string[] {
-  const names: string[] = []
-  const push = (n: string): void => {
-    if (!names.includes(n)) names.push(n)
-  }
-  for (const key of Object.keys(rootTasks)) {
-    if (!key.includes('#')) push(key)
-    else if (key.startsWith(`${pkgName}#`)) push(key.slice(pkgName.length + 1))
-  }
-  for (const key of Object.keys(pkgTasks ?? {})) {
-    if (!key.includes('#')) push(key)
-  }
-  return names
+/** The preset export each global field becomes. */
+const PRESET_NAMES: Record<TurboGlobal, string> = {
+  inputs: 'globalInputs',
+  env: 'globalEnvInputs',
+  pass: 'globalPassThroughEnv',
 }
 
 export async function migrateTurbo(
   root: string,
   metas: readonly ProjectMeta[],
 ): Promise<MigrationPlan> {
-  const rootCfg = await readTurboJson(path.join(root, 'turbo.json'), root)
-  const rootTasks = tasksOf(rootCfg)
+  const mapping = await mapTurboWorkspace(root, metas, {
+    splice: (kind) => [{ raw: `...${PRESET_NAMES[kind]}` }],
+    persistentTodo: PERSISTENT_TODO,
+  })
 
-  const globalInputs = rootCfg.globalDependencies ?? []
-  const globalEnv = rootCfg.globalEnv ?? []
-  const globalPass = rootCfg.globalPassThroughEnv ?? []
-  const globals: Globals = {
-    inputs: globalInputs.length > 0,
-    env: globalEnv.length > 0,
-    pass: globalPass.length > 0,
-  }
-
-  const pkgTasksByName = new Map<string, Record<string, TurboTask>>()
-  for (const meta of metas) {
-    const file = path.join(meta.dir, 'turbo.json')
-    if (await Bun.file(file).exists()) {
-      pkgTasksByName.set(meta.name, tasksOf(await readTurboJson(file, root)))
-    }
-  }
-
-  const notes: string[] = []
-  for (const key of Object.keys(rootTasks)) {
-    if (key.startsWith('//#')) {
-      notes.push(`note: root task ${key} not migrated — vx has no workspace-root tasks`)
-    }
-  }
-
-  // First pass: which tasks does each package emit? Needed so dependsOn
-  // edges can be validated/dropped against the real emitted set.
-  const emitted = new Map<string, Set<string>>()
-  for (const meta of metas) {
-    const scripts = scriptsOf(meta)
-    const set = new Set<string>()
-    for (const name of taskNamesFor(meta.name, rootTasks, pkgTasksByName.get(meta.name))) {
-      if (usableScript(scripts[name])) set.add(name)
-    }
-    emitted.set(meta.name, set)
-  }
-
-  const projects: GeneratedProject[] = []
-  for (const meta of metas) {
-    const scripts = scriptsOf(meta)
-    const pkgTasks = pkgTasksByName.get(meta.name)
-    const own = emitted.get(meta.name)!
+  const projects: GeneratedProject[] = mapping.projects.map((p) => {
     const used = new Set<string>()
-    const tasks: GeneratedTask[] = []
-    for (const name of taskNamesFor(meta.name, rootTasks, pkgTasks)) {
-      const script = scripts[name]
-      if (!usableScript(script)) {
-        // The turbo task exists and so does the script KEY, but its value
-        // can't become a command. Report it instead of emitting
-        // `command: 42` / `command: null` — the first writes a config that
-        // fails to load, the second used to abort the whole migration in
-        // the emitter, and both landed AFTER "migrated clean, 0 TODOs".
-        // An ABSENT script stays silent: turbo skips the task there too.
-        if (script !== undefined) {
-          tasks.push({
-            name,
-            todos: [
-              `package.json script ${JSON.stringify(name)} is ${describeScript(script)}, not a ` +
-                'non-empty command string — task skipped; write the command by hand',
-            ],
-            task: null,
-          })
-        }
-        continue
-      }
-      const def: TurboTask = {
-        ...rootTasks[name],
-        ...rootTasks[`${meta.name}#${name}`],
-        ...pkgTasks?.[name],
-      }
-      tasks.push(buildTask(name, def, script, own, emitted, globals, used))
+    for (const t of p.tasks) for (const kind of t.uses) used.add(PRESET_NAMES[kind])
+    return {
+      name: p.name,
+      dir: p.dir,
+      importLines: presetImportLines(used, root, p.dir),
+      tasks: p.tasks.map(({ name, todos, task }) => ({ name, todos, task })),
     }
-    projects.push({
-      name: meta.name,
-      dir: meta.dir,
-      importLines: presetImportLines(used, root, meta.dir),
-      tasks,
-    })
-  }
+  })
 
+  const { inputs, env, pass } = mapping.globals
   const extraFiles: MigrationPlan['extraFiles'] = []
-  if (globals.inputs || globals.env || globals.pass) {
-    extraFiles.push({
-      relPath: PRESET_FILE,
-      contents: renderPreset(globalInputs, globalEnv, globalPass),
-    })
+  if (inputs.length > 0 || env.length > 0 || pass.length > 0) {
+    extraFiles.push({ relPath: PRESET_FILE, contents: renderPreset(inputs, env, pass) })
   }
 
-  return { headerNotes: [], projects, extraFiles, notes }
-}
-
-function buildTask(
-  name: string,
-  def: TurboTask,
-  command: string,
-  own: ReadonlySet<string>,
-  emitted: ReadonlyMap<string, ReadonlySet<string>>,
-  globals: Globals,
-  used: Set<string>,
-): GeneratedTask {
-  const todos: string[] = []
-  const persistent = def.persistent === true
-  const cacheEnabled = def.cache !== false && !persistent
-
-  for (const [key, value] of Object.entries(def)) {
-    if (KNOWN_TASK_KEYS.has(key)) continue
-    todos.push(
-      `turbo key ${JSON.stringify(key)} (${JSON.stringify(value)}) has no vx equivalent — ` +
-        'map it manually',
-    )
-  }
-
-  const deps: string[] = []
-  for (const d of def.dependsOn ?? []) {
-    if (d.includes('$TURBO_ROOT$')) {
-      todos.push(
-        `dependsOn ${JSON.stringify(d)} uses $TURBO_ROOT$ — vx has no workspace-root tasks; ` +
-          'restructure manually',
-      )
-      continue
-    }
-    if (d.startsWith('^')) {
-      deps.push(d)
-      continue
-    }
-    const hashAt = d.indexOf('#')
-    if (hashAt !== -1) {
-      const pkg = d.slice(0, hashAt)
-      const task = d.slice(hashAt + 1)
-      if (emitted.get(pkg)?.has(task)) deps.push(d)
-      else
-        todos.push(
-          `dependsOn ${JSON.stringify(d)}: ${pkg} declares no ${task} script — edge dropped`,
-        )
-      continue
-    }
-    // Same-project dep on a script this package lacks: turbo silently
-    // skips the task there, so the edge simply doesn't exist.
-    if (own.has(d)) deps.push(d)
-  }
-
-  const envNames: string[] = []
-  for (const e of def.env ?? []) {
-    if (/[*?[\]!]/.test(e)) {
-      todos.push(
-        `env ${JSON.stringify(e)}: wildcards are not supported in vx env names — ` +
-          'list explicit names in cache.inputs.env + exec.env.passThrough',
-      )
-    } else envNames.push(e)
-  }
-  const passNames: string[] = []
-  for (const e of def.passThroughEnv ?? []) {
-    if (/[*?[\]!]/.test(e)) {
-      todos.push(
-        `passThroughEnv ${JSON.stringify(e)}: wildcards are not supported — list explicit names`,
-      )
-    } else passNames.push(e)
-  }
-
-  const passThrough: (string | RawExpr)[] = []
-  if (globals.env) {
-    passThrough.push({ raw: '...globalEnvInputs' })
-    used.add('globalEnvInputs')
-  }
-  if (globals.pass) {
-    passThrough.push({ raw: '...globalPassThroughEnv' })
-    used.add('globalPassThroughEnv')
-  }
-  passThrough.push(...envNames, ...passNames)
-
-  const exec: Record<string, unknown> = { command }
-  if (passThrough.length > 0) exec.env = { passThrough }
-  if (persistent) {
-    exec.persistent = {}
-    todos.push(PERSISTENT_TODO)
-  }
-
-  const task: Record<string, unknown> = { exec }
-  if (deps.length > 0) task.dependsOn = deps
-
-  if (cacheEnabled) {
-    const files: (string | RawExpr)[] = []
-    const wsFiles: (string | RawExpr)[] = []
-    // globalDependencies are workspace-root-relative by definition —
-    // they map to inputs.workspaceFiles, not project-relative files.
-    if (globals.inputs) {
-      wsFiles.push({ raw: '...globalInputs' })
-      used.add('globalInputs')
-    }
-    if (def.inputs === undefined) {
-      // Turbo's default input set is every package file.
-      files.push('**/*')
-    } else {
-      for (const i of def.inputs) {
-        if (i === '$TURBO_DEFAULT$') {
-          files.push('**/*')
-          continue
-        }
-        const neg = i.startsWith('!')
-        const body = neg ? i.slice(1) : i
-        if (body.startsWith('$TURBO_ROOT$/')) {
-          wsFiles.push((neg ? '!' : '') + body.slice('$TURBO_ROOT$/'.length))
-        } else if (i.includes('$TURBO_ROOT$')) {
-          todos.push(
-            `input ${JSON.stringify(i)}: $TURBO_ROOT$ only maps as a '$TURBO_ROOT$/<path>' ` +
-              'prefix (→ cache.inputs.workspaceFiles) — map manually',
-          )
-        } else files.push(i)
-      }
-    }
-
-    const outFiles: string[] = []
-    const wsOutFiles: string[] = []
-    for (const o of def.outputs ?? []) {
-      if (o.startsWith('!')) {
-        todos.push(
-          `output ${JSON.stringify(o)}: vx outputs have no negation — narrow the positive ` +
-            'globs instead',
-        )
-      } else if (o.startsWith('$TURBO_ROOT$/')) {
-        wsOutFiles.push(o.slice('$TURBO_ROOT$/'.length))
-      } else if (o.includes('$TURBO_ROOT$')) {
-        todos.push(
-          `output ${JSON.stringify(o)}: $TURBO_ROOT$ only maps as a '$TURBO_ROOT$/<path>' ` +
-            'prefix (→ cache.outputs.workspaceFiles) — map manually',
-        )
-      } else outFiles.push(o)
-    }
-
-    const cacheEnv: (string | RawExpr)[] = []
-    if (globals.env) cacheEnv.push({ raw: '...globalEnvInputs' })
-    cacheEnv.push(...envNames)
-
-    const inputs: Record<string, unknown> = { files }
-    if (wsFiles.length > 0) inputs.workspaceFiles = wsFiles
-    if (cacheEnv.length > 0) inputs.env = cacheEnv
-    const outputs: Record<string, unknown> = { files: outFiles }
-    if (wsOutFiles.length > 0) outputs.workspaceFiles = wsOutFiles
-    task.cache = { inputs, outputs }
-  }
-
-  return { name, todos, task }
+  return { headerNotes: [], projects, extraFiles, notes: mapping.notes }
 }
 
 function presetImportLines(used: ReadonlySet<string>, root: string, dir: string): string[] {

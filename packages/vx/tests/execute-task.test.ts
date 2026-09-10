@@ -21,7 +21,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, gitInit, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { Cache, type CacheEntry } from '../src/cache/index.js'
 import { localExecutor } from '../src/exec/local-executor.js'
 import type { TaskNode, TaskOutcome } from '../src/graph/index.js'
@@ -55,43 +55,9 @@ const capturingLogger = (f: Fixture): Logger => ({
 
 /** `git init` is not optional: vx defers to git for the input file set and
  *  raises a UserError outside a work tree. */
-function initGit(cwd: string): void {
-  const g = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) throw new Error(`git ${args.join(' ')}: ${p.stderr.toString()}`)
-  }
-  g('init', '-q')
-  g('config', 'user.email', 'test@vx.local')
-  g('config', 'user.name', 'vx test')
-}
-
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-exec-task-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  initGit(root)
+  const root = await makeWorkspaceRoot({ prefix: 'vx-exec-task-' })
   return { root, out: [], err: [] }
-}
-
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0' }, null, 2),
-  )
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
 }
 
 const lsSorted = (dir: string): string[] => readdirSync(dir).sort()
@@ -114,7 +80,7 @@ async function bench(): Promise<Bench> {
   const dir = path.join(root, 'proj')
   await mkdir(dir, { recursive: true })
   await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name: 'proj' }))
-  initGit(root)
+  gitInit(root)
   return { root, dir, cache: new Cache(path.join(root, '.vx', 'cache')) }
 }
 

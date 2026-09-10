@@ -4,18 +4,12 @@
 
 import type { ProjectEntry } from '../workspace/index.js'
 import os from 'node:os'
-import {
-  type CacheLayer,
-  type CachePolicy,
-  FULL_CACHE_POLICY,
-  type InvocationRecord,
-  type RunRecord,
-} from '../cache/index.js'
+import { type CacheLayer, type CachePolicy, FULL_CACHE_POLICY } from '../cache/index.js'
 import { VERSION } from '../version.js'
-import { initSandbox, probeSandbox, resetSandbox, signalExitCode } from '../exec/index.js'
+import { resetSandbox } from '../exec/index.js'
 import { DeferredOutputs } from './deferred-outputs.js'
 import { resolveDownloadModes } from './download-policy.js'
-import { selectExecutor, type TaskExecutor } from '../exec/index.js'
+import type { TaskExecutor } from '../exec/index.js'
 import {
   isGroupTask,
   markSurfacedDeps,
@@ -23,22 +17,30 @@ import {
   type TaskNode,
   type TaskOutcome,
 } from '../graph/index.js'
-import { mark, MAX_TIMEOUT_MS, printTimings, ulid, UserError, editDistance } from '../util/index.js'
-import { executeTask } from './execute-task.js'
+import { mark, MAX_TIMEOUT_MS, printTimings, ulid, nearest } from '../util/index.js'
+import { armSandbox } from './sandbox-request.js'
+import { admitTasks, taintTracker } from './admission.js'
 import { resolveResourceCosts } from './resources.js'
-import { computeTaskHash } from './task-hash.js'
 import { busLogger, createEventBus, terminalSubscriber } from './events.js'
 import { installPlugins } from './plugin.js'
 import { resolveExecutors, teardownPlugins } from './plugin-host.js'
 import { subscribeTelemetry, type TelemetryHandle } from './telemetry-host.js'
-import { assembleRunSummary, deriveCacheSource, isCacheHit, isPassStatus } from './telemetry.js'
-import type { RunContextRecord, TaskTelemetry } from './telemetry.js'
-import { defaultLogger, resolveOutputView, type Logger } from './logger.js'
+import { assembleRunSummary, isPassStatus } from './telemetry.js'
+import type { RunContextRecord } from './telemetry.js'
+import { defaultLogger, resolveOutputView } from './logger.js'
 import { detectColors } from './colors.js'
 import { formatPersistentList } from './framed-output.js'
 import { LocalHistoryProvider } from './history.js'
 import { plan, type RunPlan } from './plan.js'
 import { prepareRun } from './prepare.js'
+import { forwardSignals } from './signals.js'
+import {
+  hasPooledExecutor,
+  placeTasks,
+  planExecutorOf,
+  poolOfPlacement,
+  UNPLACED_EXECUTOR,
+} from './placement.js'
 import {
   captureDefaultBranch,
   captureGitContext,
@@ -49,18 +51,13 @@ import {
 import { startRemotePrefetch } from './remote-prefetch.js'
 import { startLocalShortCircuit, type ShortCircuit } from './local-shortcircuit.js'
 
-const EMPTY_SHORT_CIRCUIT: ShortCircuit = { preProbed: new Map(), restoreTier: new Set() }
-
-/**
- * Grace after SIGTERMing the dependency-only persistent tasks at end-of-run
- * before force-killing any that trap or ignore it — so a wedged mock server
- * can't hang a normal run at completion. Well-behaved servers exit far under
- * this, so the happy path never waits it out.
- */
-const PERSISTENT_SHUTDOWN_GRACE_MS = 2000
+import { assembleRunRecords } from './run-records.js'
+import { selectKeepAlive, shutdownPersistent } from './persistent.js'
 import { writeRunProfile, writeRunSummary } from './run-artifacts.js'
 import { formatAbortedSection, formatRunSummary } from './summary.js'
 import type { RunOptions, RunSummary } from './options.js'
+
+const EMPTY_SHORT_CIRCUIT: ShortCircuit = { preProbed: new Map(), restoreTier: new Set() }
 
 /**
  * Parse the `VX_TASK_TIMEOUT` env var (ms) — the "global" run-level task
@@ -319,39 +316,18 @@ export async function run(options: RunOptions): Promise<RunSummary> {
   //     exit; ownership moves here so the orchestrator can SIGTERM
   //     them once the rest of the graph finishes.
   //
-  // A SIGINT/SIGTERM mid-run forwards SIGTERM to everything live,
-  // closes the cache handle, and exits 128+signo (130/143). Without
-  // this, a programmatic signal to the vx process alone (CI
-  // cancellation, `kill <pid>`) orphans every running child —
-  // terminal Ctrl-C only worked via process-group propagation. The
-  // handlers are removed in the finally below so repeated run()
-  // calls (test suites) never stack listeners.
+  // A SIGINT/SIGTERM mid-run forwards SIGTERM to everything in both
+  // (`signals.ts`); the handlers are removed in the finally below so
+  // repeated run() calls (test suites) never stack listeners.
   const liveChildren = new Set<ReturnType<typeof Bun.spawn>>()
   const persistentRegistry = new Map<string, ReturnType<typeof Bun.spawn>>()
-  const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
-    // Clear the live worker/status region BEFORE exiting so a TTY isn't
-    // left with a frozen region frozen in the scrollback (the documented
-    // KNOWN-OPEN). runEnd is idempotent and a no-op for non-TTY loggers.
-    try {
-      log.runEnd?.()
-    } catch {
-      // teardown must not throw on the way out
-    }
-    for (const child of liveChildren) child.kill('SIGTERM')
-    for (const child of persistentRegistry.values()) child.kill('SIGTERM')
-    try {
-      cache.close()
-    } catch {
-      // double-close race with the normal path; we're exiting anyway
-    }
-    process.exit(signalExitCode(signal))
-  }
-  const onSigint = (): void => onSignal('SIGINT')
-  const onSigterm = (): void => onSignal('SIGTERM')
-  if (options.handleSignals ?? true) {
-    process.on('SIGINT', onSigint)
-    process.on('SIGTERM', onSigterm)
-  }
+  const signals = forwardSignals({
+    enabled: options.handleSignals ?? true,
+    log,
+    cache,
+    liveChildren,
+    persistentRegistry,
+  })
   // The cache handle must be released on EVERY exit path, not just the
   // happy one: `close()` is also where the run's deferred `accessed_at`
   // bumps are flushed, so a throw between opening the cache and the
@@ -451,29 +427,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       )
     }
 
-    // Lazy SRT init: fire it up if at least one task opts into sandboxing
-    // via its `sandbox: {...}` block. A task that needs sandboxing on an
-    // unsupported platform gets a hard error so it never silently runs
-    // unsandboxed.
-    const sandboxed = [...nodes.values()].filter((n) => n.config.exec?.sandbox !== undefined)
-    const anySandboxed = sandboxed.length > 0
-    if (anySandboxed) {
-      const weakerNested = sandboxed.every((n) => n.config.exec?.sandbox?.weakerWhenNested === true)
-      const avail = await probeSandbox({ weakerNested })
-      if (!avail.available) throw new UserError(`sandbox not available: ${avail.reason}`)
-      // SRT runs ONE filtering proxy per run and checks every request
-      // against the allowlist given to `initialize()` — never the per-call
-      // one (`sandbox-manager.js` 0.0.75). So the run's proxy is armed with
-      // the union of every domain any sandboxed task declared. A task that
-      // declares no domains still reaches nothing: its profile is not given
-      // the proxy's port at all.
-      const domains = new Set<string>()
-      for (const n of sandboxed) {
-        const net = n.config.exec?.sandbox?.allow?.network
-        if (Array.isArray(net)) for (const d of net) domains.add(d)
-      }
-      await initSandbox({ allowedDomains: [...domains] })
-    }
+    const anySandboxed = await armSandbox(nodes.values())
 
     // Focused flow: a requested GROUP has no output of its own, so
     // surface the same-project, non-group tasks it chains (one level)
@@ -498,8 +452,9 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       }
     }
     // Resource-aware admission: resolve every task's `exec.resources`
-    // into absolute costs ONCE, up front (percent forms against the
-    // budgets), so the scheduler's inner loop is a plain Map.get. The
+    // into absolute costs ONCE, up front, so the scheduler's inner loop is
+    // a plain Map.get (percent forms were removed 2026-08-30 — see
+    // resources.ts). The
     // CPU budget is the run's concurrency; the memory budget is
     // os.totalmem() unless `--memory` overrides it (pass `--memory` in
     // cgroup-limited containers — totalmem() reports the HOST's RAM).
@@ -575,32 +530,14 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       })
     }
 
-    // Under `continueMode: 'always'` a task runs although an upstream failed.
-    // Its key is the healthy one (pure-input hashing) but its bytes are not,
-    // so the taint is tracked here and the task's save withheld — and it
-    // propagates through every success built on it, or a grand-dependent
-    // would cache the same partial tree one hop later. Only this mode ever
-    // executes a task behind a failure; the other modes skip it, so the
-    // warm path of a default run carries no check.
-    const taintOn = options.continueMode === 'always'
-    const tainted = new Set<string>()
-    const isTainted = (upstream: TaskOutcome[]): boolean =>
-      taintOn &&
-      upstream.some(
-        // A restore-tier task may run before its deps and see holes here;
-        // it never saves anyway (a hit restores), so a hole is not taint.
-        (u) =>
-          u !== undefined &&
-          (u.status === 'failed' ||
-            u.status === 'aborted' ||
-            u.status === 'skipped' ||
-            tainted.has(u.node.id)),
-      )
+    // Whether this task runs behind a failure (`continueMode: 'always'`
+    // only) — its save is withheld and the taint propagates; see
+    // admission.ts.
+    const isTainted = taintTracker(options.continueMode === 'always')
 
     const buildExecuteArgs = (node: TaskNode, upstream: TaskOutcome[], reuseProbe = true) => {
       const probe = reuseProbe ? shortCircuit.preProbed.get(node.id) : undefined
-      const taint = isTainted(upstream)
-      if (taint) tainted.add(node.id)
+      const taint = isTainted(node, upstream)
       return {
         node,
         upstream,
@@ -628,74 +565,21 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       }
     }
 
-    // In-flight dedup. Only when a service supplies a shared `inflight`
-    // registry (concurrent runs in one `vx serve`); a stateless `vx run`
-    // passes none and takes the untouched path. Gated to cacheable tasks —
-    // the join works by waiting for the sibling to populate the cache, then
-    // letting executeTask cache-hit on it. executeTask stays unchanged.
-    const inflight = options.inflight
-    const executeWithDedup = async (
-      node: TaskNode,
-      upstream: TaskOutcome[],
-    ): Promise<TaskOutcome> => {
-      // Dedup only helps when the sibling will WRITE the artifact and
-      // this task can READ it back — i.e. both axes effectively on.
-      const canRead = policy.localRead || policy.remoteRead
-      const canWrite = policy.localWrite || policy.remoteWrite
-      const cacheable =
-        !isGroupTask(node) &&
-        node.config.exec?.persistent === undefined &&
-        node.config.cache !== undefined &&
-        canRead &&
-        canWrite
-      // A restore-tier task (confirmed local hit, may run before its
-      // deps) needs no dedup — it's a restore, not an executor, and its
-      // live `upstream` is incomplete, so the dedup hash recompute would
-      // be wrong. Route it straight to executeTask, which reuses the
-      // up-front probe.
-      const restorable = shortCircuit.restoreTier.has(node.id)
-      if (inflight === undefined || !cacheable || restorable) {
-        return executeTask(buildExecuteArgs(node, upstream))
-      }
-      const hash = await computeTaskHash({
-        node,
-        upstream,
+    const executeWithDedup = admitTasks({
+      inflight: options.inflight,
+      policy,
+      shortCircuit,
+      hashArgs: {
         workspaceRoot,
         workspaceFingerprint,
         cache,
         forwardArgs: options.forwardArgs,
-        nestedProjectDirs: nestedDirsByProject.get(node.projectName) ?? [],
+        nestedDirsByProject,
         gitFilesCache,
         hashCache,
-      })
-      const existing = inflight.get(hash)
-      if (existing !== undefined) {
-        // Join a sibling already computing this exact task: wait, then
-        // executeTask cache-hits on the artifact it just saved. The
-        // up-front probe (preProbed) predates the sibling's save — its
-        // "confirmed stable miss" would skip the lazy cache.get and
-        // re-execute, defeating the dedup — so the join path drops it
-        // and lets executeTask probe fresh.
-        await existing.catch(() => {})
-        return executeTask(buildExecuteArgs(node, upstream, false))
-      }
-      // Become the executor: register a barrier siblings await. get→set has
-      // no await between, so registration is atomic — at most one executor
-      // per hash. Released on every exit (success / failure / throw).
-      let release!: () => void
-      inflight.set(
-        hash,
-        new Promise<void>((resolve) => {
-          release = resolve
-        }),
-      )
-      try {
-        return await executeTask(buildExecuteArgs(node, upstream))
-      } finally {
-        inflight.delete(hash)
-        release()
-      }
-    }
+      },
+      buildExecuteArgs,
+    })
 
     mark('classify + probe')
     const outcomes = await runGraph({
@@ -721,55 +605,15 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       restoreTier: shortCircuit.restoreTier,
     })
 
-    // A persistent task the user REQUESTED (a dev server / watcher) is
-    // the run's whole purpose — don't tear it down the instant it's
-    // ready. We leave those running and block on them at the very end
-    // (after the normal summary prints); everything else (persistent
-    // tasks pulled in only as dependencies of now-finished work) is
-    // SIGTERMed here as before. Scoped to the real CLI foreground:
-    // `options.log === undefined` means the default logger (a `vx run`
-    // invocation), and `handleSignals` excludes watch mode (own signal
-    // loop) and embedders that manage lifecycle themselves — both expect
-    // run() to return, not block on a server.
+    // Which persistent children outlive the graph, and the bounded SIGTERM
+    // of the rest, before the summary prints. Scoped to the real CLI
+    // foreground: `options.log === undefined` means the default logger (a
+    // `vx run` invocation), and `handleSignals` excludes watch mode (own
+    // signal loop) and embedders that manage lifecycle themselves — both
+    // expect run() to return, not block on a server.
     const foreground = options.log === undefined && (options.handleSignals ?? true)
-    const keepAliveNodes: TaskNode[] = []
-    const keepAlive: ReturnType<typeof Bun.spawn>[] = []
-    if (foreground) {
-      for (const [id, child] of persistentRegistry) {
-        const n = nodes.get(id)
-        if (n !== undefined && (n.requested || n.surfaced === true)) {
-          keepAliveNodes.push(n)
-          keepAlive.push(child)
-        }
-      }
-    }
-    const keepAliveSet = new Set(keepAlive)
-
-    // Shut down the dependency-only persistent tasks before reporting the final
-    // summary. SIGTERM gives well-behaved servers (vite, next, esbuild --watch)
-    // a moment to clean up. Bun's Subprocess.kill is idempotent on an
-    // already-exited child. Bound the wait: a persistent dep that traps or
-    // ignores SIGTERM (a wedged mock server) would otherwise hang the run at
-    // NORMAL completion forever — after a grace, SIGKILL the stragglers and move
-    // on. Well-behaved servers exit in well under the grace, so the happy path
-    // pays nothing; the timer is cleared + unref'd so a fast shutdown never
-    // delays CLI exit.
-    const dyingChildren = [...persistentRegistry.values()].filter((c) => !keepAliveSet.has(c))
-    for (const child of dyingChildren) child.kill('SIGTERM')
-    const allExited = Promise.allSettled(dyingChildren.map((c) => c.exited))
-    let graceTimer: ReturnType<typeof setTimeout> | undefined
-    const winner = await Promise.race([
-      allExited.then(() => 'exited' as const),
-      new Promise<'grace'>((resolve) => {
-        graceTimer = setTimeout(() => resolve('grace'), PERSISTENT_SHUTDOWN_GRACE_MS)
-        graceTimer.unref?.()
-      }),
-    ])
-    if (graceTimer !== undefined) clearTimeout(graceTimer)
-    if (winner === 'grace') {
-      for (const child of dyingChildren) child.kill('SIGKILL')
-      await allExited
-    }
+    const keepAlive = selectKeepAlive(persistentRegistry, nodes, foreground)
+    await shutdownPersistent(persistentRegistry, keepAlive.children)
 
     mark('run graph')
     // Clear the status line for good before the summary prints.
@@ -785,8 +629,8 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     const totalMs = Number(process.hrtime.bigint() - runStartHrTimeNs) / 1_000_000
     // Foreground dev mode: between the task frame and the footer, list
     // the persistent tasks still running (see the keep-alive block below).
-    if (keepAliveNodes.length > 0) {
-      for (const line of formatPersistentList(keepAliveNodes, colors)) log.status(line)
+    if (keepAlive.nodes.length > 0) {
+      for (const line of formatPersistentList(keepAlive.nodes, colors)) log.status(line)
     }
     for (const line of formatRunSummary(list, totalMs, colors, runContext)) log.status(line)
     // A task killed by a shutdown signal is in no bucket above, yet it makes
@@ -839,117 +683,32 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     }
 
     // Record each task to the run history in a single SQLite transaction
-    // (one fsync instead of N). Group tasks (no `exec`) are skipped —
-    // they aren't real runs and the `runs` table is analytics-focused.
-    // One invocation header row is written alongside, atomically via
-    // recordRunBundle. The Tier-3 input-fingerprint rows (entry_inputs)
-    // are NOT built here — they're persisted inside each entry's save
-    // transaction (miss path only), so a warm all-cache-hit run does no
-    // extra recording work.
-    const now = endedAtMs
-    const toRecord: RunRecord[] = []
-    // Per-task telemetry mirrors `toRecord` 1:1 — built only when a
-    // telemetry sink is active, so a no-telemetry run allocates nothing.
-    const summaryTasks: TaskTelemetry[] = []
-    let failedCount = 0
-    let hitLocalCount = 0
-    let hitRemoteCount = 0
-    for (const o of list) {
-      if (isGroupTask(o.node)) continue
-      // aborted (killed by a shutdown signal) isn't a real run.
-      if (o.status === 'aborted') continue
-      if (telemetry !== undefined) {
-        const t: TaskTelemetry = {
-          taskId: o.node.id,
-          project: o.node.projectName,
-          task: o.node.taskName,
-          status: o.status,
-          cacheSource: deriveCacheSource(o.status),
-          exitCode: o.exitCode,
-          durationMs: o.durationMs,
-        }
-        if (o.hash !== undefined) t.hash = o.hash
-        if (o.cpuMs !== undefined) t.cpuMs = o.cpuMs
-        if (o.peakRssBytes !== undefined) t.peakRssBytes = o.peakRssBytes
-        if (o.where !== undefined) t.where = o.where
-        if (o.outputs !== undefined) t.outputs = o.outputs
-        if (o.attempts !== undefined) t.attempts = o.attempts
-        if (o.wallclockStartNs !== undefined) t.wallclockStartNs = o.wallclockStartNs.toString()
-        if (o.wallclockEndNs !== undefined) t.wallclockEndNs = o.wallclockEndNs.toString()
-        summaryTasks.push(t)
-      }
-      // Every non-group, non-aborted outcome gets a row — the same set
-      // `tallyOutcomes` counts, so `invocations.task_count` equals both the
-      // terminal's "N total" and `COUNT(*) FROM runs WHERE run_id = ?`.
-      // An outcome with NO hash (a `skipped` task never probed the cache; a
-      // `persistent` one is never cacheable) used to be dropped here because
-      // `runs.hash` is NOT NULL — which made a failing persistent task record
-      // `0 tasks, 0 failures` on a run the terminal called red, and a failed
-      // task with a skipped dependent record 1 of 2. `bindRun` stores `''` for
-      // those instead; the key-diff readers guard it.
-      toRecord.push({
-        ...(o.hash !== undefined ? { hash: o.hash } : {}),
-        project: o.node.projectName,
-        task: o.node.taskName,
-        status: o.status,
-        exitCode: o.exitCode,
-        durationMs: o.durationMs,
-        ...(options.forwardArgs !== undefined ? { forwardArgs: options.forwardArgs } : {}),
-        // Anchor to the REAL per-task wall-clock window: run-start wall time +
-        // the task's ns offset (captured for hits and executed tasks alike).
-        // The `now - duration` fallback applies to outcomes without an offset —
-        // today only `skipped`, which the scheduler finishes synchronously with
-        // no span, so it collapses to a zero-width mark at the run's end. Using
-        // run-end-minus-duration for EVERYTHING was the old bug that piled every
-        // task at the right edge of the timeline.
-        startedAt:
-          o.wallclockStartNs !== undefined
-            ? endedAtMsAtStart + Math.round(Number(o.wallclockStartNs) / 1e6)
-            : now - o.durationMs,
-        endedAt:
-          o.wallclockEndNs !== undefined
-            ? endedAtMsAtStart + Math.round(Number(o.wallclockEndNs) / 1e6)
-            : now,
-        runId,
-        ...(o.cpuMs !== undefined ? { cpuMs: o.cpuMs } : {}),
-        ...(o.peakRssBytes !== undefined ? { peakRssBytes: o.peakRssBytes } : {}),
-        ...(o.wallclockStartNs !== undefined ? { wallclockStartNs: o.wallclockStartNs } : {}),
-        ...(o.wallclockEndNs !== undefined ? { wallclockEndNs: o.wallclockEndNs } : {}),
-        cacheHit: isCacheHit(o.status),
-        ...(o.attempts !== undefined ? { attempts: o.attempts } : {}),
-      })
-      if (o.status === 'failed') failedCount++
-      if (o.status === 'cache-hit') hitLocalCount++
-      if (o.status === 'cache-hit-remote') hitRemoteCount++
-    }
-    const invocation: InvocationRecord = {
+    // (one fsync instead of N), with the invocation header row alongside,
+    // atomically via recordRunBundle. The Tier-3 input-fingerprint rows
+    // (entry_inputs) are NOT built here — they're persisted inside each
+    // entry's save transaction (miss path only), so a warm all-cache-hit
+    // run does no extra recording work. The telemetry mirror is built in
+    // the same pass, only when a sink is active.
+    const records = assembleRunRecords({
+      outcomes: list,
       runId,
+      startedAtMs: endedAtMsAtStart,
+      endedAtMs,
+      totalMs,
+      ok,
       command: options.command ?? process.argv.slice(1).join(' '),
-      requestedTasks: JSON.stringify([...options.tasks]),
+      requestedTasks: options.tasks,
       cachePolicy: compactCachePolicy(policy),
       concurrency,
       flow: options.flow ?? null,
-      startedAt: endedAtMsAtStart,
-      endedAt: endedAtMs,
-      totalDurationMs: Math.round(totalMs),
-      taskCount: toRecord.length,
-      failedCount,
-      hitCount: hitLocalCount + hitRemoteCount,
-      hitLocalCount,
-      hitRemoteCount,
-      exitOk: ok,
-      commitSha: gitContext.commitSha,
-      branch: gitContext.branch,
-      dirty: gitContext.dirty,
-      ci: ciContext.ci,
-      ciProvider: ciContext.provider,
-      host: hostContext.host,
-      os: hostContext.os,
-      arch: hostContext.arch,
-      vxVersion: VERSION,
-      tags: JSON.stringify(options.tags ?? {}),
-    }
-    cache.recordRunBundle({ runs: toRecord, invocation })
+      forwardArgs: options.forwardArgs,
+      tags: options.tags ?? {},
+      git: gitContext,
+      ci: ciContext,
+      host: hostContext,
+      withTelemetry: telemetry !== undefined,
+    })
+    cache.recordRunBundle(records)
     mark('record history')
     // Hand the per-run summary to the telemetry sinks + drain them. Only
     // when a sink is active (telemetry !== undefined) — otherwise this
@@ -957,7 +716,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     // emitSummary/flush are crash-isolated, so a faulty sink can't fail
     // the run; flush is the sink's last chance to ship buffered records.
     if (telemetry !== undefined && runContextRecord !== undefined) {
-      const summary = assembleRunSummary(runContextRecord, summaryTasks, {
+      const summary = assembleRunSummary(runContextRecord, records.telemetryTasks, {
         startedAt: endedAtMsAtStart,
         endedAt: endedAtMs,
         totalDurationMs: Math.round(totalMs),
@@ -1011,9 +770,9 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     // until it exits: Ctrl-C hits the whole process group (the server
     // dies; our SIGINT handler also exits 130), and a crash resolves the
     // wait so the run returns. Nothing here prints — the UI is unchanged.
-    if (keepAlive.length > 0) {
-      await Promise.allSettled(keepAlive.map((c) => c.exited))
-      for (const child of keepAlive) child.kill('SIGTERM')
+    if (keepAlive.children.length > 0) {
+      await Promise.allSettled(keepAlive.children.map((c) => c.exited))
+      for (const child of keepAlive.children) child.kill('SIGTERM')
     }
 
     return { ok, outcomes: list }
@@ -1021,8 +780,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     // Idempotent; also reached on mid-run throws, so a crashed cycle
     // can't leave a live status-line ticker behind.
     log.runEnd?.()
-    process.off('SIGINT', onSigint)
-    process.off('SIGTERM', onSigterm)
+    signals.remove()
     // Plugins installed at the top of run() get their bus subscriptions
     // released here. Idempotent; safe even if installPlugins threw.
     disposePlugins?.()
@@ -1091,178 +849,6 @@ export async function planRun(options: RunOptions): Promise<RunPlan> {
 }
 
 /**
- * A task is pinned to this machine when it is persistent, transitively
- * depends on a persistent task (a worker cannot reach a port on the
- * submitter), or declares `exec.remote: false`.
- */
-function pinnedLocalSet(nodes: Map<string, TaskNode>): Set<string> {
-  const pinned = new Set<string>()
-  const memo = new Map<string, boolean>()
-  const visit = (id: string): boolean => {
-    const known = memo.get(id)
-    if (known !== undefined) return known
-    const node = nodes.get(id)
-    if (node === undefined) return false
-    memo.set(id, false) // cycle guard; the graph builder already rejects cycles
-    const result =
-      node.config.exec?.persistent !== undefined ||
-      node.config.exec?.remote === false ||
-      node.deps.some((d) => visit(d))
-    memo.set(id, result)
-    if (result) pinned.add(id)
-    return result
-  }
-  for (const id of nodes.keys()) visit(id)
-  return pinned
-}
-
-interface Placements {
-  executors: Map<string, TaskExecutor>
-  /**
-   * `exec.remote: 'only'` tasks that no REMOTE executor took — a NO-OP on
-   * this machine: never executed, declared outputs never cleaned or
-   * restored. The task exists to produce a remote input tree; without a
-   * remote pool, dependents use the machine's ambient state exactly as they
-   * did before the field existed.
-   */
-  remoteOnlyNoop: Set<string>
-  /** `'only'` tasks a remote executor DID take — executed remotely, outputs stay remote. */
-  remoteOnly: Set<string>
-}
-
-function placeTasks(
-  nodes: Map<string, TaskNode>,
-  executors: readonly TaskExecutor[],
-  pinAllLocal = false,
-): Placements {
-  const pinned = pinnedLocalSet(nodes)
-  const placements: Placements = {
-    executors: new Map(),
-    remoteOnlyNoop: new Set(),
-    remoteOnly: new Set(),
-  }
-  for (const node of nodes.values()) {
-    if (isGroupTask(node) || node.config.exec?.persistent !== undefined) continue
-    const executor = selectExecutor(executors, {
-      taskId: node.id,
-      projectName: node.projectName,
-      projectDir: node.projectDir,
-      command: node.config.exec!.command,
-      pinnedLocal: pinAllLocal || pinned.has(node.id),
-      cacheable: node.config.cache !== undefined,
-      ...(node.config.exec?.resources === undefined
-        ? {}
-        : { resources: node.config.exec.resources }),
-    })
-    placements.executors.set(node.id, executor)
-    if (node.config.exec?.remote === 'only') {
-      // A pinned 'only' task (it transitively depends on a persistent one)
-      // lands here too: pinning wins, so it noops rather than shipping.
-      if (executor.remote === true) placements.remoteOnly.add(node.id)
-      else placements.remoteOnlyNoop.add(node.id)
-    }
-  }
-  return placements
-}
-
-/**
- * `executorOf` for `planRun`, or nothing. Declining plugins, a single
- * executor, or a resolution error all yield nothing: `--dry` is an
- * inspection command and must not fail over a label.
- */
-async function planExecutorOf(
-  prepared: Awaited<ReturnType<typeof prepareRun>>,
-  log: Logger,
-  policy: 'all' | 'toplevel' | 'none',
-): Promise<{
-  executorOf?: (id: string) => string | undefined
-  downloadOf?: (id: string) => 'eager' | 'deferred' | 'never' | undefined
-  downloadDowngrades?: ReadonlyArray<{ taskId: string; reason: string }>
-}> {
-  let executors: readonly TaskExecutor[]
-  try {
-    executors = await resolveExecutors(prepared.plugins, {
-      workspaceRoot: prepared.workspaceRoot,
-      cacheDir: prepared.cacheDir,
-      warn: (m: string) => log.status(m),
-      concurrency: Math.max(1, navigator.hardwareConcurrency),
-    })
-  } catch {
-    return {}
-  }
-  const placements = placeTasks(prepared.nodes, executors)
-  // Download modes need placement regardless of how many executors there
-  // are (a single REMOTE one still defers); executor LABELS only earn their
-  // column when there is a choice to report.
-  const download =
-    policy === 'all'
-      ? undefined
-      : resolveDownloadModes({
-          nodes: prepared.nodes,
-          policy,
-          localPlaced: new Set(
-            [...prepared.nodes.keys()].filter(
-              (id) => placements.executors.get(id)?.remote !== true,
-            ),
-          ),
-          remoteOnly: placements.remoteOnly,
-        })
-  return {
-    ...(executors.length < 2
-      ? {}
-      : {
-          executorOf: (id: string) =>
-            placements.remoteOnlyNoop.has(id) ? 'noop' : placements.executors.get(id)?.name,
-        }),
-    ...(download === undefined
-      ? {}
-      : {
-          downloadOf: (id: string) => download.modeOf.get(id),
-          downloadDowngrades: [...download.downgrades].map(([taskId, reason]) => ({
-            taskId,
-            reason,
-          })),
-        }),
-  }
-}
-
-/**
- * Stands in for the executor of a task that was never placed — a group task
- * (runs nothing) or a persistent one (`executePersistentTask` owns it and
- * never reads this field). It THROWS rather than silently picking some
- * executor from the list, so a refactor that routes such a task through the
- * exec path fails loudly instead of shipping a localhost server to a worker.
- */
-const UNPLACED_EXECUTOR: TaskExecutor = {
-  name: 'unplaced',
-  execute: (req) => {
-    throw new Error(`internal error: ${req.taskId} reached an executor without being placed`)
-  },
-}
-
-function hasPooledExecutor(executors: readonly TaskExecutor[]): boolean {
-  return executors.some((e) => e.capacity !== undefined)
-}
-
-function poolOfPlacement(
-  placements: Placements,
-): (id: string) => { name: string; capacity: number } | undefined {
-  return (id) => {
-    const executor = placements.executors.get(id)
-    return executor?.capacity === undefined
-      ? undefined
-      : { name: executor.name, capacity: executor.capacity }
-  }
-}
-
-/**
- * A typo's nearest declared name, when one is within two edits — the
- * message names the fix instead of only the mistake. A bare name is
- * matched against every declared task; `pkg#task` against the project
- * names first (the task kept) and then against that project's tasks, so
- * the hint is a spec the user can run.
- */
-/**
  * The first-run case, told apart from a typo: no package in the workspace
  * has a `vx.config.*` at all, so no name could have resolved. Reached only
  * on the error path.
@@ -1273,41 +859,37 @@ function initHint(prepared: { anyProjectConfig: boolean }): string {
     : ' No package declares a vx.config — run `vx init` to write one per package from its package.json scripts.'
 }
 
+/**
+ * A typo's nearest declared name, when one is within two edits — the
+ * message names the fix instead of only the mistake. A bare name is
+ * matched against every declared task; `pkg#task` against the project
+ * names first (the task kept) and then against that project's tasks, so
+ * the hint is a spec the user can run.
+ */
 function didYouMean(
   unresolved: readonly string[],
   projects: ReadonlyMap<string, ProjectEntry>,
 ): string {
-  const nearest = (name: string, candidates: Iterable<string>): string | undefined => {
-    let best: string | undefined
-    let bestD = 3
-    for (const c of candidates) {
-      const d = editDistance(name, c)
-      if (d < bestD) {
-        bestD = d
-        best = c
-      }
-    }
-    return best === name ? undefined : best
-  }
   const tasksOf = (p: ProjectEntry | undefined): string[] => Object.keys(p?.config.tasks ?? {})
   const allTasks = new Set<string>()
   for (const p of projects.values()) for (const t of tasksOf(p)) allTasks.add(t)
-  const hints: string[] = []
+  // A Set: two typos of the same task hint it once, not once per typo.
+  const hints = new Set<string>()
   for (const spec of unresolved) {
     const at = spec.indexOf('#')
     if (at < 0) {
       const t = nearest(spec, allTasks)
-      if (t !== undefined) hints.push(t)
+      if (t !== undefined) hints.add(t)
       continue
     }
     const [proj, task] = [spec.slice(0, at), spec.slice(at + 1)]
     if (!projects.has(proj)) {
       const p = nearest(proj, projects.keys())
-      if (p !== undefined && tasksOf(projects.get(p)).includes(task)) hints.push(`${p}#${task}`)
+      if (p !== undefined && tasksOf(projects.get(p)).includes(task)) hints.add(`${p}#${task}`)
       continue
     }
     const t = nearest(task, tasksOf(projects.get(proj)))
-    if (t !== undefined) hints.push(`${proj}#${t}`)
+    if (t !== undefined) hints.add(`${proj}#${t}`)
   }
-  return hints.length === 0 ? '' : ` Did you mean ${hints.join(', ')}?`
+  return hints.size === 0 ? '' : ` Did you mean ${[...hints].join(', ')}?`
 }

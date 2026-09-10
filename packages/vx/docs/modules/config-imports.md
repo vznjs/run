@@ -54,9 +54,10 @@ when the lockfile moves, and the workspace fingerprint already selects
 everything on a lockfile change.
 
 **No descent past a project boundary.** This is what makes the walk
-affordable. This repo's `apps/docs/vx.config.ts` imports
-`../../src/index.ts`; following that edge transitively would drag
-substantially all of core `src/` into the closure. The edge is
+affordable. When this repo's docs package config still imported core by
+relative path (`../../src/index.ts`), following that edge transitively
+would have dragged substantially all of core `src/` into the closure
+(today it imports the bare `@vzn/vx`). The edge is
 recorded (so editing `src/index.ts` selects `@vzn/vx-docs`), but the
 walk stops there, and containment already selects the project owning
 the target.
@@ -112,8 +113,8 @@ changes and only `flag.mjs` imports it. In a root-is-a-project
 workspace, keep config helpers one hop from the config, or import them
 by a specifier the containment channel already covers.
 
-Measured for context rather than asserted: full descent from
-`apps/docs/vx.config.ts` reaches 78 files in 15 ms here, so the cost of
+Measured for context rather than asserted: full descent from that
+relative-import config reached 78 files in 15 ms here, so the cost of
 closing this is not scan time — it is that an arbitrary project's
 source tree becomes the walk's bound, and that every edit inside it
 selects the importing project.

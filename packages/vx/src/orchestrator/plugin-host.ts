@@ -30,6 +30,54 @@ import type {
  * never silently degrade. (Telemetry sinks are the observe-only exception,
  * and telemetry-host.ts logs-and-skips them instead.)
  */
+/** `a string`, `an array`, `null`, `a number` — for a refusal that names what came back. */
+function describeValue(v: unknown): string {
+  if (v === null) return 'null'
+  if (Array.isArray(v)) return 'an array'
+  const t = typeof v
+  return t === 'object' ? 'an object' : `a ${t}`
+}
+
+/** What a capability hook handed back must be what the seam runs. */
+/** Every method `CacheLayer` requires (the optional ones are probed with `?.`). */
+export const CACHE_LAYER_METHODS: readonly string[] = [
+  'key',
+  'get',
+  'has',
+  'prefetch',
+  'loadOutputFilesBatch',
+  'isOutputsCurrent',
+  'restoreOutputs',
+  'save',
+  'ingest',
+  'recordRun',
+  'recordRuns',
+  'recordRunBundle',
+  'stats',
+  'hashFile',
+  'outputsPath',
+  'prune',
+  'close',
+]
+
+function assertShape(
+  plugin: VxPlugin,
+  hook: string,
+  value: unknown,
+  methods: readonly string[],
+  what: string,
+): void {
+  const missing =
+    value === null || typeof value !== 'object'
+      ? methods
+      : methods.filter((m) => typeof (value as Record<string, unknown>)[m] !== 'function')
+  if (missing.length === 0) return
+  throw new UserError(
+    `plugin '${plugin.name}' returned from ${hook} something that is not ${what}: ` +
+      `missing ${missing.map((m) => `${m}()`).join(', ')}`,
+  )
+}
+
 async function safe<T>(plugin: VxPlugin, hook: string, fn: () => T | Promise<T>): Promise<T> {
   try {
     return await fn()
@@ -72,10 +120,13 @@ export async function applyProjectHooks(
   plugins: readonly VxPlugin[],
   config: ProjectConfig,
   ctx: ProjectHookContext,
+  /** Runs after EACH plugin's edit, so a refusal can name the plugin that made it. */
+  afterEach?: (plugin: VxPlugin) => void,
 ): Promise<void> {
   for (const plugin of plugins) {
     if (plugin.project === undefined) continue
     await safe(plugin, 'project', () => plugin.project!(config, ctx))
+    afterEach?.(plugin)
   }
 }
 
@@ -127,6 +178,14 @@ export async function applyKeyHooks(
       if (plugin.key === undefined) continue
       const material = await safe(plugin, 'key', () => plugin.key!(node, ctx))
       if (material === undefined) continue
+      // `Object.entries` over a string yields its characters as string
+      // values, so a plugin returning `'v22'` used to fold parts named
+      // '0', '1', '2' into every key — silently, and permanently.
+      if (typeof material !== 'object' || material === null || Array.isArray(material)) {
+        throw new UserError(
+          `plugin '${plugin.name}' failed in key: returned ${describeValue(material)}, not a record of string values`,
+        )
+      }
       for (const [name, value] of Object.entries(material)) {
         if (typeof value !== 'string') {
           throw new UserError(
@@ -157,6 +216,14 @@ export async function applyScheduleHooks(
     if (plugin.schedule === undefined) continue
     const weights = await safe(plugin, 'schedule', () => plugin.schedule!(nodes, ctx))
     if (weights === undefined) continue
+    // Iterating a string destructures its characters into `[id, w]` pairs
+    // that match no task — a plugin returning `'fast'` used to be a no-op
+    // with no word said.
+    if (!(weights instanceof Map)) {
+      throw new UserError(
+        `plugin '${plugin.name}' failed in schedule: returned ${describeValue(weights)}, not a Map of task id → weight`,
+      )
+    }
     for (const [id, w] of weights) {
       if (!nodes.has(id)) continue
       if (typeof w !== 'number' || !Number.isFinite(w)) {
@@ -186,7 +253,14 @@ export async function resolveCache(
   for (const plugin of plugins) {
     if (plugin.cache === undefined) continue
     const layer = await safe(plugin, 'cache', () => plugin.cache!(ctx))
-    if (layer !== undefined) layers.push(layer)
+    if (layer === undefined) continue
+    // The seam's WHOLE contract, checked once here: a layer missing a
+    // method otherwise failed at the first task that reached it — an
+    // internal TypeError deep in the chain, naming neither the plugin nor
+    // the hook. Five names were checked before, so a layer with those five
+    // passed and died at its first hit inside restoreOutputs.
+    assertShape(plugin, 'cache', layer, CACHE_LAYER_METHODS, 'a cache layer')
+    layers.push(layer)
   }
   // Core's own store is the TAIL of the chain — the floor under every
   // lookup, not a plugin a workspace has to declare. A layer that WRAPS
@@ -212,7 +286,12 @@ export async function resolveExecutors(
   for (const plugin of plugins) {
     if (plugin.executor === undefined) continue
     const executor = await safe(plugin, 'executor', () => plugin.executor!(ctx))
-    if (executor !== undefined) executors.push(executor)
+    if (executor === undefined) continue
+    assertShape(plugin, 'executor', executor, ['execute'], 'an executor')
+    if (typeof executor.name !== 'string' || executor.name.length === 0) {
+      throw new UserError(`plugin '${plugin.name}' returned an executor with no name`)
+    }
+    executors.push(executor)
   }
   // Core's own executor is the TAIL of every list, so a plugin executor
   // that declines a task hands it back to this machine rather than

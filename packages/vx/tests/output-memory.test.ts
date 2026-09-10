@@ -9,7 +9,7 @@
 // not encode this container's absolute numbers.
 
 import path from 'node:path'
-import { describe, expect, it } from 'bun:test'
+import { beforeAll, describe, expect, it } from 'bun:test'
 
 const TIMEOUT = 60_000
 const LOGGER = path.join(import.meta.dir, '..', 'src', 'orchestrator', 'logger.ts')
@@ -27,6 +27,19 @@ function probeRssMib(script: string): number {
   const m = /rss_mib=(\d+)/.exec(out)
   if (m === null)
     throw new Error(`probe produced no measurement (exit ${p.exitCode}): ${out}${err}`)
+  return Number(m[1])
+}
+
+/** The same probe, awaited: for floods that should run side by side. */
+async function probeRssMibAsync(script: string): Promise<number> {
+  const p = Bun.spawn({ cmd: ['bun', '-e', script], stdout: 'pipe', stderr: 'pipe' })
+  const [out, err, code] = await Promise.all([
+    new Response(p.stdout).text(),
+    new Response(p.stderr).text(),
+    p.exited,
+  ])
+  const m = /rss_mib=(\d+)/.exec(out)
+  if (m === null) throw new Error(`probe produced no measurement (exit ${code}): ${out}${err}`)
   return Number(m[1])
 }
 
@@ -187,15 +200,31 @@ function persistentProbe(seconds: number, terminator: '\\n' | '\\r'): string {
 }
 
 describe('persistent task pre-ready buffering', () => {
-  for (const [name, terminator] of [
+  // The four floods run CONCURRENTLY: each is a fixed-duration child (1 s and
+  // 3 s per line shape), so in sequence the file spent 8 s waiting, and the
+  // claim — RSS does not grow with the duration — is about each child's own
+  // bounded capture, not about throughput, so sharing the cores changes
+  // nothing it asserts.
+  const shapes = [
     ['newline-terminated', '\\n'],
     ['carriage-return only', '\\r'],
-  ] as const) {
+  ] as const
+  const readings = new Map<string, { short: number; long: number }>()
+  beforeAll(async () => {
+    const all = await Promise.all(
+      shapes.flatMap(([, terminator]) => [
+        probeRssMibAsync(persistentProbe(1, terminator)),
+        probeRssMibAsync(persistentProbe(3, terminator)),
+      ]),
+    )
+    shapes.forEach(([name], i) => readings.set(name, { short: all[i * 2]!, long: all[i * 2 + 1]! }))
+  }, TIMEOUT)
+
+  for (const [name] of shapes) {
     it(
       `stays flat while a never-ready task floods stdout (${name})`,
       () => {
-        const short = probeRssMib(persistentProbe(2, terminator))
-        const long = probeRssMib(persistentProbe(6, terminator))
+        const { short, long } = readings.get(name)!
         // Unbounded growth ran ~100 MiB/s — through the real CLI, 6 s
         // measured 651 MiB (`\n`) and 488 MiB (`\r`) against ~280/370 MiB at
         // 2 s. A bounded capture makes the two durations indistinguishable,

@@ -12,14 +12,15 @@ export {
 export {
   initSandbox,
   probeSandbox,
+  unavailableReason,
   resetSandbox,
   resolveSandboxConfig,
   runSandboxed,
   wrapSandboxedCommand,
-  type DeniedCall,
   type ResolvedSandboxConfig,
   type SandboxViolation,
 } from './sandbox-runtime.js'
+export { type DeniedCall } from './sandbox-violations.js'
 export { localExecutor } from './local-executor.js'
 export {
   selectExecutor,

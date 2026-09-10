@@ -9,6 +9,7 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { parseShowArgs } from '../src/cli/index.js'
 import { VERSION } from '../src/version.js'
+import { CACHE_VERSION, SCHEMA_VERSION } from '../src/cache/index.js'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 const TIMEOUT = 20_000
@@ -33,9 +34,53 @@ const APP_CONFIG = `
         },
       },
       ci: { dependsOn: ['build'] },
+      lint: {
+        exec: {
+          command: 'echo lint',
+          retries: 2,
+          env: { passThrough: ['HOME'], define: { CI: '1' } },
+          remote: 'only',
+        },
+        cache: {
+          inputs: { files: ['**/*.ts'], workspaceFiles: ['tsconfig.base.json'], runtime: ['node -v'] },
+          outputs: { files: [] },
+        },
+      },
     },
   }
 `
+
+// A workspace whose only tasks come from a plugin's `project` stage: no
+// package writes a config file. What `vx run` would run, `vx show` must
+// show — the two go through the same load.
+const PLUGIN_WORKSPACE = `
+  export default {
+    plugins: [
+      {
+        name: 'gen',
+        project(config, ctx) {
+          config.tasks.gen = { exec: { command: 'echo gen ' + ctx.name } }
+        },
+      },
+    ],
+  }
+`
+
+async function makePluginWorkspace(): Promise<string> {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-show-plugin-'))
+  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
+  await writeFile(
+    path.join(root, 'package.json'),
+    JSON.stringify({ name: 'fixture-root', private: true }),
+  )
+  await writeFile(path.join(root, 'vx.workspace.mjs'), PLUGIN_WORKSPACE)
+  for (const name of ['one', 'two']) {
+    const dir = path.join(root, 'packages', name)
+    await mkdir(dir, { recursive: true })
+    await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name }))
+  }
+  return root
+}
 
 async function makeWorkspace(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'vx-show-'))
@@ -91,7 +136,7 @@ describe('vx show (e2e)', () => {
       expect(r.code).toBe(0)
       expect(r.out).toContain('app')
       expect(r.out).toContain('packages/app')
-      expect(r.out).toContain('3 tasks')
+      expect(r.out).toContain('4 tasks')
       expect(r.out).toContain('bare')
       expect(r.out).toContain('(no vx config)')
     },
@@ -105,7 +150,11 @@ describe('vx show (e2e)', () => {
       expect(r.code).toBe(0)
       const list = JSON.parse(r.out) as { name: string; dir: string; tasks: string[] }[]
       const app = list.find((p) => p.name === 'app')
-      expect(app).toEqual({ name: 'app', dir: 'packages/app', tasks: ['build', 'dev', 'ci'] })
+      expect(app).toEqual({
+        name: 'app',
+        dir: 'packages/app',
+        tasks: ['build', 'dev', 'ci', 'lint'],
+      })
       const bare = list.find((p) => p.name === 'bare')
       expect(bare).toEqual({ name: 'bare', dir: 'packages/bare', tasks: [] })
     },
@@ -160,6 +209,59 @@ describe('vx show (e2e)', () => {
   )
 
   it(
+    'show <project> prints every field the run reads, not only the common ones',
+    async () => {
+      // `show` claims the live resolved config; a field it hid (retries,
+      // env, remote, workspace inputs, runtime probes) was a claim the
+      // output lacked.
+      const r = await vx(root, ['show', 'app#lint'])
+      expect(r.code).toBe(0)
+      const rows = r.out
+        .split('\n')
+        .filter((l) => l.startsWith('  '))
+        .map((l) => l.trim().replace(/:\s+/, ': '))
+      expect(rows).toEqual([
+        'command: echo lint',
+        'retries: 2',
+        'env.passThrough: HOME',
+        'env.define: CI=1',
+        'remote: only',
+        'inputs.files: **/*.ts',
+        'inputs.workspaceFiles: tsconfig.base.json',
+        'inputs.runtime: node -v',
+        'outputs.files:',
+      ])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'show <task> shows that task in every project declaring it',
+    async () => {
+      const r = await vx(root, ['show', 'build'])
+      expect(r.code).toBe(0)
+      expect(r.out).toContain('app — packages/app')
+      expect(r.out).toContain('echo build')
+      const j = await vx(root, ['show', 'build', '--format=json'])
+      expect(j.code).toBe(0)
+      const list = JSON.parse(j.out) as { name: string; task: string }[]
+      expect(list.map((e) => `${e.name}#${e.task}`)).toEqual(['app#build'])
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'a bare name that is neither project nor task says so, with both kinds of near miss',
+    async () => {
+      const r = await vx(root, ['show', 'buidl'])
+      expect(r.code).toBe(1)
+      expect(r.err).toContain('unknown project or task: "buidl"')
+      expect(r.err).toContain('build')
+    },
+    TIMEOUT,
+  )
+
+  it(
     'unknown project errors with near-match suggestions',
     async () => {
       const r = await vx(root, ['show', 'ap'])
@@ -188,6 +290,44 @@ describe('vx show (e2e)', () => {
       const r = await vx(root, ['show', '--format', 'yaml'])
       expect(r.code).toBe(1)
       expect(r.err).toContain('--format must be pretty or json')
+    },
+    TIMEOUT,
+  )
+})
+
+describe('vx show under a `project` plugin (e2e)', () => {
+  let root: string
+  beforeAll(async () => {
+    root = await makePluginWorkspace()
+  })
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it(
+    'shows the tasks a plugin gave a package that wrote no config file',
+    async () => {
+      // Before `show` went through the run path's load it printed
+      // `(no vx config)` for a package `vx run` would happily run.
+      const r = await vx(root, ['show'])
+      expect(r.code).toBe(0)
+      expect(r.out).toContain('1 task (no vx config; from plugins)')
+      expect(r.out).not.toContain('(no vx config)\n')
+      const one = await vx(root, ['show', 'one#gen'])
+      expect(one.code).toBe(0)
+      expect(one.out).toContain('echo gen one')
+      const across = await vx(root, ['show', 'gen', '--format=json'])
+      expect(across.code).toBe(0)
+      const list = JSON.parse(across.out) as { name: string }[]
+      expect(list.map((e) => e.name)).toEqual(['one', 'two'])
+      // The doctor counts through the same load, so its number is the
+      // one a run would see, not the number of config files.
+      const info = await vx(root, ['info'])
+      expect(info.code).toBe(0)
+      expect(info.out).toMatch(/^projects: +2 \(2 tasks\)/m)
+      // The doctor names each plugin and the seams it fills, in pipeline
+      // order — the `project` stage here, nothing else.
+      expect(info.out).toMatch(/^plugins: +1 — gen \(project\)$/m)
     },
     TIMEOUT,
   )
@@ -224,11 +364,46 @@ describe('vx info (e2e)', () => {
       // the unique tmpdir basename rather than the absolute prefix.
       expect(r.out).toMatch(/^workspace root: +\S/m)
       expect(r.out).toContain(path.basename(root))
-      expect(r.out).toMatch(row('projects', '2 (3 tasks)'))
+      expect(r.out).toMatch(row('projects', '2 (4 tasks)'))
+      expect(r.out).toMatch(row('plugins', 'none'))
       expect(r.out).toContain('cache dir:')
+      // The constants themselves, not a copy of them: a bump shows up here.
+      expect(r.out).toMatch(
+        row('cache versions', `keys ${CACHE_VERSION} · index schema ${SCHEMA_VERSION}`),
+      )
       expect(r.out).toMatch(row('cache entries', '0 (0 B)'))
       expect(r.out).toMatch(row('runs (24h)', '0'))
       expect(r.out).toMatch(row('vx-lock.json', 'no'))
+      // Control for the orphans row below: nothing on disk the index does
+      // not know, so the doctor says nothing about it.
+      expect(r.out).not.toContain('orphans:')
+    },
+    TIMEOUT,
+  )
+
+  it(
+    'names the artifacts on disk the index does not know, and the verb that reaps them',
+    async () => {
+      // An aged row-less artifact: what a SCHEMA_VERSION reset leaves
+      // behind. A fresh one is a save in flight and is not counted.
+      const cacheDir = path.join(root, '.vx', 'cache')
+      const { utimes, writeFile, rm } = await import('node:fs/promises')
+      const aged = path.join(cacheDir, 'deadbeefdeadbeef.tar.zst')
+      const fresh = path.join(cacheDir, 'feedfacefeedface.tar.zst')
+      await writeFile(aged, 'x'.repeat(2048))
+      const twoHoursAgo = (Date.now() - 2 * 60 * 60 * 1000) / 1000
+      await utimes(aged, twoHoursAgo, twoHoursAgo)
+      await writeFile(fresh, 'y')
+      try {
+        const r = await vx(root, ['info'])
+        expect(r.code).toBe(0)
+        expect(r.out).toMatch(
+          /^orphans: +1 artifact \(2\.0 KB\) the index does not know — `vx cache prune` reaps them$/m,
+        )
+      } finally {
+        await rm(aged, { force: true })
+        await rm(fresh, { force: true })
+      }
     },
     TIMEOUT,
   )

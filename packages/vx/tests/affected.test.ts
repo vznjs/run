@@ -13,6 +13,8 @@ import {
   WORKSPACE_FINGERPRINT_FILES,
 } from '../src/workspace/fingerprint.js'
 import type { ProjectMeta } from '../src/workspace/workspace.js'
+import { listProjects, loadWorkspace } from '../src/workspace/index.js'
+import { workspaceGlobOwners } from '../src/cli/select.js'
 
 async function git(cwd: string, ...args: string[]): Promise<void> {
   // -c commit.gpgsign=false defends against environments (CI sandboxes,
@@ -877,5 +879,44 @@ describe('affectedProjects: a workspace whose ROOT is itself a project', () => {
     await writeFile(path.join(root, 'shared/deep.mjs'), `export const DEEP = 2\n`)
     const out = await affectedProjects({ workspaceRoot: root, since: 'HEAD', projects })
     expect([...out].sort()).toEqual(['root-pkg'])
+  })
+})
+
+describe("workspaceGlobOwners: the run path's staged load", () => {
+  let root: string
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(os.tmpdir(), 'vx-owners-'))
+    await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
+    await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'r', private: true }))
+    // A `project` plugin gives a config-less package a task reading a root
+    // glob; a written config in a sibling declares none.
+    await writeFile(
+      path.join(root, 'vx.workspace.mjs'),
+      `export default { plugins: [{ name: 'gen', project(config, ctx) {
+        if (ctx.name === 'bare') config.tasks.build = { exec: { command: 'true' }, cache: {
+          inputs: { files: ['src/**'], workspaceFiles: ['shared/**'] }, outputs: { files: [] } } }
+      } }] }\n`,
+    )
+    for (const [name, config] of [
+      ['bare', null],
+      ['written', "export default { tasks: { build: { exec: { command: 'true' } } } }\n"],
+    ] as const) {
+      const dir = path.join(root, 'packages', name)
+      await mkdir(dir, { recursive: true })
+      await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name }))
+      if (config !== null) await writeFile(path.join(dir, 'vx.config.mjs'), config)
+    }
+  })
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true })
+  })
+
+  it('a glob a plugin gave a config-less package selects it; a sibling without one is not selected', async () => {
+    // Read raw, `bare` had no config to inspect and an orphan edit under
+    // shared/ selected nothing — `--affected` skipped a task whose input
+    // had changed.
+    const metas = await listProjects(await loadWorkspace(root))
+    expect(await workspaceGlobOwners(root, metas, ['shared/x.ts'])).toEqual(['bare'])
+    expect(await workspaceGlobOwners(root, metas, ['docs/x.md'])).toEqual([])
   })
 })
