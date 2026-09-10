@@ -1342,6 +1342,18 @@ vx-cache-v27 · index schema v25` — the two constants a bug report
     behaviour; do it file by file when a suite is touched for another
     reason, not as one commit.
 
+51. DONE (DX, one row): `vx info` prints `plugins: 2 — @vzn/vx-reapi
+(executor, cache); @vzn/vx-otel (telemetry)` — every plugin the
+    workspace declares and the seams each fills, in pipeline order, or
+    `none`. Nothing named the loaded plugins before; "why did this task
+    run there / cache there / not at all" started with reading
+    `vx.workspace.ts`. It reads the declarations (a plugin that
+    declines at run time still lists its seam) and is pinned on the
+    plugin fixture (`1 — gen (project)`) and the bare one (`none`).
+    The Next list is exhausted of actionable items: 1–2 parked with
+    reasons, 3 done, 4 refuted, 5 an instruction, 6 done as item 49,
+    7 done but (c), 8 (a)–(h) done, decided or refuted with numbers.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

@@ -325,6 +325,9 @@ describe('vx show under a `project` plugin (e2e)', () => {
       const info = await vx(root, ['info'])
       expect(info.code).toBe(0)
       expect(info.out).toMatch(/^projects: +2 \(2 tasks\)/m)
+      // The doctor names each plugin and the seams it fills, in pipeline
+      // order — the `project` stage here, nothing else.
+      expect(info.out).toMatch(/^plugins: +1 — gen \(project\)$/m)
     },
     TIMEOUT,
   )
@@ -362,6 +365,7 @@ describe('vx info (e2e)', () => {
       expect(r.out).toMatch(/^workspace root: +\S/m)
       expect(r.out).toContain(path.basename(root))
       expect(r.out).toMatch(row('projects', '2 (4 tasks)'))
+      expect(r.out).toMatch(row('plugins', 'none'))
       expect(r.out).toContain('cache dir:')
       // The constants themselves, not a copy of them: a bump shows up here.
       expect(r.out).toMatch(

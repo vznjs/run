@@ -3,6 +3,7 @@
 // `vx stats` is a deprecated alias (info absorbed it).
 
 import { Cache, CACHE_VERSION, noteSchemaReset, SCHEMA_VERSION } from '../cache/index.js'
+import type { VxPlugin } from '../orchestrator/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
 import { loadCliProjects, loadCliWorkspace, warnToStderr } from './workspace-config.js'
@@ -23,7 +24,7 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   }
   const root = await findWorkspaceRoot(process.cwd())
   const metas = await listProjects(await loadWorkspace(root))
-  const { cacheDir } = await loadCliWorkspace(root)
+  const { cacheDir, plugins } = await loadCliWorkspace(root)
   const cache = new Cache(cacheDir)
   noteSchemaReset(cache, warnToStderr)
   let stats
@@ -59,6 +60,11 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
     ['git status cache', gitStatusCache(root)],
     ['workspace root', root],
     ['projects', `${metas.length} (${taskCount} task${taskCount === 1 ? '' : 's'})`],
+    // Which plugins loaded and which seams each fills, in pipeline order —
+    // the answer to "why did this task run there / cache there / not at
+    // all" before reading any config. A declined seam still costs nothing;
+    // this names the declarations, not what a run consulted.
+    ['plugins', describePlugins(plugins)],
     ['cache dir', cacheDir],
     // The two versions a bug report needs and the reset notice names: the
     // key prefix (a bump orphans every entry) and the index schema (a
@@ -83,6 +89,29 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
   const lines = rows.map(([label, value]) => `${`${label}:`.padEnd(labelW + 1)} ${value}`)
   process.stdout.write(`${lines.join('\n')}\n`)
   return 0
+}
+
+/** The seams a plugin can fill, in pipeline order (docs/design/pipeline-2026-09.md). */
+const SEAMS = [
+  'config',
+  'project',
+  'graph',
+  'key',
+  'schedule',
+  'executor',
+  'cache',
+  'telemetry',
+  'setup',
+  'commands',
+] as const
+
+export function describePlugins(plugins: readonly VxPlugin[]): string {
+  if (plugins.length === 0) return 'none'
+  const parts = plugins.map((p) => {
+    const seams = SEAMS.filter((s) => p[s as keyof VxPlugin] !== undefined)
+    return `${p.name} (${seams.length === 0 ? 'no seams' : seams.join(', ')})`
+  })
+  return `${plugins.length} — ${parts.join('; ')}`
 }
 
 /**

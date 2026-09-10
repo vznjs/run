@@ -1302,6 +1302,7 @@ git:               2.53.0
 git status cache:  core.fsmonitor, core.untrackedCache off — `git config core.fsmonitor true` makes every run's status walk near-free on a large tree
 workspace root:    /work/repo
 projects:       12 (34 tasks)
+plugins:        2 — @vzn/vx-reapi (executor, cache); @vzn/vx-otel (telemetry)
 cache dir:      /work/repo/.vx/cache
 cache versions: keys vx-cache-v27 · index schema v25
 cache entries:  42 (1.3 GB)
@@ -1318,6 +1319,11 @@ vx-lock.json:   yes
   critical path. git's `core.fsmonitor` (a daemon that watches the
   worktree) and `core.untrackedCache` make it near-free after the first
   run; both are off by default, so `vx info` says when they are.
+- `plugins` names every plugin `vx.workspace.*` declares and the seams
+  each fills, in pipeline order (`config`, `project`, `graph`, `key`,
+  `schedule`, `executor`, `cache`, `telemetry`, `setup`, `commands`),
+  or `none`. It reads the declarations: a plugin that declines a task
+  at run time still lists its seam here.
 - `cache versions` are the two constants a bug report needs and the
   reset notice names: the key prefix (`CACHE_VERSION`; a bump orphans
   every entry) and the index schema (`SCHEMA_VERSION`; a mismatch drops
