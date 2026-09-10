@@ -415,7 +415,7 @@ export async function resolveRunOptions(
   if (bareTasks.length === 0) {
     projects = undefined
   } else if (filterStrings.length > 0) {
-    const resolved = await resolveFilters(cwd, filterStrings)
+    const resolved = await resolveFilters(cwd, filterStrings, parsed.cacheDir)
     if ('error' in resolved) return { error: resolved.error }
     if ('empty' in resolved) {
       // "Nothing changed" is a clean exit for the BARE tasks the filter
@@ -489,7 +489,7 @@ export async function runCmd(args: readonly string[]): Promise<number> {
       process.stderr.write(`vx run: missing task name (stdin is not a TTY)\n`)
       return 1
     }
-    const picked = await pickTask(cwd)
+    const picked = await pickTask(cwd, {}, parsed.cacheDir)
     if (!picked) return 1
     tasks = [`${picked.project}#${picked.task}`]
   }

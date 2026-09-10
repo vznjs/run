@@ -11,7 +11,12 @@ import path from 'node:path'
 import { describe, expect, it } from 'bun:test'
 import { CORE_INDEX, localWorkspaceSource, writeLocalWorkspace } from './helpers/local-workspace.js'
 import { planRun, run } from '../src/index.js'
-import { resolveCache, resolveExecutors, type VxPlugin } from '../src/orchestrator/index.js'
+import {
+  CACHE_LAYER_METHODS,
+  resolveCache,
+  resolveExecutors,
+  type VxPlugin,
+} from '../src/orchestrator/index.js'
 import type { TaskExecutor, TaskInputs } from '../src/exec/index.js'
 import { Cache, ChainedCache } from '../src/cache/index.js'
 import { loadWorkspaceConfig } from '../src/workspace/index.js'
@@ -139,7 +144,7 @@ describe('plugin-host — capability consultation + fallbacks', () => {
           policy: { localRead: true, localWrite: true, remoteRead: false, remoteWrite: false },
         }),
       ).rejects.toThrow(
-        "plugin 'org/junk' returned from cache something that is not a cache layer: missing key(), get(), has(), save(), close()",
+        `plugin 'org/junk' returned from cache something that is not a cache layer: missing ${CACHE_LAYER_METHODS.map((m) => `${m}()`).join(', ')}`,
       )
     } finally {
       local.close()

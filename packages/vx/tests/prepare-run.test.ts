@@ -13,7 +13,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { localWorkspaceSource, writeLocalWorkspace } from './helpers/local-workspace.js'
 import { Cache, type RemoteCacheLayer } from '../src/cache/index.js'
 import type { Logger } from '../src/orchestrator/index.js'
@@ -421,6 +421,31 @@ describe('hasRemoteLayer asks the layer instead of comparing handles', () => {
       const p = await prepare()
       expect(p.hasRemoteLayer).toBe(true)
       p.cache.close()
+    },
+    TIMEOUT,
+  )
+})
+
+describe('a refused cache plugin leaks nothing', () => {
+  it(
+    'the local handle opened for the config cache is closed when the cache hook is refused',
+    async () => {
+      await pkg('app', cfg(task('build')))
+      await writeFile(
+        path.join(root, 'vx.workspace.mjs'),
+        localWorkspaceSource([`{ name: 'org/junk', cache: () => ({ nope: true }) }`]),
+      )
+      const closes = spyOn(Cache.prototype, 'close')
+      try {
+        await expect(prepare()).rejects.toThrow(
+          "plugin 'org/junk' returned from cache something that is not a cache layer",
+        )
+        // The one handle prepare opened, closed once on the way out — the
+        // config cache's `open` happens before the plugin is consulted.
+        expect(closes).toHaveBeenCalledTimes(1)
+      } finally {
+        closes.mockRestore()
+      }
     },
     TIMEOUT,
   )

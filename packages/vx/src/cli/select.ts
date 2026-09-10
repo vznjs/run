@@ -35,6 +35,7 @@ export async function workspaceGlobOwners(
   root: string,
   projects: readonly ProjectMeta[],
   orphans: readonly string[],
+  cacheDir?: string,
 ): Promise<string[]> {
   const declaresMatch = (config: ProjectConfig): boolean => {
     for (const task of Object.values(config.tasks ?? {})) {
@@ -45,7 +46,7 @@ export async function workspaceGlobOwners(
     return false
   }
   try {
-    const staged = await loadCliProjects(root, projects)
+    const staged = await loadCliProjects(root, projects, 'all', cacheDir)
     return [...staged.values()].filter((p) => declaresMatch(p.config)).map((p) => p.name)
   } catch {
     // Fall through to the per-file sweep.
@@ -85,7 +86,11 @@ export async function findCwdProject(cwd: string): Promise<string | null> {
 
 export type FilterResolution = { names: string[] } | { error: string } | { empty: string }
 
-export async function resolveFilters(cwd: string, raw: string[]): Promise<FilterResolution> {
+export async function resolveFilters(
+  cwd: string,
+  raw: string[],
+  cacheDir?: string,
+): Promise<FilterResolution> {
   const root = await findWorkspaceRoot(cwd)
   const projects = await loadWorkspaceProjects(cwd)
   const graph = buildPackageGraph(projects)
@@ -102,7 +107,7 @@ export async function resolveFilters(cwd: string, raw: string[]): Promise<Filter
         workspaceRoot: root,
         since: f.gitSince,
         projects,
-        workspaceGlobOwners: (orphans) => workspaceGlobOwners(root, projects, orphans),
+        workspaceGlobOwners: (orphans) => workspaceGlobOwners(root, projects, orphans, cacheDir),
       })
       affectedByFilter.set(f, names)
     } catch (err) {
@@ -155,11 +160,12 @@ export interface PickedTask {
 export async function pickTask(
   cwd: string,
   io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {},
+  cacheDir?: string,
 ): Promise<PickedTask | null> {
   const projects = await loadWorkspaceProjects(cwd)
   // The staged load: a task a `project` plugin gave a config-less package
   // is on the menu, as it is in a run.
-  const staged = await loadCliProjects(await findWorkspaceRoot(cwd), projects)
+  const staged = await loadCliProjects(await findWorkspaceRoot(cwd), projects, 'all', cacheDir)
   const entries: PickedTask[] = []
   for (const meta of projects) {
     const config = staged.get(meta.name)?.config

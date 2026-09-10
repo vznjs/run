@@ -1515,6 +1515,44 @@ cases (91 ms each) and shorter floods — not shorten timeouts; the
 deal in item 58 makes the wall the average shard instead of the
 worst.
 
+59. DONE (an adversarial read of the whole PR diff against main,
+    2026-09-10, findings acted on): the cache-correctness category
+    came back empty — the eight cache slices, `miss-save`, the orphan
+    reaper (rows read before the readdir; a save renames before its
+    row commits; the grace window) all verified faithful. Five
+    findings were real, each fixed with a differential pin:
+    (a) `loadCliProjects` opened the WORKSPACE's cache dir, so a run
+    given `--cache-dir` still created `.vx/cache/cache.db` beside it
+    on the `--affected` owner, picker and watch-sweep paths, and
+    printed the schema notice against the wrong index — the override
+    now reaches every opener (`tests/cache-dir-selection.test.ts`, an
+    orphan-change `--filter '[HEAD]'` run keeps every cache under
+    `--cache-dir`); (b) the cache seam's shape check named five
+    methods of a seventeen-method contract, so a layer with those
+    five was admitted and died at its first hit inside
+    `restoreOutputs` with the internal TypeError the check exists to
+    prevent — `CACHE_LAYER_METHODS` is the contract, checked once
+    (pinned by the refusal message); (c) `resolveCache` throwing on a
+    refused plugin left the local SQLite handle `prepareRun` had
+    opened for the config cache — closed on that path now (pinned:
+    `Cache.prototype.close` is called once); (d) the orphan reaper
+    counted a file a concurrent prune had already taken, because
+    `rm({ force })` swallows ENOENT — `unlink` now, and two prunes
+    over one directory count an orphan once; (e) the `contentBackend`
+    comment and the CAS doc claimed a write through the view could
+    never be a hit, but a digest hash equal to a live key REPLACES
+    that entry's bytes — de-claimed in both places (nothing in core
+    writes through it; a consumer that does owns the risk). Accepted
+    as-is, recorded: `--affected` owners evaluate live configs where
+    main consulted the lock — the doc comment says so, and a frozen
+    run's SELECTION following the lock is a different feature. One
+    more timed claim fell in the same gate: `cache.test`'s
+    millisecond-mtime pin slept 3 ms before a same-size rewrite, and a
+    file's mtime comes from the kernel's coarse clock (one tick, 4 ms
+    at HZ=250), so under load the rewrite landed in the recorded tick;
+    the pin stamps the rewrite one millisecond past the recorded mtime
+    now, as item 46 did for `cache-baseline`.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

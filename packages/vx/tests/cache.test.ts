@@ -883,6 +883,23 @@ describe('Cache storage (v10)', () => {
     expect(existsSync(freshTar)).toBe(true)
     expect(existsSync(freshTmp)).toBe(true)
     expect(existsSync(path.join(cacheDir, 'cache.db'))).toBe(true)
+
+    // Two prunes over one directory (two vx processes, one cache) both scan
+    // the same orphan; only the unlink that lands counts it. `rm({ force })`
+    // swallowed the loser's ENOENT and both reported the bytes.
+    const again = await aged('h-orphan-2.tar.zst', 'w'.repeat(7))
+    const other = new Cache(cacheDir, { read: true, write: true })
+    try {
+      const [r1, r2] = await Promise.all([
+        cache.prune({ olderThanMs: 1 }),
+        other.prune({ olderThanMs: 1 }),
+      ])
+      expect(r1.orphans + r2.orphans).toBe(1)
+      expect(r1.orphanBytes + r2.orphanBytes).toBe(7)
+      expect(existsSync(again)).toBe(false)
+    } finally {
+      other.close()
+    }
   })
 
   it('stats() counts remote cache hits in hitCountLast24h', () => {
@@ -1786,10 +1803,15 @@ describe('skip-restore staleness — millisecond mtimes (the v22 KNOWN-OPEN fix)
     const outFile = await saveOne('ms1', 'AAAA')
     // Unchanged: current.
     expect(await cache.isOutputsCurrent(projectDir, rowsOf('ms1'))).toBe(true)
-    // Same-size rewrite moments later — well inside the same wall-clock
-    // second, which the old seconds-granularity compare could not see.
-    await Bun.sleep(3)
+    // Same-size rewrite inside the same wall-clock second, which the old
+    // seconds-granularity compare could not see. The rewrite's mtime is
+    // STAMPED one millisecond past the recorded one: a file's mtime comes
+    // from the kernel's coarse clock (one tick, 4 ms at HZ=250), so a short
+    // sleep before the write can land in the recorded tick and the claim
+    // would ride on the scheduler — it did, once, under a loaded gate.
     await writeFile(outFile, 'BBBB')
+    const bumped = new Date(rowsOf('ms1')[0]!.mtimeMs + 1)
+    await utimes(outFile, bumped, bumped)
     expect(await cache.isOutputsCurrent(projectDir, rowsOf('ms1'))).toBe(false)
   })
 

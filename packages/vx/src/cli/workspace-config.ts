@@ -42,8 +42,13 @@ export async function loadCliProjects(
   workspaceRoot: string,
   metas: readonly ProjectMeta[],
   scope: 'all' | readonly string[] = 'all',
+  cacheDirOverride?: string,
 ): Promise<Map<string, ProjectEntry>> {
-  const { plugins, cacheDir } = await loadCliWorkspace(workspaceRoot)
+  const ws = await loadCliWorkspace(workspaceRoot)
+  const { plugins } = ws
+  // The cached evaluations live where the run's do: a verb given
+  // `--cache-dir` must not open (and create) the workspace's default one.
+  const cacheDir = cacheDirOverride ?? ws.cacheDir
   const cache = new Cache(cacheDir)
   noteSchemaReset(cache, warnToStderr)
   try {

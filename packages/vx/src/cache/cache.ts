@@ -1216,9 +1216,12 @@ export class Cache implements CacheLayer {
    * Content-addressed view over the same artifacts directory: an
    * `FsCASBackend` rooted at `cacheDir`, reading and writing the
    * `<hash>.tar.zst` files `Cache.save` produces, keyed by `Digest`.
-   * A write through it lands a file with no index row — a lookup never
-   * sees it and `prune()` reaps it after the in-flight grace window —
-   * so it is a bytes view, not a second save path.
+   * A write through it lands `<digest.hash>.tar.zst` with no index row:
+   * under a hash no row references it is an orphan `prune()` reaps after
+   * the in-flight grace window; under a hash a LIVE row references it
+   * REPLACES that entry's bytes, and the next lookup serves them. So it is
+   * a raw bytes view of the artifacts directory, not a save path — nothing
+   * in core writes through it, and a consumer that does owns that risk.
    */
   contentBackend(): FsCASBackend {
     return new FsCASBackend(this.cacheDir)
@@ -1345,7 +1348,9 @@ export class Cache implements CacheLayer {
     await Promise.all(
       (await this.scanOrphans()).map(async (o) => {
         try {
-          await rm(o.file, { force: true })
+          // unlink, not `rm({ force })`: force swallows ENOENT, and a file a
+          // concurrent prune took first must not be counted as ours.
+          await unlink(o.file)
           orphans += 1
           orphanBytes += o.size
         } catch {

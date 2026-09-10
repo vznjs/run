@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'bun:test'
 import { Cache, ChainedCache } from '../src/cache/index.js'
-import { resolveCache, resolveExecutors } from '../src/orchestrator/index.js'
+import { CACHE_LAYER_METHODS, resolveCache, resolveExecutors } from '../src/orchestrator/index.js'
 import { localExecutor } from '../src/exec/local-executor.js'
 
 const baseCtx = { workspaceRoot: '/ws', cacheDir: '/ws/.vx/cache', warn: () => undefined }
@@ -21,7 +21,7 @@ const policy = { localRead: true, localWrite: true, remoteRead: false, remoteWri
  */
 function stubLayer(extra: Record<string, unknown>): never {
   const noop = (): undefined => undefined
-  return { key: noop, get: noop, has: noop, save: noop, close: noop, ...extra } as never
+  return { ...Object.fromEntries(CACHE_LAYER_METHODS.map((m) => [m, noop])), ...extra } as never
 }
 
 describe('local fallbacks', () => {

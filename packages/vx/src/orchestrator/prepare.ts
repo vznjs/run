@@ -261,18 +261,26 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // cache is a plugin concern (docs/patterns.md § Remote cache wire). Injection
   // winning prevents double-wrapping when the workspace also declares a
   // cache plugin.
-  const cache = options.remoteCache
-    ? new LayeredCache(localCache, options.remoteCache, {
-        policy,
-        onRemoteError: (err) => log.status(`[vx] remote cache: ${err.message}`),
-      })
-    : await resolveCache(plugins, {
-        workspaceRoot,
-        cacheDir,
-        warn: (m) => log.status(m),
-        localCache,
-        policy,
-      })
+  let cache: CacheLayer
+  try {
+    cache = options.remoteCache
+      ? new LayeredCache(localCache, options.remoteCache, {
+          policy,
+          onRemoteError: (err) => log.status(`[vx] remote cache: ${err.message}`),
+        })
+      : await resolveCache(plugins, {
+          workspaceRoot,
+          cacheDir,
+          warn: (m) => log.status(m),
+          localCache,
+          policy,
+        })
+  } catch (err) {
+    // A cache plugin that throws or returns something off-contract is
+    // refused by name; the local handle opened above must not leak with it.
+    localCache.close()
+    throw err
+  }
   // Ask the LAYER, don't infer. Identity against `localCache` answers a
   // DIFFERENT question — "did the plugin hand back something other than the
   // handle I passed in?" — which an ordinary pass-through decorator (a

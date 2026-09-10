@@ -335,7 +335,7 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
   process.stdout.write('vx watch: initial run...\n\n')
   await runOrchestrator(opts)
 
-  const swept = await sweepConfigs(allProjects, workspaceRoot)
+  const swept = await sweepConfigs(allProjects, workspaceRoot, opts.cacheDir)
   return await runWatchLoop({
     opts,
     workspaceRoot,
@@ -362,6 +362,7 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
 export async function sweepConfigs(
   projects: readonly ProjectMeta[],
   workspaceRoot: string,
+  cacheDir?: string,
 ): Promise<{ workspaceWide: boolean; outputs: Map<string, string[]> }> {
   const outputs = new Map<string, string[]>()
   const add = (dir: string, globs: readonly string[] | undefined): void => {
@@ -378,7 +379,7 @@ export async function sweepConfigs(
   }
   let staged: Map<string, ProjectEntry> | null = null
   try {
-    staged = await loadCliProjects(workspaceRoot, projects)
+    staged = await loadCliProjects(workspaceRoot, projects, 'all', cacheDir)
   } catch {
     staged = null
   }

@@ -69,6 +69,7 @@ export {
   applyProjectHooks,
   applyScheduleHooks,
   hasHook,
+  CACHE_LAYER_METHODS,
   resolveCache,
   resolveExecutors,
 } from './plugin-host.js'

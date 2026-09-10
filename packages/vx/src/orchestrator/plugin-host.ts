@@ -39,6 +39,27 @@ function describeValue(v: unknown): string {
 }
 
 /** What a capability hook handed back must be what the seam runs. */
+/** Every method `CacheLayer` requires (the optional ones are probed with `?.`). */
+export const CACHE_LAYER_METHODS: readonly string[] = [
+  'key',
+  'get',
+  'has',
+  'prefetch',
+  'loadOutputFilesBatch',
+  'isOutputsCurrent',
+  'restoreOutputs',
+  'save',
+  'ingest',
+  'recordRun',
+  'recordRuns',
+  'recordRunBundle',
+  'stats',
+  'hashFile',
+  'outputsPath',
+  'prune',
+  'close',
+]
+
 function assertShape(
   plugin: VxPlugin,
   hook: string,
@@ -233,10 +254,12 @@ export async function resolveCache(
     if (plugin.cache === undefined) continue
     const layer = await safe(plugin, 'cache', () => plugin.cache!(ctx))
     if (layer === undefined) continue
-    // The seam's contract, checked once here: a layer missing its methods
-    // otherwise failed every task with an internal TypeError deep in the
-    // chain, naming neither the plugin nor the hook.
-    assertShape(plugin, 'cache', layer, ['key', 'get', 'has', 'save', 'close'], 'a cache layer')
+    // The seam's WHOLE contract, checked once here: a layer missing a
+    // method otherwise failed at the first task that reached it — an
+    // internal TypeError deep in the chain, naming neither the plugin nor
+    // the hook. Five names were checked before, so a layer with those five
+    // passed and died at its first hit inside restoreOutputs.
+    assertShape(plugin, 'cache', layer, CACHE_LAYER_METHODS, 'a cache layer')
     layers.push(layer)
   }
   // Core's own store is the TAIL of the chain — the floor under every
