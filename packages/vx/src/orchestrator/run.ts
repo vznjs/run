@@ -6,7 +6,7 @@ import type { ProjectEntry } from '../workspace/index.js'
 import os from 'node:os'
 import { type CacheLayer, type CachePolicy, FULL_CACHE_POLICY } from '../cache/index.js'
 import { VERSION } from '../version.js'
-import { initSandbox, probeSandbox, resetSandbox, signalExitCode } from '../exec/index.js'
+import { initSandbox, probeSandbox, resetSandbox } from '../exec/index.js'
 import { DeferredOutputs } from './deferred-outputs.js'
 import { resolveDownloadModes } from './download-policy.js'
 import type { TaskExecutor } from '../exec/index.js'
@@ -33,6 +33,7 @@ import { formatPersistentList } from './framed-output.js'
 import { LocalHistoryProvider } from './history.js'
 import { plan, type RunPlan } from './plan.js'
 import { prepareRun } from './prepare.js'
+import { forwardSignals } from './signals.js'
 import {
   hasPooledExecutor,
   placeTasks,
@@ -315,39 +316,18 @@ export async function run(options: RunOptions): Promise<RunSummary> {
   //     exit; ownership moves here so the orchestrator can SIGTERM
   //     them once the rest of the graph finishes.
   //
-  // A SIGINT/SIGTERM mid-run forwards SIGTERM to everything live,
-  // closes the cache handle, and exits 128+signo (130/143). Without
-  // this, a programmatic signal to the vx process alone (CI
-  // cancellation, `kill <pid>`) orphans every running child —
-  // terminal Ctrl-C only worked via process-group propagation. The
-  // handlers are removed in the finally below so repeated run()
-  // calls (test suites) never stack listeners.
+  // A SIGINT/SIGTERM mid-run forwards SIGTERM to everything in both
+  // (`signals.ts`); the handlers are removed in the finally below so
+  // repeated run() calls (test suites) never stack listeners.
   const liveChildren = new Set<ReturnType<typeof Bun.spawn>>()
   const persistentRegistry = new Map<string, ReturnType<typeof Bun.spawn>>()
-  const onSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
-    // Clear the live worker/status region BEFORE exiting so a TTY isn't
-    // left with a frozen region frozen in the scrollback (the documented
-    // KNOWN-OPEN). runEnd is idempotent and a no-op for non-TTY loggers.
-    try {
-      log.runEnd?.()
-    } catch {
-      // teardown must not throw on the way out
-    }
-    for (const child of liveChildren) child.kill('SIGTERM')
-    for (const child of persistentRegistry.values()) child.kill('SIGTERM')
-    try {
-      cache.close()
-    } catch {
-      // double-close race with the normal path; we're exiting anyway
-    }
-    process.exit(signalExitCode(signal))
-  }
-  const onSigint = (): void => onSignal('SIGINT')
-  const onSigterm = (): void => onSignal('SIGTERM')
-  if (options.handleSignals ?? true) {
-    process.on('SIGINT', onSigint)
-    process.on('SIGTERM', onSigterm)
-  }
+  const signals = forwardSignals({
+    enabled: options.handleSignals ?? true,
+    log,
+    cache,
+    liveChildren,
+    persistentRegistry,
+  })
   // The cache handle must be released on EVERY exit path, not just the
   // happy one: `close()` is also where the run's deferred `accessed_at`
   // bumps are flushed, so a throw between opening the cache and the
@@ -893,8 +873,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
     // Idempotent; also reached on mid-run throws, so a crashed cycle
     // can't leave a live status-line ticker behind.
     log.runEnd?.()
-    process.off('SIGINT', onSigint)
-    process.off('SIGTERM', onSigterm)
+    signals.remove()
     // Plugins installed at the top of run() get their bus subscriptions
     // released here. Idempotent; safe even if installPlugins threw.
     disposePlugins?.()

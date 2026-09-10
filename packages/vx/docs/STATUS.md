@@ -1367,6 +1367,16 @@ vx-cache-v27 · index schema v25` — the two constants a bug report
     both orders with the minimum flipping (+3 / −1), inside the
     harness's own spread as a pure move should read.
 
+53. DONE (pure motion, the sibling of 52): the signal forwarding —
+    SIGINT/SIGTERM to every live and persistent child, cache closed,
+    exit 128+signo, handlers removed in the finally — left `run()` for
+    `orchestrator/signals.ts` (`forwardSignals(...) → { remove }`).
+    The registries stay with `run()`, which hands them to the runner
+    around every spawn; the module only reads them when a signal
+    lands. `run()` is 970 lines, the function itself ~750. Module doc,
+    index row, `orchestrator.md` and the CLAUDE.md layout updated; the
+    signal suites pass unchanged.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

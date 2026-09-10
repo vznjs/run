@@ -4,7 +4,10 @@
 
 Placement — which executor each task lands on, and the `--dry` view of
 it — lives in `placement.md` since 2026-09-10; `run()` calls
-`placeTasks` once and `planRun` calls `planExecutorOf`.
+`placeTasks` once and `planRun` calls `planExecutorOf`. Signal
+forwarding (SIGINT/SIGTERM to every child, exit 128+signo) is
+`signals.md`; `run()` installs it before the graph and removes it in
+its finally.
 
 The orchestrator module's entry. `run.ts` hosts `run()` / `planRun()`;
 `index.ts` is the module contract re-exporting them with
