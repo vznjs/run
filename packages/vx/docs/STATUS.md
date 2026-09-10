@@ -1193,6 +1193,22 @@ undefined?` whenever nothing was within two edits — `nearest`
     at a `tests/server.test.ts` that lives in `packages/vx-mcp`).
     Items 35, 39, 40, 41 carried their pins when they landed.
 
+44. DONE (the class behind item 43's second message, then a hole): a
+    probe pulled every dotted config path core's messages and comments
+    name (`exec.env.define`, `sandbox.ignoreViolations`, …) and checked
+    each segment against the loader's field sets. Two comments named a
+    `sandbox.ignoreViolations` that does not exist (the field is
+    `sandbox.ignore`); corrected. The probe's control found the real
+    thing: `exec.env` was the one object level with NO unknown-field
+    check — `env: { set: { A: 'b' } }` loaded, defined nothing, and the
+    task ran without `A` under a green run. `ENV_FIELDS` closes it.
+    `tests/schema-unknown-keys.test.ts` is the law: it walks every
+    object level of a full config, injects a key at each, and asserts
+    the refusal names that level and its list — thirteen levels today,
+    and the walk's own list is pinned so a new level cannot arrive
+    without the check. The two env pins fail without `ENV_FIELDS`;
+    `schema.md` now lists every level and shows the message form.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

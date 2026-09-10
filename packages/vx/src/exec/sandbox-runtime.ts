@@ -190,7 +190,7 @@ async function trySandboxedTrue(
  *
  * Format mirrors SRT's: `'*'` is a wildcard pattern; entries in the
  * array are substring-matched against the violation details line.
- * Users can ADD to this via per-task `sandbox.ignoreViolations`;
+ * Users can ADD to this via per-task `sandbox.ignore`;
  * those are applied at violation read-back time, on top of the
  * defaults installed here.
  */

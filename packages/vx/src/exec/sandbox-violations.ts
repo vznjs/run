@@ -140,7 +140,7 @@ export async function parseStraceViolations(
 }
 
 /**
- * Apply the task's user-provided `sandbox.ignoreViolations` map on top
+ * Apply the task's user-provided `sandbox.ignore` grants on top
  * of whatever the macOS log monitor + Linux strace pass produced.
  * Mirrors SRT's own substring-match semantics:
  *   - `'*'` entries match every command

@@ -481,6 +481,9 @@ export function validateProjectConfig(config: ProjectConfig, configPath: string)
         if (typeof env !== 'object' || env === null) {
           throw new UserError(`${where}.exec.env must be an object (or omitted)`)
         }
+        // `env: { set: {...} }` loaded and defined nothing — the one level
+        // without this check until 2026-09-10 (tests/schema-unknown-keys).
+        assertKnownFields(env, ENV_FIELDS, `${where}.exec.env`)
         const passThrough = (env as { passThrough?: unknown }).passThrough
         if (passThrough !== undefined) {
           // A non-array here reaches `buildIsolatedEnv`'s `for (const name of
@@ -735,6 +738,7 @@ const EXEC_FIELDS = new Set([
   'sandbox',
 ])
 const PERSISTENT_FIELDS = new Set(['readyWhen'])
+const ENV_FIELDS = new Set(['passThrough', 'define'])
 const CACHE_FIELDS = new Set(['inputs', 'outputs'])
 const CACHE_INPUT_FIELDS = new Set([
   'files',

@@ -1310,16 +1310,22 @@ and surfaces `UserError` (clean output, no stack):
 | `exec.timeout: <n> ms exceeds the maximum timer delay`                              | Past 2^31-1 ms a timer fires at once, not never.   |
 | `description must be a string`                                                      | Non-string description.                            |
 
-**Unknown fields are rejected**, not ignored, at every level that feeds
-the cache key — the project's top level (`tasks`), the task itself, `exec`,
-`exec.resources`, `exec.sandbox`, `cache`, `cache.inputs`, and
-`cache.outputs` — and at the top of `vx.workspace.ts`,
+**Unknown fields are rejected**, not ignored, at every object level —
+the project's top level (`tasks`), the task itself, `exec`, `exec.env`,
+`exec.persistent`, `exec.resources`, `exec.sandbox` and its `allow` /
+`deny` / `ignore` blocks, `cache`, `cache.inputs`, and `cache.outputs`
+(`tests/schema-unknown-keys.test.ts` walks every one) — and at the top
+of `vx.workspace.ts`,
 where `plugin:` (singular) would otherwise declare no plugins and run
 the workspace bare. A silently-dropped
 `workspaceFile` (singular) or `timeoutMs` would make the task hash as
 though the field had never been written, so vx would replay an artifact
-built from different inputs. The error names the offending key and lists
-what that level accepts.
+built from different inputs; a silently-dropped `env: { set: … }` would
+run the task without the variables it was written to have. The error
+names the offending key, lists what that level accepts, and adds the
+nearest accepted spelling when one is within two edits:
+`tasks.build.exec.env has unknown field "passthrough" (allowed: define,
+passThrough) — did you mean passThrough?`.
 
 Workspace-discovery errors (`src/workspace/workspace.ts`):
 
