@@ -371,23 +371,27 @@ jobs:
           test "$GOT" = "$WANT" || { echo "binary reports '$GOT', expected '$WANT'"; exit 1; }
 
       # …and runs a workspace written the way the docs show it: bare
-      # `@vzn/vx` / `@vzn/vx/plugins/*` imports resolved through node_modules.
+      # `@vzn/vx` and plugin-package imports resolved through node_modules.
       # A compiled Bun 1.4.0 binary ignores package.json `exports` for on-disk
       # packages and only finds `<pkg>/index.ts` (measured 2026-09-03), which
       # is why the packages ship root shims — this is the end-to-end proof
-      # that a binary user's config loads.
+      # that a binary user's config loads. The workspace declares a plugin
+      # package too: its own `@vzn/vx` import is a SECOND copy of core beside
+      # the binary's, and the `schedule` hook it fills runs across the two
+      # (probed by hand 2026-09-10 on Linux; pinned here since).
       - name: compiled binary runs a bare-specifier workspace
         run: |
           W=$(mktemp -d)
           mkdir -p "$W/packages/a/src" "$W/node_modules/@vzn"
           ln -s "$GITHUB_WORKSPACE/packages/vx" "$W/node_modules/@vzn/vx"
+          ln -s "$GITHUB_WORKSPACE/packages/vx-schedule-history" "$W/node_modules/@vzn/vx-schedule-history"
           cd "$W"
           echo '{"name":"ws","private":true}' > package.json
           printf 'packages:\n  - "packages/*"\n' > pnpm-workspace.yaml
           echo '{"name":"a"}' > packages/a/package.json
           echo x > packages/a/src/x.js
           printf "import { defineProject } from '@vzn/vx'\nexport default defineProject({ tasks: { build: { exec: { command: 'echo built > out.txt' }, cache: { inputs: { files: ['src/**'] }, outputs: { files: ['out.txt'] } } } } })\n" > packages/a/vx.config.mjs
-          printf "import { defineWorkspace } from '@vzn/vx'\nexport default defineWorkspace({ plugins: [] })\n" > vx.workspace.mjs
+          printf "import { defineWorkspace } from '@vzn/vx'\nimport { scheduleHistoryPlugin } from '@vzn/vx-schedule-history'\nexport default defineWorkspace({ plugins: [scheduleHistoryPlugin({ assume: { 'a#build': 1000 } })] })\n" > vx.workspace.mjs
           printf 'node_modules\n.vx\n' > .gitignore
           git init -q && git add -A && git -c user.email=ci@vx -c user.name=ci commit -qm init
           /tmp/vx-ci run build --all

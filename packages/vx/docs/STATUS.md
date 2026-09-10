@@ -399,7 +399,13 @@ from …/node_modules/astro/dist/cli/index.js` — astro's OWN
    arms read equal (77 vs 74–81 ms at 100 projects). REFUTED as a
    runtime-plugin fix (Bun 1.4.0's `Bun.plugin` hooks never fire for
    bare specifiers or `.ts`); options left are rewriting the config
-   source before import or a Bun fix. Parked.
+   source before import or a Bun fix. Parked. What IS pinned since
+   2026-09-10: the darwin job's bare-specifier workspace declares
+   `@vzn/vx-schedule-history`, so a plugin package's own `@vzn/vx`
+   import (the second copy) and the `schedule` hook it fills run
+   through the compiled binary on every push — probed first by hand
+   on Linux with a native `--compile` build, 12 sandboxed tasks as an
+   unprivileged user.
 5. **The watch e2e flake** — if `re-runs the task after a file change,
 then exits on SIGINT` times out again, keep that run's stdout: the
    presence of `re-running...` separates a lost event from a slow
