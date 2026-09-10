@@ -49,6 +49,7 @@
       },
       "devDependencies": {
         "@vzn/vx": "workspace:*",
+        "@vzn/vx-schedule-history": "workspace:*",
       },
     },
     "packages/vx-github": {

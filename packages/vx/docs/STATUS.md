@@ -1721,6 +1721,28 @@ migrate` was 1,475 lines of core that knew Turbo's and Nx's file
     init, upgrade, show, info, why, last — orchestration and its own
     cache, history and lock, nothing else.
 
+**The guide pin under the sandboxed gate (2026-09-10, after item 67).**
+CI's Linux job went red on 15136a6 in `@vzn/vx-docs#test`: the plugins
+guide's type-check pin exited 1 with no diagnostic line captured. The
+cause was the sandbox, not the types: item 65 had pointed the pin's
+tsconfig `paths` straight at `packages/vx-schedule-history/src`, a
+sibling the site does not depend on, and a sandboxed task may read its
+project, its `node_modules` and what those link to — nothing else. The
+fix is the honest one: the site declares `@vzn/vx-schedule-history` as
+a devDependency, Bun links it into the site's `node_modules`, the
+sandbox grants the link target, and the pin resolves the package
+through that link. Reproduced and proven differentially under the real
+sandbox here, not on CI alone — a probe refuted on the way: with the
+link present, even the direct path passed, so the denial was never
+about the route but about an ungranted target. Recipe, since the
+container runs as root and the runtime refuses a nested user namespace
+there: copy the bun binary somewhere world-readable, `chmod 1777
+/tmp/claude`, and run `vx run <task> --no-cache --excludeDependencies
+--cache-dir <writable>` as `nobody` with `HOME` set — bwrap works for
+an unprivileged user on this kernel. The pin now carries oxlint's tail
+when it exits non-zero without a diagnostic line, so the next such
+failure names its cause on CI.
+
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and
 `config_closures` on the warm 1,000-project copy: the `load configs`
@@ -2091,12 +2113,15 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    ~17 ms gain would buy ~2 s of suite for a build step in every test
    run. The spawns stay on source.
 
-9. **Handoff after item 64 (2026-09-10, evening).** The loop's Next
+9. **Handoff after item 67 (2026-09-10, night).** The loop's Next
    items are spent; what a fresh session should know, in order:
-   (a) PR #265 is 110+ commits on `claude/review-improve-codebase-waarsg`
-   against main c0b20ca; every head green on both CI jobs except the
-   ones the CI section of the PR body names, each fixed by the next
-   commit. The hourly check-in re-arms itself until merge.
+   (a) PR #265 merged into main (d96a06f) by a merge commit — the
+   branch cannot be rebase-merged. PR #266 carries items 65–67 on
+   `claude/review-improve-codebase-waarsg`: schedule-history, migrate
+   and prune left core, which went from 125 files / 1,225,063 bytes
+   under `src` at the merge to 119 / 1,172,583. Core's verbs are run,
+   watch, cache, lock, init, upgrade, show, info, why, last; `src`
+   holds no plugin. The hourly check-in re-arms itself until merge.
    (b) The suite's floor is processes, not timers (the paragraph after
    item 58). The one lever left is converting the nineteen
    CLI-spawning suites (~250 cases at 91 ms) to in-process calls where

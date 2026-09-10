@@ -39,12 +39,16 @@ it('every code block in the plugins guide type-checks against @vzn/vx', async ()
           noEmit: true,
           allowImportingTsExtensions: true,
           types: ['bun'],
-          // A plugin PACKAGE the guide imports for illustration resolves to
-          // its source here: the site depends on core only, and the pin is
-          // about vx's own types, not on hoisting a sibling into the root.
+          // A plugin PACKAGE the guide imports for illustration resolves
+          // through the SITE's own node_modules, not the root's: the site
+          // declares it (package.json), Bun links it there and nowhere
+          // else, and the sandbox grants a project's linked dependencies
+          // while denying every other sibling — pointing straight at
+          // `packages/vx-schedule-history` type-checked here and exited 1
+          // under the sandboxed gate on CI (2026-09-10).
           paths: {
             '@vzn/vx-schedule-history': [
-              path.join(ROOT, 'packages', 'vx-schedule-history', 'src', 'index.ts'),
+              path.join(SITE, 'node_modules', '@vzn', 'vx-schedule-history', 'src', 'index.ts'),
             ],
           },
         },
@@ -76,7 +80,11 @@ it('every code block in the plugins guide type-checks against @vzn/vx', async ()
     })
     const out = new TextDecoder().decode(p.stdout) + new TextDecoder().decode(p.stderr)
     const errors = out.split('\n').filter((l) => /^\s*x |: error /.test(l))
-    expect({ exitCode: p.exitCode, errors }).toEqual({ exitCode: 0, errors: [] })
+    // A non-zero exit with no diagnostic line is oxlint failing before it
+    // could type-check (a module it could not read, say); carry its tail
+    // so the failure names the cause instead of just the exit code.
+    const tail = p.exitCode === 0 ? [] : out.trim().split('\n').slice(-15)
+    expect({ exitCode: p.exitCode, errors, tail }).toEqual({ exitCode: 0, errors: [], tail: [] })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
