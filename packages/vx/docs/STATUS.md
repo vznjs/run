@@ -1265,6 +1265,15 @@ undefined?` whenever nothing was within two edits — `nearest`
     off the recorded one explicitly, so the claim never rides on a
     second boundary.
 
+**Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
+projects, twelve reps, both orders, base = the immutable c0b20ca
+worktree: main min 225 / med 242 ms vs head 231 / 246 in one order,
+head 221 / 233 vs main 222 / 232 in the other — a tie inside
+run-to-run jitter, the sign flipping with the order. The reset
+property read (39), the env field check (44, on the eval path only)
+and the orphan scan (35, prune only) cost the warm run nothing
+measurable.
+
 **Handoff after item 45 (2026-09-10, morning).** PR #265 carries the
 loop, 70+ commits; every head is green on CI except the ones a
 same-day commit fixed (d295a90 timing, 1414cf2 `.mcp.json`, f549719
