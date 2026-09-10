@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
@@ -898,9 +898,24 @@ describe('Cache storage (v10)', () => {
         cache.prune({ olderThanMs: aYear }),
         other.prune({ olderThanMs: aYear }),
       ])
-      expect(r1.evicted + r2.evicted).toBe(0)
-      expect(r1.orphans + r2.orphans).toBe(1)
-      expect(r1.orphanBytes + r2.orphanBytes).toBe(7)
+      // One assertion over both results and what the directory still holds:
+      // a failure names WHICH prune counted WHAT, on the platform it failed.
+      const artifacts = (await readdir(cacheDir)).filter((n) => n.includes('.tar.zst')).sort()
+      expect({
+        evicted: r1.evicted + r2.evicted,
+        orphans: [r1.orphans, r2.orphans].sort((x, y) => x - y),
+        orphanBytes: r1.orphanBytes + r2.orphanBytes,
+        artifacts,
+      }).toEqual({
+        evicted: 0,
+        orphans: [0, 1],
+        orphanBytes: 7,
+        artifacts: [
+          'h-fresh.tar.zst',
+          'h-fresh.tar.zst.tmp-1-2-3',
+          path.basename(cache.outputsPath('h-indexed')),
+        ].sort(),
+      })
       expect(existsSync(again)).toBe(false)
     } finally {
       other.close()
