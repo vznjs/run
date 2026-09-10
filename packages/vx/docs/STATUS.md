@@ -1275,10 +1275,9 @@ undefined?` whenever nothing was within two edits — `nearest`
     loader re-exports it so the tests that reach it there keep
     working. Nothing crossed between the halves but the two calls.
     Module doc, index row and CLAUDE.md layout updated; the doc-index
-    law names the new file. Warm A/B, 1,000 projects, twelve reps,
-    both orders, base c0b20ca: main med 230 vs head 227 in one order,
-    head 231 vs main 224 in the other — a tie inside jitter, the sign
-    flipping with the order, as a pure move should read.
+    law names the new file. Warm A/B: see item 49 — the readings taken
+    that evening reused workspace copies across schema versions; the
+    clean protocol reads a tie.
 
 48. DONE (pure motion, the sibling of 47): `cache/inputs.ts` was 1,257
     lines holding two concerns — which files a task declared (globs,
@@ -1298,6 +1297,33 @@ undefined?` whenever nothing was within two edits — `nearest`
     moved module re-exports its WHOLE public surface from the old path,
     and the import scan is multi-line (the script in this item's
     commit), not a one-line grep.
+
+49. DONE (a regression that was the harness, then the harness rule):
+    the A/B after item 48 read the head 8–12 ms slower than main by
+    median in both orders at twenty reps, and swapping the workspace
+    copies did not move it. Bisecting by `VX_TIMING` stage (main vs
+    commits 31, 57, 44, then 44 vs 57 directly) gave inconsistent
+    signs and one clean-looking +7.8 ms in `classify + probe` — until
+    the accumulated counters showed the two arms proving their hits
+    differently in the same run: one arm's minimum came from the rep
+    right after a `SCHEMA_VERSION` flip. main is v24 and every PR head
+    is v25, and the copies were reused across arms, so whichever arm
+    did not match a copy's last index reset it, re-saved on rep 1, and
+    proved rep 2's hits by the glob walk (which records the output-dir
+    rows) — a rep whose stage split differs from steady state, and
+    min-of-N picks exactly that rep. On a fresh index head and main
+    behave identically (miss, walk-and-record, then the dirs proof
+    from rep 3: 175–182 ms total vs 296–347 with the walk forced every
+    rep — the dirs proof holds). The clean protocol — one copy per
+    arm, pre-warmed by that arm, no flips inside the measured reps,
+    twenty reps, both orders — reads main med 236 / head 232 in one
+    order and head 229 / main 227 in the other: a tie by median with
+    the sign flipping; the minimum reads head +5–6 ms in both orders,
+    inside the harness's own spread but noted. No commit in the PR
+    costs the warm path; the earlier readings under items 46–48 were
+    taken with reused copies and are superseded by this one. Rule
+    (CLAUDE.md): arms on different `SCHEMA_VERSION`s never share a
+    workspace copy.
 
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca

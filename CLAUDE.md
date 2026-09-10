@@ -114,8 +114,11 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.unsafe.test.t
 ## Architecture principles
 
 1. **Perf first.** Measure before and after; interleave A/B arms, min-of-N,
-   "before" arm from an immutable `git worktree`. A change to the warm path
-   without a number is not done.
+   "before" arm from an immutable `git worktree`, one workspace copy per
+   arm pre-warmed by that arm (arms on different `SCHEMA_VERSION`s reset
+   a shared copy, and the rep after a reset proves hits by the walk —
+   min-of-N picks that rep). A change to the warm path without a number
+   is not done.
 2. **Explicit over magical.** Caching is opt-in; `cache.inputs.files` is
    required; no inferred inputs (the sandbox, `exec.sandbox`, is how a
    task proves what it touches; `--verify` was removed 2026-09-04).
