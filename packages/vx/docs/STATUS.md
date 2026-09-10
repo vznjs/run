@@ -1354,6 +1354,15 @@ vx-cache-v27 · index schema v25` — the two constants a bug report
     reasons, 3 done, 4 refuted, 5 an instruction, 6 done as item 49,
     7 done but (c), 8 (a)–(h) done, decided or refuted with numbers.
 
+52. DONE (pure motion): the placement of a graph over its executors —
+    the pinned-local walk, `placeTasks`, the plan-mode `planExecutorOf`,
+    the pool view and the unplaced sentinel, 170 lines — left `run.ts`
+    for `orchestrator/placement.ts`; `run.ts` is 1,004 lines. The move
+    found a doc comment orphaned above the wrong function (the
+    "nearest declared name" text sat over `initHint`; it is back over
+    `didYouMean`). Module doc, index row, `orchestrator.md` and the
+    CLAUDE.md layout updated; the placement suites pass unchanged.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

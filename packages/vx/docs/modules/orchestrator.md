@@ -2,6 +2,10 @@
 
 ## Purpose
 
+Placement — which executor each task lands on, and the `--dry` view of
+it — lives in `placement.md` since 2026-09-10; `run()` calls
+`placeTasks` once and `planRun` calls `planExecutorOf`.
+
 The orchestrator module's entry. `run.ts` hosts `run()` / `planRun()`;
 `index.ts` is the module contract re-exporting them with
 `RunOptions` / `RunSummary` ([`options.md`](./options.md)), `Logger` /
