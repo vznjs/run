@@ -1649,6 +1649,29 @@ worst.
     none", so a reader is not sent looking for a verb. The dated
     design documents keep their history.
 
+65. DONE (core ships no plugin — the last built-in externalized, the
+    owner's directive after #265 merged): `src/plugins/schedule-history`
+    was core's one bundled plugin, a subpath export
+    (`@vzn/vx/plugins/schedule-history`) with a root shim for the
+    compiled binary, its own boundary rule (Rule 4: a plugin imports
+    core only via `'@vzn/vx'`) and a `plugins` module in the boundary
+    matrix. It is `@vzn/vx-schedule-history` now
+    (`packages/vx-schedule-history`, laid out like the other plugin
+    packages: manifest with `@vzn/vx` as a peer, root shim, the unit
+    pins and the end-to-end critical-path pin moved with it, its own
+    CI step). Core lost the directory, the shim, the exports subpath,
+    the `plugins` files entry and the `plugins` module; the two
+    boundary suites now pin the ABSENCE of `src/plugins` so a new
+    plugin starts life as a package, and the shim suite pins the new
+    package's shim. What core keeps is what a plugin needs from the
+    façade (`LocalHistoryProvider`, the history types); nothing else
+    moved. `docs/modules/plugins.md` now says what it should have
+    said: the floor is not a plugin, every plugin is a package, and
+    `architecture.md` no longer claims "a workspace that declares none
+    fails" — it runs and caches. Zero warm-path effect by construction
+    (a run never loaded the plugin unless declared); the core package
+    is one directory and one export smaller.
+
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and
 `config_closures` on the warm 1,000-project copy: the `load configs`

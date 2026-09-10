@@ -1,9 +1,10 @@
 // History-based scheduling as a plugin: order ready tasks by their expected
 // REMAINING critical-path duration (own p50 + the longest chain of
 // dependents), learned from the local run history. This was core's opt-in
-// `predictive` mode until 2026-09-02; it is the reference `schedule` plugin
-// now — declared like any other, and paying its history read only in
-// workspaces that ask for it.
+// `predictive` mode until 2026-09-02 and core's one bundled plugin until
+// 2026-09-10; it is its own package now — declared like any other, paying
+// its history read only in workspaces that ask for it, and core ships no
+// plugin at all.
 //
 // Cache hits are NOT modelled as zero-cost: predicting cache state needs
 // the key and a probe, which the scheduler handles at run time (a confirmed

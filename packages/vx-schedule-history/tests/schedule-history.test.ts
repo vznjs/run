@@ -1,10 +1,9 @@
-// The reference schedule plugin's priority function — recovered from core's
+// The schedule plugin's priority function — recovered from core's
 // removed predictive mode (2026-09-02); the seam it now proves is
 // `VxPlugin.schedule`.
 import { describe, expect, it } from 'bun:test'
-import type { TaskNode } from '../src/graph/index.js'
-import type { HistoryTable, TaskHistory } from '../src/orchestrator/index.js'
-import { criticalPathPriorities } from '../src/plugins/schedule-history/index.js'
+import type { HistoryTable, TaskHistory, TaskNode } from '@vzn/vx'
+import { criticalPathPriorities } from '../src/index.js'
 
 function node(id: string, deps: string[] = []): TaskNode {
   const [projectName, taskName] = id.split('#') as [string, string]

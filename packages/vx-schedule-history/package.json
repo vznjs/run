@@ -1,7 +1,7 @@
 {
-  "name": "@vzn/vx",
+  "name": "@vzn/vx-schedule-history",
   "version": "0.0.0",
-  "description": "An open, extensible monorepo task runner.",
+  "description": "History-based scheduling for vx — a `schedule` plugin that orders ready tasks by their expected remaining critical path, learned from the local run history.",
   "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
@@ -11,11 +11,7 @@
       "import": "./src/index.ts"
     }
   },
-  "bin": {
-    "vx": "./src/bin.ts"
-  },
   "files": [
-    "npm-launcher.mjs",
     "index.ts",
     "src",
     "README.md"
@@ -23,13 +19,14 @@
   "engines": {
     "bun": ">=1.4"
   },
-  "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "^0.0.75"
-  },
   "devDependencies": {
-    "@types/bun": "^1.4.0"
+    "@types/bun": "^1.4.0",
+    "@vzn/vx": "workspace:*"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependencies": {
+    "@vzn/vx": "*"
   }
 }

@@ -58,9 +58,8 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/cache/            local SQLite+archive cache, layered/chained remote seam, inputs (glob
                         resolution, boundaries) + git-inputs (the git enumeration it trusts)
   src/exec/             runner (Bun.spawn), env isolation, sandbox, local-executor (the floor)
-  src/plugins/          core's own plugins: schedule-history
   src/util/             incl. timing.ts (`VX_TIMING=1` stage table)
-  index.ts, plugins/*/index.ts  root shims (Bun's compiled binary ignores the exports map)
+  index.ts              root shim (Bun's compiled binary ignores the exports map)
 packages/vx-reapi       Bazel REAPI plugin: remote cache + remote execution
 packages/vx-otel        OpenTelemetry telemetry plugin (no SDK dep)
 packages/vx-github      GitHub Actions job summary + Checks API plugin
@@ -68,6 +67,7 @@ packages/vx-mcp         `vx mcp` — MCP server for AI agents (commands seam, no
 packages/vx-turbo-cache Turbo `/v8/artifacts` remote cache plugin (self-hosted or Vercel)
 packages/vx-nx-cache    Nx self-hosted remote cache plugin (`/v1/cache`)
 packages/vx-turbo       zero-migration Turbo plugin: turbo.json + scripts → tasks via the `project` stage
+packages/vx-schedule-history  `schedule` plugin: order by the critical path learned from run history
 packages/vx-docs        Astro Starlight site; packages/vx/docs is imported by scripts/import-docs.ts
 packages/vx-bench       synthetic workspace generator + runners (vx / turbo / nx)
 packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, schema, modules/, design/

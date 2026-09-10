@@ -147,12 +147,12 @@ group.
 | [`executor.md`](./executor.md)               | `src/exec/executor.ts` — `TaskExecutor` contract + `selectExecutor`.                                                  |
 |                                              | `src/exec/local-executor.ts` — the floor: run it here (see executor.md, plugins.md).                                  |
 
-## Plugins (`src/plugins/`)
+## Plugins
 
-| File                                     | Topic                                                                                                       |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| [`plugins.md`](./plugins.md)             | `src/plugins/<name>/` — core's executor, cache and history scheduler as isolated, subpath-exported plugins. |
-| [`chained-cache.md`](./chained-cache.md) | `src/cache/chained-cache.ts` — several declared cache layers, chained in order.                             |
+| File                                     | Topic                                                                                            |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| [`plugins.md`](./plugins.md)             | Core ships no plugin: the floor (run here, cache here) and where plugins live (`packages/vx-*`). |
+| [`chained-cache.md`](./chained-cache.md) | `src/cache/chained-cache.ts` — several declared cache layers, chained in order.                  |
 
 ## Utilities
 

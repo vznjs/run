@@ -39,6 +39,14 @@ it('every code block in the plugins guide type-checks against @vzn/vx', async ()
           noEmit: true,
           allowImportingTsExtensions: true,
           types: ['bun'],
+          // A plugin PACKAGE the guide imports for illustration resolves to
+          // its source here: the site depends on core only, and the pin is
+          // about vx's own types, not on hoisting a sibling into the root.
+          paths: {
+            '@vzn/vx-schedule-history': [
+              path.join(ROOT, 'packages', 'vx-schedule-history', 'src', 'index.ts'),
+            ],
+          },
         },
         include: ['*.ts', '*.d.ts'],
       }),

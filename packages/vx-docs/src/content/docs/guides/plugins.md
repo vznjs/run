@@ -149,12 +149,13 @@ export function nodeMajor(): VxPlugin {
 `schedule` decides which READY task runs first when more are ready than
 there are workers. Return `Map<taskId, weight>`; higher runs first, and
 the scheduler's structural baseline (how many tasks a task unblocks)
-stays the tie-break. Core ships one reference policy — the expected
-remaining critical path learned from your own run history:
+stays the tie-break. Core ships no policy; the reference one is its own
+package — the expected remaining critical path learned from your own run
+history:
 
 ```ts
 import { defineWorkspace } from '@vzn/vx'
-import { scheduleHistoryPlugin } from '@vzn/vx/plugins/schedule-history'
+import { scheduleHistoryPlugin } from '@vzn/vx-schedule-history'
 
 export default defineWorkspace({
   plugins: [scheduleHistoryPlugin()],

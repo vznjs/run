@@ -97,7 +97,6 @@
   "runtime-inputs.test.ts": 2877,
   "sandbox-hint.test.ts": 3,
   "scale-graph.test.ts": 11410,
-  "schedule-history.test.ts": 1,
   "scheduler.test.ts": 1313,
   "schema-doc-drift.test.ts": 69,
   "schema-reset-notice.test.ts": 236,

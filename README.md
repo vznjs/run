@@ -166,9 +166,9 @@ server speaking Turbo's `/v8/artifacts` API or Nx's self-hosted cache
 spec — the wire is theirs, the artifacts are vx's),
 [`@vzn/vx-turbo`](packages/vx-turbo) (a Turbo repo under vx with
 nothing written: `turbo.json` + scripts become tasks through the
-`project` stage), and `@vzn/vx/plugins/schedule-history` (order by
-learned critical path). Nothing distributed ships in this repo; the seams are how you
-build it.
+`project` stage), and [`@vzn/vx-schedule-history`](packages/vx-schedule-history)
+(order by learned critical path). Core ships no plugin at all; nothing
+distributed ships in this repo; the seams are how you build it.
 
 ## How it compares
 
