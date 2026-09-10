@@ -74,7 +74,8 @@ packages/vx-prune       `bunx @vzn/vx-prune` / the `prune` verb via the commands
 packages/vx-schedule-history  `schedule` plugin: order by the critical path learned from run history
 packages/vx-docs        Astro Starlight site; packages/vx/docs is imported by scripts/import-docs.ts
 packages/vx-bench       synthetic workspace generator + runners (vx / turbo / nx)
-packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, schema, modules/, design/
+packages/vx/docs        source of truth: STATUS.md, architecture, caching, cli, schema, modules/, design/;
+                        history/ holds the shipped record STATUS moved out (read it only when an item's why matters)
 ```
 
 Module boundaries: each `src/<module>/index.ts` is the contract; cross-module
