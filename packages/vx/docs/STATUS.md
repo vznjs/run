@@ -1362,6 +1362,10 @@ vx-cache-v27 · index schema v25` — the two constants a bug report
     "nearest declared name" text sat over `initHint`; it is back over
     `didYouMean`). Module doc, index row, `orchestrator.md` and the
     CLAUDE.md layout updated; the placement suites pass unchanged.
+    Clean-protocol A/B (item 49's rule), twenty reps, both orders:
+    main med 226 / head 229, head 236 / main 233 — +3 ms by median in
+    both orders with the minimum flipping (+3 / −1), inside the
+    harness's own spread as a pure move should read.
 
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
