@@ -302,11 +302,12 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # The same four shards the `test.bun.shard-*` tasks run (vx.config.ts),
-      # sequentially, so the two platforms execute an identical suite. Four
-      # processes, not one, is the point on macOS: `bun test` pins
-      # descriptors per imported module and the process cap is 10 240, which
-      # the whole suite in one process does not clear.
+      # The whole core suite in four sequential slices (Bun's own dealer; the
+      # `test.bun.shard-*` tasks deal twelve by weight, but sequential slices
+      # sum to the same time whatever the deal). Several processes, not one,
+      # is the point on macOS: `bun test` pins descriptors per imported
+      # module and the process cap is 10 240, which the whole suite in one
+      # process does not clear.
       - name: bun test (core, darwin)
         run: |
           cd packages/vx

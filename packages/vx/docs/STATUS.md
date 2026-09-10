@@ -1553,6 +1553,19 @@ worst.
     the pin stamps the rewrite one millisecond past the recorded mtime
     now, as item 46 did for `cache-baseline`.
 
+60. DONE (twelve shards from one template): the eight shard tasks were
+    eight copies of a twenty-line block, and eight was the count for
+    no reason a box could name. `vx.config.ts` now generates them from
+    `SHARD_COUNT` (12) and one template; `test.bun` depends on
+    `test.bun.shard-*` (the pattern form — a generated key cannot be
+    named for the spread's key check, and `*` expands at graph build),
+    and the partition pin reads the count from the config. Measured
+    on this four-core box, both deals by weight: twelve shards 17.5 s
+    wall, eight 19.9 s — an oversubscribed box pays nothing for the
+    extra processes, and a twelve-core one gets the suite in two
+    thirds of the time. The darwin CI job's four sequential slices are
+    untouched: sequential time is the sum. Config: 379 → 235 lines.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

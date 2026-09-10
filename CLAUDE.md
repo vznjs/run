@@ -84,14 +84,14 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.unsafe.test.t
   docs build). Then push and confirm the real CI conclusion.
 - `bun test` alone is NOT the gate: it is transpile-only and cannot see a
   type error. Never pipe a gate through `tail`/`grep` — it masks the exit.
-- The core suite runs as eight parallel shard tasks
-  (`test.bun.shard-1`–`shard-8`); `scripts/test-shard.ts <i> 8` deals
-  the files by recorded weight (`tests/shard-weights.json`, refreshed
-  with `--weigh <junit-dir>`), so the wall time is the average shard,
-  not the alphabet's heaviest. Many processes is not only speed:
-  `bun test` pins ~2 descriptors per imported module and macOS caps a
-  process at 10 240, so the whole suite in one process does not clear
-  the cap.
+- The core suite runs as `SHARD_COUNT` (12, `vx.config.ts`) parallel
+  shard tasks, generated from one template; `scripts/test-shard.ts <i>
+<n>` deals the files by recorded weight (`tests/shard-weights.json`,
+  refreshed with `--weigh <junit-dir>`), so the wall time is the
+  average shard, not the alphabet's heaviest. Many processes is not
+  only speed: `bun test` pins ~2 descriptors per imported module and
+  macOS caps a process at 10 240, so the whole suite in one process
+  does not clear the cap.
 - `tests/*.unsafe.test.ts` is the suite a sandbox cannot host — the
   sandbox's own tests (seatbelt cannot nest) and the cross-project law
   (a project may read only its own directory). The shards exclude them
