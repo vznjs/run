@@ -2008,6 +2008,38 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    ~17 ms gain would buy ~2 s of suite for a build step in every test
    run. The spawns stay on source.
 
+9. **Handoff after item 64 (2026-09-10, evening).** The loop's Next
+   items are spent; what a fresh session should know, in order:
+   (a) PR #265 is 110+ commits on `claude/review-improve-codebase-waarsg`
+   against main c0b20ca; every head green on both CI jobs except the
+   ones the CI section of the PR body names, each fixed by the next
+   commit. The hourly check-in re-arms itself until merge.
+   (b) The suite's floor is processes, not timers (the paragraph after
+   item 58). The one lever left is converting the nineteen
+   CLI-spawning suites (~250 cases at 91 ms) to in-process calls where
+   process semantics are not the claim — about 14 s of file time,
+   ~1 s of wall on twelve shards; do it only if a box with many cores
+   shows the wall pinned by them. The gate on four cores is 15.7 s.
+   (c) The darwin CI job runs four sequential slices; parallel would
+   halve it, but the sandbox canary there is class-gated because
+   `sandbox-exec` misbehaved under load once — measure the canary
+   under parallel slices before changing the loop.
+   (d) `executeCachedTask` (execute-task.ts, ~440 lines) is dense
+   policy — probe, hash, clean, exec, save — with no clean seam left
+   after the hit and miss paths moved out; leave it whole.
+   (e) `run()` is 895 lines; the run-context record (25 lines of
+   literal assembly) is the last cohesive block, and moving it buys
+   nothing a reader needs. Stop slicing there.
+   (f) Warm path: no lead in the stage table (the two refuted probes
+   after item 61); the discovery memo and pre-bundling stay refuted.
+   The next gain is a Bun change (config-eval worker start, `bun
+bin.ts` load), not a vx change.
+   (g) Capabilities worth a design before code: streaming artifacts
+   through the remote seam (Next 2, gated by the plugin side), and a
+   `serve`-shaped embedder built OUTSIDE this repo on the façade
+   (the seams are in place: `inflight`, `remoteCache`,
+   `telemetrySinks`, the wire event form).
+
 ## Decisions (this arc)
 
 - **Gap audit vs Nx 23 / Turbo 2.10 (2026-09-04, owner's ask).** Core
