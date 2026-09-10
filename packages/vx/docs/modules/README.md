@@ -1,6 +1,9 @@
 # Module reference
 
-One markdown per source module under `src/`. Each documents:
+One markdown per module under `src/`; a slice or helper is documented
+with the module that owns it (the cache slices in `cache.md`, the
+sandbox helpers in `sandbox-runtime.md`), and the CLI verb parsers in
+[`docs/cli.md`](../cli.md). Each documents:
 
 - **Purpose** — what the module exists to do.
 - **Public surface** — exported types + functions consumed by other
@@ -41,8 +44,10 @@ For the high-level data flow, read
 | [`upgrade.md`](./upgrade.md)                 | `src/cli/upgrade.ts` — `vx upgrade` binary self-update.                                                                             |
 
 The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
-`info.ts`, `cache.ts`) are user-facing commands documented in
-[`docs/cli.md`](../cli.md) rather than as module pages.
+`info.ts`, `last.ts`, `why.ts`, `prune.ts`) are user-facing commands
+documented in [`docs/cli.md`](../cli.md) rather than as module pages;
+`migrate-emit.ts` and `migrate-persistent.ts` are the two leaf rules
+(literal quoting, the persistent-name guess) every migrator shares.
 
 ## Orchestrator
 
@@ -79,22 +84,28 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 | [`local-shortcircuit.md`](./local-shortcircuit.md) | `src/orchestrator/local-shortcircuit.ts` — restore-ahead classify (two-tier schedule).                                         |
 | [`remote-prefetch.md`](./remote-prefetch.md)       | `src/orchestrator/remote-prefetch.ts` — background remote GETs (LayeredCache only).                                            |
 | [`history.md`](./history.md)                       | `src/orchestrator/history.ts` — per-task duration history behind `--dry` predictions.                                          |
+|                                                    | `src/orchestrator/failure-mode.ts` — the flakiness verdict, in one place (see history.md).                                     |
+| [`metrics.md`](./metrics.md)                       | `src/orchestrator/metrics.ts` — run-history queries behind `vx last` / `vx why` / the MCP.                                     |
+| [`resources.md`](./resources.md)                   | `src/orchestrator/resources.ts` — `exec.resources` → the scheduler's per-task costs.                                           |
+| [`task-log-buffer.md`](./task-log-buffer.md)       | `src/orchestrator/task-log-buffer.ts` — bounded per-task log capture for telemetry sinks.                                      |
 | [`run-report.md`](./run-report.md)                 | `src/orchestrator/run-report.ts` — `--report=markdown` table.                                                                  |
 
 ## Workspace + discovery
 
-| File                                       | Topic                                                                               |
-| ------------------------------------------ | ----------------------------------------------------------------------------------- |
-| [`workspace.md`](./workspace.md)           | `src/workspace/workspace.ts` — `findWorkspaceRoot`, `listProjects`, cacheDir.       |
-| [`project-loader.md`](./project-loader.md) | `src/workspace/project-loader.ts` — `vx.config.*` / `vx.workspace.*` evaluation.    |
-| [`package-graph.md`](./package-graph.md)   | `src/workspace/package-graph.ts` — workspace dep graph from package.json.           |
-| [`filter.md`](./filter.md)                 | `src/workspace/filter.ts` — pnpm-style `--filter` DSL parser + applier.             |
-| [`affected.md`](./affected.md)             | `src/workspace/affected.ts` — git-relative project selection.                       |
-| [`config-imports.md`](./config-imports.md) | `src/workspace/config-imports.ts` — the config-import selection channel.            |
-| [`config-cache.md`](./config-cache.md)     | `src/workspace/config-cache.ts` — cached evaluations of provably-pure configs.      |
-| [`nested-dirs.md`](./nested-dirs.md)       | `src/workspace/nested-dirs.ts` — boundary set (other projects rooted under each).   |
-| [`fingerprint.md`](./fingerprint.md)       | `src/workspace/fingerprint.ts` — workspace fingerprint (lockfile + workspace yaml). |
-| [`lockfile.md`](./lockfile.md)             | `src/workspace/lockfile.ts` — `vx-lock.json` freeze / trust / audit.                |
+| File                                       | Topic                                                                                     |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| [`workspace.md`](./workspace.md)           | `src/workspace/workspace.ts` — `findWorkspaceRoot`, `listProjects`, cacheDir.             |
+| [`project-loader.md`](./project-loader.md) | `src/workspace/project-loader.ts` — `vx.config.*` / `vx.workspace.*` evaluation.          |
+| [`package-graph.md`](./package-graph.md)   | `src/workspace/package-graph.ts` — workspace dep graph from package.json.                 |
+| [`filter.md`](./filter.md)                 | `src/workspace/filter.ts` — pnpm-style `--filter` DSL parser + applier.                   |
+| [`affected.md`](./affected.md)             | `src/workspace/affected.ts` — git-relative project selection.                             |
+| [`config-imports.md`](./config-imports.md) | `src/workspace/config-imports.ts` — the config-import selection channel.                  |
+| [`config-cache.md`](./config-cache.md)     | `src/workspace/config-cache.ts` — cached evaluations of provably-pure configs.            |
+| [`nested-dirs.md`](./nested-dirs.md)       | `src/workspace/nested-dirs.ts` — boundary set (other projects rooted under each).         |
+| [`fingerprint.md`](./fingerprint.md)       | `src/workspace/fingerprint.ts` — workspace fingerprint (lockfile + workspace yaml).       |
+| [`lockfile.md`](./lockfile.md)             | `src/workspace/lockfile.ts` — `vx-lock.json` freeze / trust / audit.                      |
+| [`turbo.md`](./turbo.md)                   | `src/workspace/turbo.ts` — the Turbo → vx mapping `vx migrate` and `@vzn/vx-turbo` share. |
+|                                            | `src/workspace/config-eval.ts` — fresh re-evaluation in a Worker (see project-loader.md). |
 
 ## Graph + scheduler
 
@@ -106,12 +117,13 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 
 ## Cache cluster
 
-| File                                               | Topic                                                                                                      |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| [`cache.md`](./cache.md)                           | `src/cache/cache.ts` — local cache: `bun:sqlite` index + tar.zst artifacts.                                |
-| [`layered-cache.md`](./layered-cache.md)           | `src/cache/layered-cache.ts` — local + remote composition + `RemoteCacheLayer` seam.                       |
-| [`inputs.md`](./inputs.md)                         | `src/cache/inputs.ts` — glob resolution, boundary enforcement, `cleanOutputs`.                             |
-| [`cas-backend-digest.md`](./cas-backend-digest.md) | `src/cache/{cas-backend,digest}.ts` — content-addressed view of the artifacts dir (internal, no consumer). |
+| File                                               | Topic                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`cache.md`](./cache.md)                           | `src/cache/cache.ts` — local cache: `bun:sqlite` index + tar.zst artifacts.                                                                                                                                                            |
+|                                                    | `src/cache/{layer,policy,zstd,file-hashes,config-evals,output-index,run-history}.ts` — the slices `Cache` composes (cache.md § Files); `archive.ts` + `tar-stream.ts` — pack / scan / extract (cache.md, caching.md § Storage layout). |
+| [`layered-cache.md`](./layered-cache.md)           | `src/cache/layered-cache.ts` — local + remote composition + `RemoteCacheLayer` seam.                                                                                                                                                   |
+| [`inputs.md`](./inputs.md)                         | `src/cache/inputs.ts` — glob resolution, boundary enforcement, `cleanOutputs`.                                                                                                                                                         |
+| [`cas-backend-digest.md`](./cas-backend-digest.md) | `src/cache/{cas-backend,digest}.ts` — content-addressed view of the artifacts dir (internal, no consumer).                                                                                                                             |
 
 ## Exec (process primitives)
 
@@ -124,6 +136,7 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 |                                              | `src/exec/sandbox-binds.ts` — bwrap-honourable write grants, read-grant punching, the SRT custom config.              |
 |                                              | `src/exec/sandbox-paths.ts` — `toRealPath`, `absolutize`, `isUnderAny`, `unique`.                                     |
 | [`executor.md`](./executor.md)               | `src/exec/executor.ts` — `TaskExecutor` contract + `selectExecutor`.                                                  |
+|                                              | `src/exec/local-executor.ts` — the floor: run it here (see executor.md, plugins.md).                                  |
 
 ## Plugins (`src/plugins/`)
 
@@ -134,13 +147,18 @@ The remaining subcommand parsers (`lock.ts`, `migrate*.ts`, `show.ts`,
 
 ## Utilities
 
-| File                                 | Topic                                                                     |
-| ------------------------------------ | ------------------------------------------------------------------------- |
-| [`util-paths.md`](./util-paths.md)   | `src/util/paths.ts` — POSIX-path normaliser for stable cache keys.        |
-| [`util-hash.md`](./util-hash.md)     | `src/util/hash.ts` — xxHash3 helpers shared by every key-derivation site. |
-| [`util-ulid.md`](./util-ulid.md)     | `src/util/ulid.ts` — run-id generator (`Bun.randomUUIDv7` wrapper).       |
-| [`util-errors.md`](./util-errors.md) | `src/util/errors.ts` — `UserError` class for stack-less error reporting.  |
-| [`timing.md`](./timing.md)           | `src/util/timing.ts` — the `VX_TIMING=1` stage table + per-task spans.    |
+| File                                               | Topic                                                                                    |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [`util-paths.md`](./util-paths.md)                 | `src/util/paths.ts` — POSIX-path normaliser for stable cache keys.                       |
+| [`util-hash.md`](./util-hash.md)                   | `src/util/hash.ts` — xxHash3 helpers shared by every key-derivation site.                |
+| [`util-ulid.md`](./util-ulid.md)                   | `src/util/ulid.ts` — run-id generator (`Bun.randomUUIDv7` wrapper).                      |
+| [`util-errors.md`](./util-errors.md)               | `src/util/errors.ts` — `UserError` class for stack-less error reporting.                 |
+| [`timing.md`](./timing.md)                         | `src/util/timing.ts` — the `VX_TIMING=1` stage table + per-task spans.                   |
+| [`util-edit-distance.md`](./util-edit-distance.md) | `src/util/edit-distance.ts` — the one "did you mean" rule.                               |
+| [`util-num.md`](./util-num.md)                     | `src/util/num.ts` — `MAX_TIMEOUT_MS`, `clampInt`, `parseDecimalInt`.                     |
+| [`util-settle.md`](./util-settle.md)               | `src/util/settle.ts` — the end-of-run settle bound for plugin teardown.                  |
+| [`util-tail.md`](./util-tail.md)                   | `src/util/tail.ts` — head-evicting tail for a persistent task's output.                  |
+|                                                    | `src/util/{size,verbs}.ts` — `parseSize` (cli-cache.md) and the core verb list (cli.md). |
 
 For the public package surface (what `import('@vzn/vx')` resolves to)
 see [`index.md`](./index.md).

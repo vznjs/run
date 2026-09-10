@@ -1145,6 +1145,24 @@ know — vx cache prune reaps them` — only when there are any, from
     orphan and a fresh one as the in-flight control; the existing info
     pin holds the no-orphans control (no row at all).
 
+42. DONE (the module index claimed one page per module; 34 files had
+    none): a probe compared `src/**` against `docs/modules/README.md`.
+    Eight modules had no page anywhere — the Turbo mapper both
+    `vx migrate` and `@vzn/vx-turbo` run, the run-history queries
+    behind `vx last` / `vx why` / the MCP tools, `resources`, the
+    telemetry log buffer, and four util rules (edit distance, integer
+    bounds, the settle deadline, the persistent tail); each has one
+    now, written from the source, with its tests named. The rest were
+    slices and helpers documented inside their owner's page (the cache
+    slices, the sandbox helpers, `failure-mode`, `config-eval`,
+    `local-executor`) or CLI verb parsers the README already routes to
+    `cli.md` — they are indexed under their owner, and the README's
+    first sentence says that is the rule. `task-log-buffer.ts` still
+    described its consumers as the cloud client sink, the cloud serve
+    sink and the dist scheduler, and sized its stubs against a cloud
+    ingest cap: reworded to the one consumer that exists
+    (`@vzn/vx-otel`) and to what a sink should size against.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams
