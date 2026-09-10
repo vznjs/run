@@ -502,16 +502,17 @@ describePerf('cache baseline: save + restore', () => {
     await cache.restoreOutputs('ms-precision', dest)
     expect(await cache.isOutputsCurrent(dest, rows)).toBe(true)
 
-    // Same byte LENGTH, different content, written within the same second
-    // (the write executes microseconds later; assert the precondition).
+    // Same byte LENGTH, different content, and an mtime ONE MILLISECOND off
+    // the recorded one — set explicitly, so the claim never rides on where
+    // the write lands relative to a second boundary. (It used to: the
+    // assertion sat behind a same-second precondition, and a write across
+    // the boundary skipped it silently — a skip is a silent pass.)
     const original = await Bun.file(path.join(dest, rows[0]!.path)).text()
     const sameSize = 'X'.repeat(original.length)
     await writeFile(path.join(dest, rows[0]!.path), sameSize)
-    const s = await (await import('node:fs/promises')).stat(path.join(dest, rows[0]!.path))
-    if (Math.floor(s.mtimeMs / 1000) === Math.floor(rows[0]!.mtimeMs / 1000)) {
-      // precondition held: same second, different ms — must NOT be current
-      expect(await cache.isOutputsCurrent(dest, rows)).toBe(false)
-    }
+    const offByOneMs = new Date(rows[0]!.mtimeMs + 1)
+    await utimes(path.join(dest, rows[0]!.path), offByOneMs, offByOneMs)
+    expect(await cache.isOutputsCurrent(dest, rows)).toBe(false)
 
     // The DOCUMENTED residual, pinned as the accepted trade rather than left
     // as folklore: a same-size edit with a FORGED identical mtime (touch -r)

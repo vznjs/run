@@ -1258,7 +1258,12 @@ undefined?` whenever nothing was within two edits — `nearest`
     instead of ~7.7. The band under a second was otherwise real work
     or inherent waits: `options-resolve` spans two fixed sleeps to
     prove ordering, `config-eval` sleeps inside configs to prove a
-    deadline, `inflight` needs the first task still running.
+    deadline, `inflight` needs the first task still running. The same
+    file's millisecond-precision pin sat behind a same-second
+    precondition (`if` the write landed in the recorded second, assert)
+    — a skip is a silent pass — and now sets an mtime one millisecond
+    off the recorded one explicitly, so the claim never rides on a
+    second boundary.
 
 **Handoff after item 45 (2026-09-10, morning).** PR #265 carries the
 loop, 70+ commits; every head is green on CI except the ones a
