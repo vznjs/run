@@ -1583,6 +1583,24 @@ worst.
     for the three set by hand this once; the next `--weigh` refresh
     replaces them.
 
+62. DONE (the one review finding accepted as-is, closed after all): a
+    `--frozen` run reads its configs from the lock, but the `--affected`
+    owners it selected from — and the picker, and the watch sweep —
+    evaluated live, so an env-dependent `workspaceFiles` glob could
+    select in one environment what the run then keyed by another.
+    `loadCliProjects` takes the run's flags as one `CliLoadOptions`
+    (`cacheDir`, `frozen`) and reads the lock under `--frozen`,
+    refusing with the run's own message when there is none
+    (`FROZEN_WITHOUT_LOCK`, defined once in `workspace/lockfile.ts`).
+    Pinned end to end in `tests/frozen-selection.test.ts`: a glob the
+    lock froze under `SHARED=shared/**` selects the task in a frozen
+    run with no env, and a live run in the same environment does not.
+    The owner sweep tolerates a config that will not load (a broken
+    out-of-scope config must not fail a scoped run), so the missing
+    lock is refused BEFORE it, or a frozen run with no lock answered
+    "nothing affected" and exited 0 without reaching the run's own
+    refusal — the third pin.
+
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and
 `config_closures` on the warm 1,000-project copy: the `load configs`

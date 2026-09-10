@@ -47,7 +47,7 @@ describe('the run’s --cache-dir reaches selection', () => {
 
   it('loadCliProjects opens the given dir, not the workspace default', async () => {
     const metas = await listProjects(await loadWorkspace(root))
-    const staged = await loadCliProjects(root, metas, 'all', elsewhere)
+    const staged = await loadCliProjects(root, metas, 'all', { cacheDir: elsewhere })
     expect([...staged.keys()]).toEqual(['app'])
     expect(existsSync(path.join(elsewhere, 'cache.db'))).toBe(true)
     expect(existsSync(path.join(root, '.vx', 'cache'))).toBe(false)

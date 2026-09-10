@@ -11,6 +11,7 @@ export {
   LOCKFILE_NAME,
   LOCKFILE_VERSION,
   lockfilePath,
+  FROZEN_WITHOUT_LOCK,
   readLockfile,
   writeLockfile,
   type Lockfile,

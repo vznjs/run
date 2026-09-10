@@ -10,24 +10,26 @@ import {
   applyFilters,
   buildPackageGraph,
   findWorkspaceRoot,
+  FROZEN_WITHOUT_LOCK,
   listProjects,
   loadProjectConfig,
   loadWorkspace,
   parseFilter,
-  workspaceGlobsMatch,
   type ProjectMeta,
+  readLockfile,
+  workspaceGlobsMatch,
 } from '../workspace/index.js'
 import type { ProjectConfig } from '../config.js'
-import { nearest } from '../util/index.js'
-import { loadCliProjects } from './workspace-config.js'
+import { nearest, UserError } from '../util/index.js'
+import { type CliLoadOptions, loadCliProjects } from './workspace-config.js'
 
 /**
  * The projects whose tasks declare a `cache.inputs.workspaceFiles` glob
  * matching an ORPHAN changed path (one no project owns): `--affected`
  * selects them, since the glob is that task's input. Through the run
  * path's staged load, so a glob a `project` plugin gave a config-less
- * package counts; live, as a default run evaluates (the lock is a
- * `--frozen` concern). A load that fails drops to the config files that
+ * package counts; evaluated live as a default run does, or read from the
+ * lock as a `--frozen` run does. A load that fails drops to the config files that
  * do load, one by one — a broken out-of-scope config does not fail a
  * scoped run, and must not fail its selection either.
  */
@@ -35,7 +37,7 @@ export async function workspaceGlobOwners(
   root: string,
   projects: readonly ProjectMeta[],
   orphans: readonly string[],
-  cacheDir?: string,
+  load: CliLoadOptions = {},
 ): Promise<string[]> {
   const declaresMatch = (config: ProjectConfig): boolean => {
     for (const task of Object.values(config.tasks ?? {})) {
@@ -45,8 +47,14 @@ export async function workspaceGlobOwners(
     }
     return false
   }
+  // A frozen run with no lock is refused here, before the tolerant sweep
+  // below could answer "nothing affected" and exit 0 without ever reaching
+  // the run's own refusal.
+  if (load.frozen === true && (await readLockfile(root)) === null) {
+    throw new UserError(FROZEN_WITHOUT_LOCK)
+  }
   try {
-    const staged = await loadCliProjects(root, projects, 'all', cacheDir)
+    const staged = await loadCliProjects(root, projects, 'all', load)
     return [...staged.values()].filter((p) => declaresMatch(p.config)).map((p) => p.name)
   } catch {
     // Fall through to the per-file sweep.
@@ -89,7 +97,7 @@ export type FilterResolution = { names: string[] } | { error: string } | { empty
 export async function resolveFilters(
   cwd: string,
   raw: string[],
-  cacheDir?: string,
+  load: CliLoadOptions = {},
 ): Promise<FilterResolution> {
   const root = await findWorkspaceRoot(cwd)
   const projects = await loadWorkspaceProjects(cwd)
@@ -107,7 +115,7 @@ export async function resolveFilters(
         workspaceRoot: root,
         since: f.gitSince,
         projects,
-        workspaceGlobOwners: (orphans) => workspaceGlobOwners(root, projects, orphans, cacheDir),
+        workspaceGlobOwners: (orphans) => workspaceGlobOwners(root, projects, orphans, load),
       })
       affectedByFilter.set(f, names)
     } catch (err) {
@@ -160,12 +168,12 @@ export interface PickedTask {
 export async function pickTask(
   cwd: string,
   io: { input?: NodeJS.ReadableStream; output?: NodeJS.WritableStream } = {},
-  cacheDir?: string,
+  load: CliLoadOptions = {},
 ): Promise<PickedTask | null> {
   const projects = await loadWorkspaceProjects(cwd)
   // The staged load: a task a `project` plugin gave a config-less package
   // is on the menu, as it is in a run.
-  const staged = await loadCliProjects(await findWorkspaceRoot(cwd), projects, 'all', cacheDir)
+  const staged = await loadCliProjects(await findWorkspaceRoot(cwd), projects, 'all', load)
   const entries: PickedTask[] = []
   for (const meta of projects) {
     const config = staged.get(meta.name)?.config

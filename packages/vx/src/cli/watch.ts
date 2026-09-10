@@ -27,7 +27,7 @@ import {
   type ProjectMeta,
 } from '../workspace/index.js'
 import type { ProjectConfig } from '../config.js'
-import { loadCliProjects, loadCliWorkspace } from './workspace-config.js'
+import { type CliLoadOptions, loadCliProjects, loadCliWorkspace } from './workspace-config.js'
 
 /** Wait this long after the last filesystem event before re-running. */
 const DEBOUNCE_MS = 150
@@ -335,7 +335,10 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
   process.stdout.write('vx watch: initial run...\n\n')
   await runOrchestrator(opts)
 
-  const swept = await sweepConfigs(allProjects, workspaceRoot, opts.cacheDir)
+  const swept = await sweepConfigs(allProjects, workspaceRoot, {
+    ...(opts.cacheDir !== undefined ? { cacheDir: opts.cacheDir } : {}),
+    ...(opts.frozen === true ? { frozen: true } : {}),
+  })
   return await runWatchLoop({
     opts,
     workspaceRoot,
@@ -362,7 +365,7 @@ export async function watchCmd(args: readonly string[]): Promise<number> {
 export async function sweepConfigs(
   projects: readonly ProjectMeta[],
   workspaceRoot: string,
-  cacheDir?: string,
+  load: CliLoadOptions = {},
 ): Promise<{ workspaceWide: boolean; outputs: Map<string, string[]> }> {
   const outputs = new Map<string, string[]>()
   const add = (dir: string, globs: readonly string[] | undefined): void => {
@@ -379,7 +382,7 @@ export async function sweepConfigs(
   }
   let staged: Map<string, ProjectEntry> | null = null
   try {
-    staged = await loadCliProjects(workspaceRoot, projects, 'all', cacheDir)
+    staged = await loadCliProjects(workspaceRoot, projects, 'all', load)
   } catch {
     staged = null
   }

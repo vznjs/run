@@ -30,6 +30,7 @@ import {
   findWorkspaceRoot,
   listProjects,
   loadWorkspace,
+  FROZEN_WITHOUT_LOCK,
   readLockfile,
   resolveCacheDir,
   type ProjectEntry,
@@ -212,9 +213,7 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   // See docs/design/config-lock-2026-06.md.
   const lock = options.frozen === true ? await readLockfile(workspaceRoot) : null
   if (options.frozen === true && lock === null) {
-    throw new UserError(
-      `--frozen requires vx-lock.json at the workspace root — run 'vx lock' and commit it`,
-    )
+    throw new UserError(FROZEN_WITHOUT_LOCK)
   }
 
   let loaded: LoadedProjects
