@@ -2,8 +2,9 @@
 // two rules that decide whether a ready task runs NOW and whether its
 // result may be SAVED. Neither changes what the task is.
 //
-// - In-flight dedup: a service running concurrent delegated runs in one
-//   process (`vx serve`) supplies an `inflight` registry; a task whose key
+// - In-flight dedup: an embedder running concurrent delegated runs in one
+//   process (a daemon built on the façade; core ships none) supplies an
+//   `inflight` registry; a task whose key
 //   a sibling is already computing waits for it and cache-hits on what it
 //   saved. A stateless `vx run` passes none and takes the untouched path.
 // - Continue-taint: under `continueMode: 'always'` a task runs although an

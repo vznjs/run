@@ -254,7 +254,7 @@ export async function prepareRun(options: RunOptions, log: Logger): Promise<Prep
   const unresolvedTasks = unresolvedRequests(options.tasks, candidateProjects, projects)
 
   // Cache seam precedence: an EXPLICITLY injected remote layer
-  // (RunOptions.remoteCache — a distribution agent or serve that already
+  // (RunOptions.remoteCache — a distribution agent or daemon that already
   // holds a wire client) wins outright; else a plugin's `cache` capability;
   // else the local cache alone. Core ships no wire client — the remote
   // cache is a plugin concern (docs/patterns.md § Remote cache wire). Injection

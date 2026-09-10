@@ -5,12 +5,13 @@
 The scheduler hands `run()` a ready task; `executeTask` runs it. Two
 rules stand between them and neither changes what the task is:
 
-- **In-flight dedup.** A service running concurrent delegated runs in
-  one process (`vx serve`) supplies an `inflight` registry
-  (`RunOptions.inflight`). A cacheable task whose key a sibling is
-  already computing waits for the sibling, then cache-hits on what it
-  saved. A stateless `vx run` passes no registry and takes the
-  untouched path: no key derivation before execute.
+- **In-flight dedup.** An embedder running concurrent delegated runs
+  in one process (a daemon built on the façade; core ships none)
+  supplies an `inflight` registry (`RunOptions.inflight`). A cacheable
+  task whose key a sibling is already computing waits for the sibling,
+  then cache-hits on what it saved. A stateless `vx run` passes no
+  registry and takes the untouched path: no key derivation before
+  execute.
 - **Continue-taint.** Under `continueMode: 'always'` a task runs
   although an upstream failed. Its key is the healthy one (pure-input
   hashing) but its bytes are not, so its save is withheld

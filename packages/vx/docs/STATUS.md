@@ -1424,7 +1424,7 @@ stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
 
 55. DONE (pure motion, the third slice off `run()`): the two rules
     between the scheduler's `execute` callback and `executeTask` — the
-    in-flight dedup a `vx serve` registry enables and the
+    in-flight dedup an embedder's registry enables and the
     continue-taint that withholds a save behind a failure — sat as
     two closures inside `run()`'s try block, 120 lines the reader had
     to hold while following the run. `orchestrator/admission.ts`
@@ -1621,6 +1621,18 @@ worst.
     entry moved from `execute-task.ts` to `hit-restore.ts` — the
     tripwire doing its job. Warm path under the clean protocol, twenty
     reps both orders: 231 → 231 and 250 → 243 by median, a tie.
+
+64. DONE (words that named a product this repo does not ship): eleven
+    live comments and one module doc named `vx serve`, a `vx dev` hub
+    and a devframe surface as the consumers of the in-flight registry,
+    the injected remote layer, the telemetry-sink seam and the wire
+    event form. None exists here: the verbs are run, watch, cache,
+    lock, init, migrate, show, info, why, last, prune, upgrade (and a
+    plugin's), and CLAUDE.md says nothing distributed ships in this
+    repo — the seams exist so someone builds those on top. Every site
+    now says "an embedder" / "a daemon built on the façade; core ships
+    none", so a reader is not sent looking for a verb. The dated
+    design documents keep their history.
 
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and

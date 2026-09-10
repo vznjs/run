@@ -70,7 +70,7 @@ async function runPrefetch(args: PrefetchArgs): Promise<void> {
   // tells us which of the N stable hashes exist remotely, so we GET only the
   // hits and pre-mark the misses — their lazy `get` then short-circuits with
   // no network. This collapses N probe waves into 1 and skips every GET that
-  // would 404. When the remote can't batch (`null` — an older serve, reads
+  // would 404. When the remote can't batch (`null` — an older remote, reads
   // disabled, or a layer that doesn't implement the hook at all), fall back to
   // prefetching every stable key, exactly as before.
   let toPrefetch = stableKeys

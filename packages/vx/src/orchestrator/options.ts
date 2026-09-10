@@ -150,7 +150,8 @@ export interface RunOptions {
   bus?: EventBus
   /**
    * Shared in-flight execution registry, keyed by task hash. Supplied by a
-   * long-lived service (`vx serve`) so concurrent runs DEDUP work: a task
+   * long-lived embedder (a daemon built on the façade; core ships none) so
+   * concurrent runs DEDUP work: a task
    * already executing for one run is awaited by another (which then
    * restores the just-saved artifact from cache) instead of re-running.
    * A stateless `vx run` passes none and is byte-identical to before.
@@ -165,8 +166,8 @@ export interface RunOptions {
   /**
    * Additional observe-only telemetry sinks, merged with whatever the
    * workspace plugins contribute. The embedder seam: a host executing
-   * runs on behalf of others (a serve recording delegated runs
-   * into its ingest store) attaches a sink without needing a workspace
+   * runs on behalf of others (a daemon recording delegated runs
+   * into its own store) attaches a sink without needing a workspace
    * plugin. Undefined → zero cost, identical to before; the telemetry
    * host's zero-sink invariant still applies when both sources are
    * empty.
@@ -182,7 +183,7 @@ export interface RunOptions {
   /**
    * An injected remote cache layer — the embedder seam mirroring
    * `telemetrySinks`: a host that already holds a wire client (a
-   * distribution agent, a serve executing on behalf of a submitter)
+   * distribution agent, a daemon executing on behalf of a submitter)
    * passes it here and run() composes `LayeredCache(local, injected)`.
    * Explicit injection WINS over the plugin `cache` capability (the
    * host knows best; prevents double-wrapping when the workspace also
