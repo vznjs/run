@@ -1548,6 +1548,15 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    whatever a plugin returned (a secret, if a plugin ever folds one).
    Neither is worth it today; revisit when a plugin's part is the
    thing people debug.
+   (h) Shard balance (measured 2026-09-10, after item 45): `bun test
+--shard` splits by file count, so shard 5 carries `output-memory`
+   (a 4 s rate measurement that spawns RSS probes) plus `task-timeout`
+   and runs 18 s wall while the others run 5–13 s — the critical path
+   when the shards run in parallel. Giving the memory probe its own
+   task (every shard adds it to `--path-ignore-patterns`; one task
+   runs the file alone) would cut the path to ~13 s. Nine config
+   edits and a CLAUDE.md line for ~5 s; do it when the next slow file
+   lands in the same shard, not before.
 
 ## Decisions (this arc)
 
