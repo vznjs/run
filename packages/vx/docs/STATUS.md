@@ -1243,6 +1243,23 @@ undefined?` whenever nothing was within two edits — `nearest`
     and the longest shard — the critical path when they run in
     parallel — 28.5 s → 18.0 s.
 
+46. DONE (a pin that proved nothing, found by taking its sleep away):
+    `cache-baseline`'s "second restore touches no inodes" slept 1.1 s
+    and compared whole-second mtimes. Replacing the sleep with the
+    inode showed the claim false: `Cache.restoreOutputs` ALWAYS
+    materialises (a `.vx-tmp-*` renamed over each target — new inode,
+    same bytes, same sidecar mtime), so the old comparison passed a
+    rewrite as readily as a skip. Skipping a current tree is the
+    orchestrator's decision (`isOutputsCurrent`, pinned in
+    `execute-task` and `output-dirs`), never the cache's. The test now
+    says what the cache does — the recorded whole-millisecond mtime on
+    every restore, a new inode on a re-restore, a deleted or
+    wrong-sized file replaced — with no sleep; the file runs 2.4 s
+    instead of ~7.7. The band under a second was otherwise real work
+    or inherent waits: `options-resolve` spans two fixed sleeps to
+    prove ordering, `config-eval` sleeps inside configs to prove a
+    deadline, `inflight` needs the first task still running.
+
 **Handoff after item 45 (2026-09-10, morning).** PR #265 carries the
 loop, 70+ commits; every head is green on CI except the ones a
 same-day commit fixed (d295a90 timing, 1414cf2 `.mcp.json`, f549719

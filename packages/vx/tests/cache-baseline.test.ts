@@ -526,13 +526,18 @@ describePerf('cache baseline: save + restore', () => {
     expect(await cache.isOutputsCurrent(dest, rows)).toBe(true)
   })
 
-  it('restoreOutputs round-trip via Cache: second restore touches no inodes', async () => {
-    // End-to-end behavioral check: after a cold restore, set every
-    // restored file's mtime/atime to a known-distant timestamp. A
-    // second restoreOutputs() should skip every file (manifest match
-    // on size + mode + mtime), so the timestamps stay where we set
-    // them. If skip is broken, mtime moves to "now".
-    const { stat, utimes } = await import('node:fs/promises')
+  it('restoreOutputs restores the recorded ms mtime on every restore and repairs a wrong-sized file', async () => {
+    // `Cache.restoreOutputs` ALWAYS materialises: a `.vx-tmp-*` renamed
+    // over each target, so a second restore is a new inode with the same
+    // bytes and the same sidecar mtime. Skipping a restore whose tree is
+    // already current is the ORCHESTRATOR's decision (`isOutputsCurrent`
+    // over the output_files rows — docs/caching.md § A current tree),
+    // pinned in the execute-task and output-dirs suites, not here. This
+    // test once claimed "second restore touches no inodes" and proved it
+    // by sleeping 1.1 s and comparing whole-second mtimes — a comparison
+    // a rewrite that restores the same mtime passes too. The inode says
+    // what actually happens.
+    const { stat, rm: rmFile } = await import('node:fs/promises')
     await cache.save({
       hash: 'e2e-mf',
       entry: {
@@ -548,35 +553,29 @@ describePerf('cache baseline: save + restore', () => {
     const dest = path.join(tmpdir, 'e2e-mf-target')
     await mkdir(dest, { recursive: true })
 
-    // Cold restore writes every file. Inspect one file's mtime —
-    // it'll match the staged file's mtime (from save), NOT "now".
     await cache.restoreOutputs('e2e-mf', dest)
     const oneFile = path.join(dest, 'dist', 'out0.js')
-    expect(await Bun.file(oneFile).exists()).toBe(true)
-    const mtimeAfterCold = (await stat(oneFile)).mtimeMs
+    const source = await stat(path.join(projectDir, 'dist', 'out0.js'))
+    const cold = await stat(oneFile)
+    // The sidecar records whole milliseconds (docs/caching.md § Storage layout).
+    expect(cold.mtimeMs).toBe(Math.floor(source.mtimeMs))
 
-    // Wait > 1s so a re-write would produce a distinguishable
-    // "now" mtime (utimes is seconds-resolution).
-    await Bun.sleep(1100)
-
-    // Second restore must skip — mtime unchanged means we didn't
-    // write the file.
+    // A second restore over a current tree rewrites: new inode, same mtime.
     await cache.restoreOutputs('e2e-mf', dest)
-    const mtimeAfterSkip = (await stat(oneFile)).mtimeMs
-    expect(Math.floor(mtimeAfterSkip / 1000)).toBe(Math.floor(mtimeAfterCold / 1000))
+    const again = await stat(oneFile)
+    expect(again.ino).not.toBe(cold.ino)
+    expect(again.mtimeMs).toBe(cold.mtimeMs)
 
-    // Negative control: corrupt the file. Third restore SHOULD
-    // rewrite (size mismatch with manifest) and the mtime jumps to
-    // the tar's stored mtime — same as mtimeAfterCold.
+    // A deleted file comes back; a wrong-sized file is replaced by the
+    // artifact's bytes.
+    await rmFile(oneFile)
+    await cache.restoreOutputs('e2e-mf', dest)
+    expect((await stat(oneFile)).size).toBe(source.size)
     await Bun.write(oneFile, 'corrupted-different-size')
-    const corruptedSize = (await stat(oneFile)).size
-    expect(corruptedSize).not.toBe((await stat(path.join(projectDir, 'dist', 'out0.js'))).size)
+    expect((await stat(oneFile)).size).not.toBe(source.size)
     await cache.restoreOutputs('e2e-mf', dest)
-    const sizeAfterFix = (await stat(oneFile)).size
-    expect(sizeAfterFix).not.toBe(corruptedSize)
-    // (Use utimes import to keep the linter happy — utimes is the
-    // implementation detail tested above via the timestamp invariant.)
-    void utimes
+    expect((await stat(oneFile)).size).toBe(source.size)
+    expect((await stat(oneFile)).mtimeMs).toBe(Math.floor(source.mtimeMs))
   })
 
   it('restoreOutputs (10 small files) — median < 30ms', async () => {
