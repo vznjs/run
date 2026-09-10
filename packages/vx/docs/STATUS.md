@@ -1566,6 +1566,23 @@ worst.
     thirds of the time. The darwin CI job's four sequential slices are
     untouched: sequential time is the sum. Config: 379 → 235 lines.
 
+61. DONE (the per-file cap under the deal): a weighted deal makes the
+    wall the average shard — until one file is heavier than the
+    average, and then the wall is that file on any box with enough
+    cores. Two were: `output-memory` (11.5 s: two 1 s + 3 s floods per
+    line shape, run one after another though each is its own child
+    and the claim is about each child's bounded capture, not
+    throughput — the four now run side by side from a `beforeAll`,
+    4.5 s) and `orchestrator.test.ts` (14 s, 62 cases in one
+    2,633-line describe — split at the seam between "what busts a
+    task" and "what a run does with its outcomes" into
+    `orchestrator.test.ts` and `orchestrator-run.test.ts`, the fixture
+    in `helpers/orchestrator-fixture.ts`; 62 cases before and after).
+    The heaviest file is now `scale-graph` at 11.5 s, which is one
+    perf pin's generator and warm plan and does not split. Weights
+    for the three set by hand this once; the next `--weigh` refresh
+    replaces them.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the
