@@ -815,7 +815,7 @@ describe('vx watch end-to-end against a real fixture workspace', () => {
       await writeFile(path.join(workspaceRoot, 'packages', 'one', 'src', 'index.txt'), 'v1')
       await waitFor(() => /re-running\.\.\./.test(stdout))
       // Long enough for a runaway loop (cycles take ~30 ms) to show itself.
-      await new Promise((r) => setTimeout(r, 1500))
+      await new Promise((r) => setTimeout(r, 600))
       process.emit('SIGINT')
       expect(await cmd).toBe(0)
       const reRuns = (stdout.match(/re-running\.\.\./g) ?? []).length

@@ -9,6 +9,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test'
+import { isAlive } from './helpers/alive.js'
 import { writeLocalWorkspace } from './helpers/local-workspace.js'
 import type { Logger } from '../src/orchestrator/index.js'
 import { run } from '../src/orchestrator/index.js'
@@ -70,15 +71,6 @@ async function addProject(root: string, name: string, config: string): Promise<s
   )
   await writeFile(path.join(dir, 'vx.config.mjs'), config)
   return dir
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
 }
 
 describe('exec.timeout — normal task', () => {

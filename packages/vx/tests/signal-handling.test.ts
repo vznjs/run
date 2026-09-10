@@ -10,8 +10,14 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { isAlive, waitForDead } from './helpers/alive.js'
 import { writeLocalWorkspace } from './helpers/local-workspace.js'
 import { run, type Logger } from '../src/orchestrator/index.js'
+
+// The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
+// the escalation would wait it out. 200 ms proves the same claim
+// (`VX_KILL_GRACE_MS`, see util/settle.ts); children inherit it.
+process.env['VX_KILL_GRACE_MS'] = '200'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 const TIMEOUT = 20_000
@@ -62,24 +68,6 @@ async function waitForFile(file: string, timeoutMs: number): Promise<void> {
     await Bun.sleep(50)
   }
   throw new Error(`timed out waiting for ${file}`)
-}
-
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function waitForDead(pid: number, timeoutMs: number): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (!isAlive(pid)) return true
-    await Bun.sleep(50)
-  }
-  return !isAlive(pid)
 }
 
 const silentLogger: Logger = {

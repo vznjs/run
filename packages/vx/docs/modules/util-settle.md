@@ -9,6 +9,7 @@ await goes through (`plugin-host.ts`, `telemetry-host.ts`).
 ```ts
 teardownTimeoutMs(): number                       // default 3000
 settleWithin(p: Promise<unknown>, ms): Promise<boolean>
+killGraceMs(defaultMs: number): number            // VX_KILL_GRACE_MS, else defaultMs
 ```
 
 - `teardownTimeoutMs` reads `VX_TEARDOWN_TIMEOUT_MS` per call (a test
@@ -22,6 +23,16 @@ settleWithin(p: Promise<unknown>, ms): Promise<boolean>
   landing after the deadline won is swallowed rather than surfacing as
   an unhandled-rejection crash.
 
+- `killGraceMs` is the SIGTERM→SIGKILL grace a run grants a child that
+  ignores SIGTERM — the one-shot timeout escalation (`exec/runner.ts`,
+  2 s) and the end-of-run persistent shutdown
+  (`orchestrator/persistent.ts`, 2 s) share it. `VX_KILL_GRACE_MS`
+  overrides both, read per call and bounded the same way (zero,
+  garbage and a value past the timer ceiling fall back). It exists for
+  the tests that prove the escalation: each used to wait the full two
+  seconds, a third of the suite's wall time, for a claim 200 ms proves.
+
 ## Tests
 
-`tests/util-settle.test.ts`; `tests/timeout-bounds.test.ts`.
+`tests/util-settle.test.ts` (both deadlines and the grace knob);
+`tests/timeout-bounds.test.ts`.

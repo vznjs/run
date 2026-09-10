@@ -194,8 +194,8 @@ describe('persistent task pre-ready buffering', () => {
     it(
       `stays flat while a never-ready task floods stdout (${name})`,
       () => {
-        const short = probeRssMib(persistentProbe(2, terminator))
-        const long = probeRssMib(persistentProbe(6, terminator))
+        const short = probeRssMib(persistentProbe(1, terminator))
+        const long = probeRssMib(persistentProbe(3, terminator))
         // Unbounded growth ran ~100 MiB/s — through the real CLI, 6 s
         // measured 651 MiB (`\n`) and 488 MiB (`\r`) against ~280/370 MiB at
         // 2 s. A bounded capture makes the two durations indistinguishable,

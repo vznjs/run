@@ -8,6 +8,11 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 
+// The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
+// the escalation would wait it out. 200 ms proves the same claim
+// (`VX_KILL_GRACE_MS`, see util/settle.ts); children inherit it.
+process.env['VX_KILL_GRACE_MS'] = '200'
+
 const TIMEOUT = 30_000
 const BIN = path.join(import.meta.dir, '..', 'src', 'bin.ts')
 
@@ -72,8 +77,9 @@ describe('interrupted run publishes nothing', () => {
       // output), so the shell stays and its sleeper is orphaned by SIGTERM.
       // Bounding the duration bounds the blast radius instead. The only
       // constraint is that the sleeper must still be running when the kill
-      // lands at ~1.2s below, so this must stay comfortably above that.
-      await addProject('slow', 'sleep 5 && echo done > out.txt')
+      // lands — the task announces itself with a marker file first, and the
+      // kill waits for that instead of a fixed sleep.
+      await addProject('slow', 'echo started > started.txt; sleep 5 && echo done > out.txt')
       const proc = Bun.spawn({
         cmd: [process.execPath, BIN, 'run', 'build', '--all'],
         cwd: root,
@@ -81,7 +87,12 @@ describe('interrupted run publishes nothing', () => {
         stderr: 'pipe',
         env: { ...process.env, NO_COLOR: '1' },
       })
-      await Bun.sleep(1200) // let discovery + spawn happen
+      const started = path.join(root, 'packages', 'slow', 'started.txt')
+      const deadline = Date.now() + 10_000
+      while (!(await Bun.file(started).exists())) {
+        if (Date.now() > deadline) throw new Error('task never started')
+        await Bun.sleep(20)
+      }
       proc.kill('SIGTERM')
       await proc.exited
 

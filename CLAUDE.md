@@ -142,6 +142,11 @@ packages import core only via `@vzn/vx` (`tests/package-boundaries.unsafe.test.t
 - A red main is not always your diff: read the failing test name and the
   actual error. `git checkout <file>` never undoes a mutation — use the
   reverse edit.
+- A timed wait in a test is a claim about time: prove it with the
+  shortest window that still fails without the fix. A kill grace is
+  `VX_KILL_GRACE_MS`; "the child is dead" is `tests/helpers/alive.ts`
+  (a zombie counts); "the task has started" is a marker file, never a
+  sleep.
 - Use the session scratchpad, never bare `/tmp`.
 - Correct wrong entries in place; never write a plausible cause you have
   not proven.

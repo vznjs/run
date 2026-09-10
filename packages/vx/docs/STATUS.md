@@ -1209,6 +1209,37 @@ undefined?` whenever nothing was within two edits — `nearest`
     without the check. The two env pins fail without `ENV_FIELDS`;
     `schema.md` now lists every level and shows the message form.
 
+45. DONE (owner's ask: "why are the tests so slow"): measured with the
+    JUnit reporter across the eight shards — 5,403 tests, ~95 s of
+    test bodies, 102 s of shard wall run back to back on four cores.
+    Per-file startup is 9–15 ms and 5,237 tests finish under 200 ms;
+    the time sat in thirteen tests over a second, and none of them was
+    doing work — they were WAITING: (a) six tests proving the
+    SIGTERM→SIGKILL escalation each waited the full 2 s grace
+    (`TIMEOUT_SIGKILL_GRACE_MS`, `PERSISTENT_SHUTDOWN_GRACE_MS`);
+    (b) the signal-handling suite polled `process.kill(pid, 0)` for a
+    child that was already dead — a zombie reparented to init, which a
+    container reaps ~1.5 s later; three tests × 1.5 s, and three
+    copies of that `isAlive` across suites; (c) two 8 s stdout floods
+    in `output-memory` where a 1 s / 3 s pair separates a 100 MiB/s
+    leak from flat just as well; (d) a fixed `Bun.sleep(1200)` in
+    `cache-hygiene` standing in for "the task has started", and a
+    1.5 s settle in a `vx watch` test for a loop that cycles in 30 ms.
+    Fixes: `killGraceMs()` reads `VX_KILL_GRACE_MS` (bounded like the
+    teardown deadline; pinned) and the escalation suites set 200 ms;
+    `tests/helpers/alive.ts` defines child liveness ONCE and reads
+    `/proc/<pid>/stat` so a zombie counts as dead; the marker file and
+    the shorter windows. Before → after, one file per process:
+    signal-handling 5.5 s → 0.5 s, task-timeout 5.1 → 3.3,
+    persistent 3.0 → 1.1, output-memory 17.4 → 9.4, cli 4.0 → 3.2,
+    cache-hygiene 1.24 → 0.14. What stays: `output-memory` is a rate
+    measurement (4 s of flood is its floor), `scheduler`'s dense-graph
+    pin builds 87k edges, `options-resolve` spawns a config Worker per
+    deadline case, and ~130 end-to-end `bun bin.ts` spawns cost
+    ~100 ms each — real work, not waits. Refuted on the way: the
+    signal suite's 2 s was not the grace (vx exits in 4 ms and the
+    child is a zombie 7 ms later); the zombie wait was the whole of it.
+
 **Handoff after item 31 (2026-09-09, late).** PR #265 carries the
 loop, 40+ commits, every head green on CI except the one test flake
 (d295a90, fixed next commit). The shape of the day: three seams

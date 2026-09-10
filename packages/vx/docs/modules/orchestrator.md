@@ -81,7 +81,7 @@ export interface RunSummary {
     KEEP ALIVE in the real CLI foreground (`options.log === undefined
 && handleSignals !== false`); `shutdownPersistent` SIGTERMs every
     other persistent child and waits, SIGKILLing stragglers after a
-    2 s grace.
+    2 s grace (`VX_KILL_GRACE_MS` shortens it; see util-settle.md).
 11. **Summary.** `formatPersistentList` rows for kept-alive tasks,
     then `formatRunSummary(list, totalMs, colors, runContext)` — the
     footer carries the run banner (wordmark rule + projects/tasks/

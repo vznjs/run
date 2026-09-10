@@ -4,6 +4,7 @@
 // decides which of them outlive the graph and how the rest go down.
 
 import type { TaskNode } from '../graph/index.js'
+import { killGraceMs } from '../util/index.js'
 
 type Child = ReturnType<typeof Bun.spawn>
 
@@ -55,7 +56,7 @@ export function selectKeepAlive(
 export async function shutdownPersistent(
   registry: ReadonlyMap<string, Child>,
   keepAlive: readonly Child[],
-  graceMs: number = PERSISTENT_SHUTDOWN_GRACE_MS,
+  graceMs: number = killGraceMs(PERSISTENT_SHUTDOWN_GRACE_MS),
 ): Promise<void> {
   const kept = new Set(keepAlive)
   const dying = [...registry.values()].filter((c) => !kept.has(c))

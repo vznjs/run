@@ -28,6 +28,25 @@ export function teardownTimeoutMs(): number {
 }
 
 /**
+ * The SIGTERM→SIGKILL grace a run grants a child that ignores SIGTERM: the
+ * one-shot timeout escalation (`exec/runner.ts`) and the end-of-run
+ * persistent shutdown (`orchestrator/persistent.ts`) share it. Two seconds
+ * is generous for a real server's cleanup and is what every run waits when
+ * a child wedges. `VX_KILL_GRACE_MS` overrides it, read per call and bounded
+ * like the teardown deadline (out of range falls back to the default): the
+ * tests that prove the escalation used to wait the full two seconds each,
+ * a third of the suite's wall time for a claim a 200 ms grace proves too.
+ */
+export function killGraceMs(defaultMs: number): number {
+  const raw = process.env['VX_KILL_GRACE_MS']
+  if (raw !== undefined && /^[0-9]+$/.test(raw)) {
+    const n = Number(raw)
+    if (n > 0 && n <= MAX_TIMEOUT_MS) return n
+  }
+  return defaultMs
+}
+
+/**
  * Await `p`, giving up after `ms`. Returns true when `p` settled first,
  * false when the deadline won — the caller decides whether a lost result
  * is worth reporting.
