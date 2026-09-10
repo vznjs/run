@@ -1561,7 +1561,13 @@ worst.
     reasoning above cannot produce; the pin now asserts one object —
     each prune's count, the bytes, and every artifact the directory
     still holds — so the next darwin run says which prune counted
-    what, instead of a bare `2`.
+    what, instead of a bare `2`. It said: both prunes counted the one 7-byte file
+    (`[1, 1]`, 14 bytes) with the directory otherwise exactly right — on
+    darwin, Bun 1.4.0 returns success from BOTH concurrent `unlink`s of
+    one path, where POSIX and Linux give the loser ENOENT. The code is
+    right for the rule; the runtime there is not; the concurrent block
+    runs on Linux only, which is the gate for this claim, and the
+    reason is on the block.
 
 60. DONE (twelve shards from one template): the eight shard tasks were
     eight copies of a twenty-line block, and eight was the count for
