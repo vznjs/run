@@ -24,11 +24,11 @@
 // matters, and it is kept only because nothing here needs longer.)
 
 import { Database } from 'bun:sqlite'
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { Cache, type InvocationRecord, type RunRecord } from '../src/cache/index.js'
 import type { Logger } from '../src/orchestrator/index.js'
 import {
@@ -59,42 +59,8 @@ const silentLogger = (f: Fixture): Logger => ({
 })
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-record-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  const git = (...args: string[]) => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) throw new Error(new TextDecoder().decode(p.stderr))
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-record-' })
   return { root, log: [] }
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  config: string,
-  deps: Record<string, string> = {},
-): Promise<void> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0', dependencies: deps }, null, 2),
-  )
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
 }
 
 interface HeaderRow {
@@ -205,15 +171,14 @@ describe('every recorded outcome earns a row (real CLI)', () => {
         'b',
         `export default { tasks: { build: { exec: { command: 'exit 3' } } } }`,
       )
-      await addProject(
-        fixture.root,
-        'a',
-        `export default {
+      await addProject(fixture.root, 'a', {
+        config: `export default {
           tasks: { build: { exec: { command: 'echo ok' }, dependsOn: ['^build'] } },
         }
         `,
-        { b: 'workspace:*' },
-      )
+        deps: { b: 'workspace:*' },
+      })
+
       // `a` is requested; `b#build` is pulled in by the `^build` edge, fails,
       // and its failure propagates as a skip to the requested task.
       const r = await run({

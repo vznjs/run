@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'bun:test'
 import { localWorkspaceSource } from './helpers/local-workspace.js'
+import { gitInitCommit } from './helpers/workspace.js'
 import { run } from '../src/index.js'
 
 async function writeFixture(): Promise<{ workspaceRoot: string; cleanup: () => void }> {
@@ -21,27 +22,6 @@ async function writeFixture(): Promise<{ workspaceRoot: string; cleanup: () => v
     `export default { tasks: { hello: { exec: { command: 'echo hi' } } } }`,
   )
   return { workspaceRoot, cleanup: () => rmSync(workspaceRoot, { recursive: true, force: true }) }
-}
-
-async function gitInit(dir: string): Promise<void> {
-  await Bun.spawn(['git', 'init', '-q'], { cwd: dir }).exited
-  await Bun.spawn(['git', 'add', '-A'], { cwd: dir }).exited
-  await Bun.spawn(
-    [
-      'git',
-      '-c',
-      'user.email=t@t',
-      '-c',
-      'user.name=t',
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '-q',
-      '-m',
-      'init',
-    ],
-    { cwd: dir },
-  ).exited
 }
 
 describe('Plugin API — end-to-end via run()', () => {
@@ -66,7 +46,7 @@ describe('Plugin API — end-to-end via run()', () => {
 `,
         ),
       )
-      await gitInit(workspaceRoot)
+      gitInitCommit(workspaceRoot)
       const log = makeSilentLogger()
       const summary = await run({
         cwd: workspaceRoot,
@@ -107,7 +87,7 @@ describe('Plugin API — end-to-end via run()', () => {
 `,
         ),
       )
-      await gitInit(workspaceRoot)
+      gitInitCommit(workspaceRoot)
       const summary = await run({
         cwd: workspaceRoot,
         projects: ['pkg-a'],
@@ -146,7 +126,7 @@ describe('Plugin API — end-to-end via run()', () => {
 `,
         ),
       )
-      await gitInit(workspaceRoot)
+      gitInitCommit(workspaceRoot)
       const statusLines: string[] = []
       const log = { ...makeSilentLogger(), status: (m: string) => statusLines.push(m) }
       const summary = await run({
@@ -178,7 +158,7 @@ describe('Plugin API — end-to-end via run()', () => {
            }`,
         ]),
       )
-      await gitInit(workspaceRoot)
+      gitInitCommit(workspaceRoot)
       const log = makeSilentLogger()
       await expect(
         run({

@@ -6,12 +6,11 @@
 // because that's exactly where stacking handlers would hurt
 // (watch loop, bun test).
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { isAlive, waitForDead } from './helpers/alive.js'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { run, type Logger } from '../src/orchestrator/index.js'
 
 // The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
@@ -27,38 +26,8 @@ interface Fixture {
 }
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-signal-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git for input enumeration.
-  const git = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-signal-' })
   return { root }
-}
-
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
 }
 
 // The shell's `echo $$ > pid.txt` truncates the file before it writes it;

@@ -1,11 +1,10 @@
 // `vx last` — replay a recorded run's summary from the local history.
 // E2e via bin.ts subprocesses (the why.test.ts pattern), plus parser units.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { gitIn, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { parseLastArgs } from '../src/cli/index.js'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
@@ -28,26 +27,16 @@ const APP_CONFIG = `
   }
 `
 
-async function sh(cwd: string, cmd: string[]): Promise<void> {
-  const proc = Bun.spawn(cmd, { cwd, stdout: 'ignore', stderr: 'ignore' })
-  await proc.exited
-}
-
 async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-last-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
+  const root = await makeWorkspaceRoot({ prefix: 'vx-last-', git: false })
   const appDir = path.join(root, 'packages', 'app')
   await mkdir(path.join(appDir, 'src'), { recursive: true })
   await writeFile(path.join(appDir, 'package.json'), JSON.stringify({ name: 'app' }))
   await writeFile(path.join(appDir, 'vx.config.mjs'), APP_CONFIG)
   await writeFile(path.join(appDir, 'src', 'input.txt'), 'v1\n')
-  await sh(root, ['git', 'init', '-q'])
-  await sh(root, ['git', 'add', '-A'])
+  const git = gitIn(root)
+  git('init', '-q')
+  git('add', '-A')
   return root
 }
 

@@ -3,10 +3,13 @@
 
 import { Database } from 'bun:sqlite'
 import { existsSync } from 'node:fs'
-import { mkdtemp, mkdir, rm, writeFile, readdir } from 'node:fs/promises'
-import os from 'node:os'
+import { rm, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {
+  addProject as addProjectTo,
+  makeWorkspace as makeWorkspaceRoot,
+} from './helpers/workspace.js'
 
 // The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
 // the escalation would wait it out. 200 ms proves the same claim
@@ -19,38 +22,12 @@ const BIN = path.join(import.meta.dir, '..', 'src', 'bin.ts')
 let root: string
 
 async function makeWorkspace(): Promise<void> {
-  root = await mkdtemp(path.join(os.tmpdir(), 'vx-hygiene-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  const git = (...args: string[]) => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) throw new Error(new TextDecoder().decode(p.stderr))
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
+  root = await makeWorkspaceRoot({ prefix: 'vx-hygiene-', workspaceFile: false })
 }
 
 async function addProject(name: string, command: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(path.join(dir, 'src'), { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0' }, null, 2),
-  )
-  await writeFile(path.join(dir, 'src', 'in.txt'), 'v1')
-  await writeFile(
-    path.join(dir, 'vx.config.mjs'),
-    `export default {
+  return addProjectTo(root, name, {
+    config: `export default {
       tasks: {
         build: {
           exec: { command: ${JSON.stringify(command)} },
@@ -59,8 +36,8 @@ async function addProject(name: string, command: string): Promise<string> {
       },
     }
     `,
-  )
-  return dir
+    files: { 'src/in.txt': 'v1' },
+  })
 }
 
 describe('interrupted run publishes nothing', () => {

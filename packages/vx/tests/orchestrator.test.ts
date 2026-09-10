@@ -1,9 +1,8 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import type { Logger } from '../src/orchestrator/index.js'
 import { run } from '../src/orchestrator/index.js'
 
@@ -62,61 +61,8 @@ const silentLogger = (fixture: Fixture): Logger => {
 }
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'nxt-e2e-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git (it asks `git ls-files` for the input file set).
-  // Init a quiet repo so the orchestrator can enumerate fixture files.
-  initGitRepo(root)
+  const root = await makeWorkspaceRoot({ prefix: 'nxt-e2e-' })
   return { root, log: [], err: [] }
-}
-
-function initGitRepo(cwd: string): void {
-  const run = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', '-c', 'tag.gpgSign=false', ...args],
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  run('init', '-q')
-  run('config', 'user.email', 'test@vx.local')
-  run('config', 'user.name', 'vx test')
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  args: {
-    deps?: Record<string, string>
-    devDeps?: Record<string, string>
-    files?: Record<string, string>
-    config: string
-  },
-): Promise<string> {
-  const safe = name.replace('@', '').replace('/', '-')
-  const dir = path.join(root, 'packages', safe)
-  await mkdir(dir, { recursive: true })
-  const pkg: Record<string, unknown> = { name, version: '0.0.0' }
-  if (args.deps && Object.keys(args.deps).length > 0) pkg.dependencies = args.deps
-  if (args.devDeps && Object.keys(args.devDeps).length > 0) pkg.devDependencies = args.devDeps
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify(pkg, null, 2))
-  await writeFile(path.join(dir, 'vx.config.mjs'), args.config)
-  for (const [rel, content] of Object.entries(args.files ?? {})) {
-    const full = path.join(dir, rel)
-    await mkdir(path.dirname(full), { recursive: true })
-    await writeFile(full, content)
-  }
-  return dir
 }
 
 const STAMP_CMD = `node -e 'process.stdout.write(String(Date.now()))' > out.txt`

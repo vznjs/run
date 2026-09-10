@@ -1446,6 +1446,28 @@ stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
     on. 916 → 895 lines. `tests/sandbox-hint.test.ts` still validates
     the unavailable message's field name against the loader.
 
+57. DONE (test DX, the deferred fixture consolidation): forty test
+    files carried a private copy of the workspace scaffold — mkdtemp,
+    `pnpm-workspace.yaml`, a root package.json, the local workspace
+    file, a quiet git repo, an `addProject` — and the copies had
+    started to disagree in load-bearing ways: `prepare-perf` swallowed
+    a git failure, `why`/`last` ignored every git exit code, two
+    suites shared the `vx-timeout-` mkdtemp prefix, `cache-hygiene`
+    wrote no workspace file, four files held the same 18-line
+    init-add-commit. `tests/helpers/workspace.ts` defines it once:
+    `makeWorkspace({ prefix, rootName, workspaceFile, git })`,
+    `addProject(root, name, config | { config, deps, devDeps, files })`,
+    `gitIn`, `gitInit`, `gitInitCommit`. Twenty-seven files migrated,
+    901 lines out, 130 in, every suite's pass count unchanged; a git
+    failure now throws everywhere. Left alone on purpose: the eight
+    files whose deviation IS the test (a git shim on PATH, a workspace
+    root inside a git subdirectory, the 6,000-package generator, the
+    lockfile-and-node_modules layout, fault-injection knobs, the
+    `@vzn/vx` symlink `vx migrate` needs) and the two that `await
+import()` inside `beforeAll` for module-mock ordering. The inline
+    `beforeEach` scaffolds (~14 files, ~12 lines each) migrate when a
+    file is next touched.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

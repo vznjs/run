@@ -9,48 +9,16 @@
 //   - `vx run` is hash-only and TRUSTS the lock → frozen-env
 //     semantics; the run succeeds with the locked value.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 const TIMEOUT = 20_000
 
-async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-lock-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git for input enumeration.
-  const git = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  git('init', '-q')
-  git('config', 'user.email', 'test@vx.local')
-  git('config', 'user.name', 'vx test')
-  return root
-}
-
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
+function makeWorkspace(): Promise<string> {
+  return makeWorkspaceRoot({ prefix: 'vx-lock-' })
 }
 
 interface VxResult {

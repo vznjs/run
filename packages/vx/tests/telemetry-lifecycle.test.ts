@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { localWorkspaceSource, writeLocalWorkspace } from './helpers/local-workspace.js'
+import { gitInitCommit } from './helpers/workspace.js'
 import {
   createTelemetrySource,
   subscribeTelemetry,
@@ -52,27 +53,6 @@ function silentLogger() {
     runEnd: () => undefined,
     status: () => undefined,
   }
-}
-
-async function gitInit(dir: string): Promise<void> {
-  await Bun.spawn(['git', 'init', '-q'], { cwd: dir }).exited
-  await Bun.spawn(['git', 'add', '-A'], { cwd: dir }).exited
-  await Bun.spawn(
-    [
-      'git',
-      '-c',
-      'user.email=t@t',
-      '-c',
-      'user.name=t',
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '-q',
-      '-m',
-      'init',
-    ],
-    { cwd: dir },
-  ).exited
 }
 
 const tmpDirs: string[] = []
@@ -168,7 +148,7 @@ describe('telemetry flush is time-bounded', () => {
          telemetry() { return { flush() { return new Promise(() => {}) } } } }`,
       ]),
     )
-    await gitInit(root)
+    gitInitCommit(root)
     const summary = await run({
       cwd: root,
       projects: ['pkg-a'],
@@ -211,7 +191,7 @@ describe('the telemetry task set matches what the terminal reports', () => {
          dev: { exec: { command: 'exit 7', persistent: { readyWhen: 'NEVER-MATCHES' } } },
        } }`,
     )
-    await gitInit(root)
+    gitInitCommit(root)
     return root
   }
 
@@ -247,7 +227,7 @@ describe('the telemetry task set matches what the terminal reports', () => {
          grp: { dependsOn: ['hi'] },
        } }`,
     )
-    await gitInit(root)
+    gitInitCommit(root)
     const s = await summaryOf(root, 'grp')
     expect(s.taskCount).toBe(1)
     expect(s.tasks[0]!.task).toBe('hi')
@@ -323,7 +303,7 @@ describe('a malformed telemetry() return is rejected at the boundary', () => {
       path.join(root, 'vx.workspace.mjs'),
       localWorkspaceSource([`{ name: 'org/bad', telemetry() { return null } }`]),
     )
-    await gitInit(root)
+    gitInitCommit(root)
     const summary = await run({
       cwd: root,
       projects: ['pkg-a'],
@@ -351,7 +331,7 @@ describe('the zero-cost gate keys on the telemetry capability', () => {
     if (pluginSource !== null) {
       await Bun.write(path.join(root, 'vx.workspace.mjs'), pluginSource)
     }
-    await gitInit(root)
+    gitInitCommit(root)
     await run({
       cwd: root,
       projects: ['pkg-a'],

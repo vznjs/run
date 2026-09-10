@@ -2,45 +2,17 @@
 // the headline property (output resolved live even under --frozen) only
 // holds across real invocations.
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, setDefaultTimeout } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, gitIn, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 
 setDefaultTimeout(30_000)
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 
-function git(cwd: string, ...args: string[]): void {
-  const p = Bun.spawnSync({
-    cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-    cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  if (p.exitCode !== 0)
-    throw new Error(`git ${args.join(' ')}: ${new TextDecoder().decode(p.stderr)}`)
-}
-
-async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-runtime-e2e-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(path.join(root, 'package.json'), JSON.stringify({ name: 'root', private: true }))
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  git(root, 'init', '-q')
-  git(root, 'config', 'user.email', 't@vx.local')
-  git(root, 'config', 'user.name', 'vx')
-  return root
-}
-
-async function addProject(root: string, name: string, config: string): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(path.join(dir, 'vx.config.mjs'), config)
-  return dir
+function makeWorkspace(): Promise<string> {
+  return makeWorkspaceRoot({ prefix: 'vx-runtime-e2e-', rootName: 'root' })
 }
 
 async function vx(root: string, args: string[], env: Record<string, string> = {}) {
@@ -89,8 +61,8 @@ describe('runtime inputs — e2e', () => {
         },
       }`,
     )
-    git(root, 'add', '-A')
-    git(root, 'commit', '-q', '-m', 'init')
+    gitIn(root)('add', '-A')
+    gitIn(root)('commit', '-q', '-m', 'init')
 
     const r1 = await vx(root, ['run', 'build', '--all'])
     expect(r1.code).toBe(0)
@@ -122,8 +94,8 @@ describe('runtime inputs — e2e', () => {
         },
       }`,
     )
-    git(root, 'add', '-A')
-    git(root, 'commit', '-q', '-m', 'init')
+    gitIn(root)('add', '-A')
+    gitIn(root)('commit', '-q', '-m', 'init')
 
     const lock = await vx(root, ['lock'])
     expect(lock.code).toBe(0)
@@ -152,8 +124,8 @@ describe('runtime inputs — e2e', () => {
         },
       }`,
     )
-    git(root, 'add', '-A')
-    git(root, 'commit', '-q', '-m', 'init')
+    gitIn(root)('add', '-A')
+    gitIn(root)('commit', '-q', '-m', 'init')
     const r = await vx(root, ['run', 'build', '--all'])
     expect(r.code).not.toBe(0)
     expect(`${r.out}${r.err}`).toMatch(/runtime command exited 7/)
@@ -177,8 +149,8 @@ describe('runtime inputs — e2e', () => {
     }`
     await addProject(root, 'a', cfg('a'))
     await addProject(root, 'b', cfg('b'))
-    git(root, 'add', '-A')
-    git(root, 'commit', '-q', '-m', 'init')
+    gitIn(root)('add', '-A')
+    gitIn(root)('commit', '-q', '-m', 'init')
 
     const r = await vx(root, ['run', 'build', '--all'])
     expect(r.code).toBe(0)

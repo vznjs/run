@@ -3,7 +3,7 @@ import { writeLocalWorkspace } from './helpers/local-workspace.js'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { gitInitCommit } from './helpers/workspace.js'
 import { run, type Logger, type RunOptions } from '../src/orchestrator/index.js'
 
 const silent: Logger = {
@@ -21,9 +21,6 @@ const silent: Logger = {
 // up-front classify probe (preProbed) in each run.
 async function makeWorkspace(opts?: { withDep?: boolean }): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'vx-inflight-'))
-  spawnSync('git', ['init', '-q'], { cwd: root })
-  spawnSync('git', ['config', 'user.email', 'a@b.c'], { cwd: root })
-  spawnSync('git', ['config', 'user.name', 't'], { cwd: root })
   await writeFile(
     path.join(root, 'package.json'),
     JSON.stringify({ name: 'demo', version: '1.0.0' }),
@@ -46,8 +43,7 @@ async function makeWorkspace(opts?: { withDep?: boolean }): Promise<string> {
       '',
     ].join('\n'),
   )
-  spawnSync('git', ['add', '-A'], { cwd: root })
-  spawnSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-qm', 'init'], { cwd: root })
+  gitInitCommit(root)
   return root
 }
 

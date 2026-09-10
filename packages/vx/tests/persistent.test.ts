@@ -10,12 +10,10 @@
 // and perturbs whatever runs next. `exec` makes the sleeper the tracked child,
 // so it takes the signal and dies with the task.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
-import path from 'node:path'
+import { rm } from 'node:fs/promises'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { waitForDead } from './helpers/alive.js'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { run, type Logger } from '../src/orchestrator/index.js'
 
 // The SIGTERM→SIGKILL grace is 2 s by default; every test here that proves
@@ -54,46 +52,8 @@ const silentLogger = (fixture: Fixture): Logger => {
 }
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-persistent-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git for input enumeration; init a quiet repo so the
-  // fixture's tasks can resolve their inputs.
-  const run = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  run('init', '-q')
-  run('config', 'user.email', 'test@vx.local')
-  run('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-persistent-' })
   return { root, log: [], err: [] }
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  args: { config: string; deps?: Record<string, string> },
-): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name, version: '0.0.0', ...(args.deps ? { dependencies: args.deps } : {}) }),
-  )
-  await writeFile(path.join(dir, 'vx.config.mjs'), args.config)
-  return dir
 }
 
 describe('exec.persistent (e2e)', () => {

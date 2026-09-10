@@ -12,7 +12,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import {
   initSandbox,
   probeSandbox,
@@ -60,47 +60,8 @@ const collectingLogger = (fixture: Fixture): Logger => ({
 })
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-sandbox-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git for input enumeration.
-  const run = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd: root,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed`)
-    }
-  }
-  run('init', '-q')
-  run('config', 'user.email', 'test@vx.local')
-  run('config', 'user.name', 'vx test')
+  const root = await makeWorkspaceRoot({ prefix: 'vx-sandbox-' })
   return { root, log: [] }
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  args: { files?: Record<string, string>; config: string },
-): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(path.join(dir, 'vx.config.mjs'), args.config)
-  for (const [rel, content] of Object.entries(args.files ?? {})) {
-    const full = path.join(dir, rel)
-    await mkdir(path.dirname(full), { recursive: true })
-    await writeFile(full, content)
-  }
-  return dir
 }
 
 const available = await sandboxAvailable('sandbox-runtime tests')

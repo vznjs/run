@@ -1,8 +1,7 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import os from 'node:os'
+import { readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import {
   Cache,
   FULL_CACHE_POLICY,
@@ -45,53 +44,8 @@ const silentLogger = (fixture: Fixture): Logger => {
 }
 
 async function makeWorkspace(): Promise<Fixture> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-sc-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  initGitRepo(root)
+  const root = await makeWorkspaceRoot({ prefix: 'vx-sc-' })
   return { root, log: [], err: [] }
-}
-
-function initGitRepo(cwd: string): void {
-  const g = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  g('init', '-q')
-  g('config', 'user.email', 'test@vx.local')
-  g('config', 'user.name', 'vx test')
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  args: { deps?: Record<string, string>; files?: Record<string, string>; config: string },
-): Promise<string> {
-  const safe = name.replace('@', '').replace('/', '-')
-  const dir = path.join(root, 'packages', safe)
-  await mkdir(dir, { recursive: true })
-  const pkg: Record<string, unknown> = { name, version: '0.0.0' }
-  if (args.deps && Object.keys(args.deps).length > 0) pkg.dependencies = args.deps
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify(pkg, null, 2))
-  await writeFile(path.join(dir, 'vx.config.mjs'), args.config)
-  for (const [rel, content] of Object.entries(args.files ?? {})) {
-    const full = path.join(dir, rel)
-    await mkdir(path.dirname(full), { recursive: true })
-    await writeFile(full, content)
-  }
-  return dir
 }
 
 /** Classify the graph the same way run() does: prepare, then probe. */

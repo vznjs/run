@@ -23,12 +23,11 @@
 // nothing" and "same policy as the run" can only be proven against the real
 // executor.
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import { writeLocalWorkspace } from './helpers/local-workspace.js'
+import { addProject, makeWorkspace as makeWorkspaceRoot } from './helpers/workspace.js'
 import { Database } from 'bun:sqlite'
 import { type CacheLayer, type CachePolicy, GitFilesCache } from '../src/cache/index.js'
 import type { TaskNode } from '../src/graph/index.js'
@@ -469,52 +468,8 @@ const quietLogger: Logger = {
   taskComplete() {},
 }
 
-function gitInit(cwd: string): void {
-  const g = (...args: string[]): void => {
-    const p = Bun.spawnSync({
-      cmd: ['git', '-c', 'commit.gpgsign=false', ...args],
-      cwd,
-      stdout: 'pipe',
-      stderr: 'pipe',
-    })
-    if (p.exitCode !== 0) {
-      throw new Error(`git ${args.join(' ')} failed: ${new TextDecoder().decode(p.stderr)}`)
-    }
-  }
-  g('init', '-q')
-  g('config', 'user.email', 'test@vx.local')
-  g('config', 'user.name', 'vx test')
-}
-
-async function makeWorkspace(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), 'vx-plan-e2e-'))
-  await writeFile(path.join(root, 'pnpm-workspace.yaml'), 'packages:\n  - "packages/*"\n')
-  await writeFile(
-    path.join(root, 'package.json'),
-    JSON.stringify({ name: 'fixture-root', private: true }, null, 2),
-  )
-  await writeLocalWorkspace(root)
-  await mkdir(path.join(root, 'packages'), { recursive: true })
-  // vx requires git — input enumeration asks `git ls-files`.
-  gitInit(root)
-  return root
-}
-
-async function addProject(
-  root: string,
-  name: string,
-  args: { config: string; files?: Record<string, string> },
-): Promise<string> {
-  const dir = path.join(root, 'packages', name)
-  await mkdir(dir, { recursive: true })
-  await writeFile(path.join(dir, 'package.json'), JSON.stringify({ name, version: '0.0.0' }))
-  await writeFile(path.join(dir, 'vx.config.mjs'), args.config)
-  for (const [rel, content] of Object.entries(args.files ?? {})) {
-    const full = path.join(dir, rel)
-    await mkdir(path.dirname(full), { recursive: true })
-    await writeFile(full, content)
-  }
-  return dir
+function makeWorkspace(): Promise<string> {
+  return makeWorkspaceRoot({ prefix: 'vx-plan-e2e-' })
 }
 
 function openDb(cacheDir: string): Database {
