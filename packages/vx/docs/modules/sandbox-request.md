@@ -12,6 +12,11 @@ concern has no cache-key or save logic in it.
 ## Public surface
 
 ```ts
+// Arm the runtime for a run when any task opts in; false when none did.
+// Refuses (UserError) when a task needs a sandbox the platform lacks.
+// The proxy allowlist is the union of every task's `allow.network`.
+export function armSandbox(nodes: Iterable<TaskNode>): Promise<boolean>
+
 export function sandboxRequestFor(
   node: TaskNode,
   sandbox: NonNullable<ExecConfig['sandbox']>,

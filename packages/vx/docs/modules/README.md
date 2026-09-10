@@ -61,7 +61,7 @@ group.
 |                                                    | `src/orchestrator/persistent.ts` — keep-alive selection and bounded shutdown of persistent children (see orchestrator.md).     |
 | [`options.md`](./options.md)                       | `src/orchestrator/options.ts` — `RunOptions` / `RunSummary` declarations.                                                      |
 | [`execute-task.md`](./execute-task.md)             | `src/orchestrator/execute-task.ts` — per-task: hash → cache lookup → spawn → save.                                             |
-| [`sandbox-request.md`](./sandbox-request.md)       | `src/orchestrator/sandbox-request.ts` — the sandbox half of an ExecuteRequest: grants, binds.                                  |
+| [`sandbox-request.md`](./sandbox-request.md)       | `src/orchestrator/sandbox-request.ts` — arming the runtime for a run; the sandbox half of an ExecuteRequest: grants, binds.    |
 | [`miss-save.md`](./miss-save.md)                   | `src/orchestrator/miss-save.ts` — what a miss leaves behind: resolve outputs, save, mark git.                                  |
 | [`task-hash.md`](./task-hash.md)                   | `src/orchestrator/task-hash.ts` — cache-key derivation (`computeTaskHash` & co.).                                              |
 | [`upstream.md`](./upstream.md)                     | `src/orchestrator/upstream.ts` — filter upstream cache hashes by `cache.inputs.tasks`.                                         |

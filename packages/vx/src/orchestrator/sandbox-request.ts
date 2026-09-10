@@ -7,9 +7,44 @@ import { mkdir, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import type { ExecConfig } from '../config.js'
-import { resolveSandboxConfig, type ExecuteRequest } from '../exec/index.js'
+import {
+  initSandbox,
+  probeSandbox,
+  resolveSandboxConfig,
+  type ExecuteRequest,
+} from '../exec/index.js'
 import type { TaskNode } from '../graph/index.js'
-import { staticPrefix } from '../util/index.js'
+import { staticPrefix, UserError } from '../util/index.js'
+
+/**
+ * Arm the sandbox runtime for a run, lazily: only when at least one task
+ * opts in through its `sandbox: {...}` block. A task that needs sandboxing
+ * on a platform without one is a hard error, so it never silently runs
+ * unsandboxed. Returns whether the runtime was armed — the run resets it
+ * at the end (`resetSandbox`), or the next run inits on top of stale
+ * proxy state.
+ *
+ * SRT runs ONE filtering proxy per run and checks every request against
+ * the allowlist given to `initialize()` — never the per-call one
+ * (`sandbox-manager.js` 0.0.75). So the proxy is armed with the union of
+ * every domain any sandboxed task declared. A task that declares no
+ * domains still reaches nothing: its profile is not given the proxy's
+ * port at all.
+ */
+export async function armSandbox(nodes: Iterable<TaskNode>): Promise<boolean> {
+  const sandboxed = [...nodes].filter((n) => n.config.exec?.sandbox !== undefined)
+  if (sandboxed.length === 0) return false
+  const weakerNested = sandboxed.every((n) => n.config.exec?.sandbox?.weakerWhenNested === true)
+  const avail = await probeSandbox({ weakerNested })
+  if (!avail.available) throw new UserError(`sandbox not available: ${avail.reason}`)
+  const domains = new Set<string>()
+  for (const n of sandboxed) {
+    const net = n.config.exec?.sandbox?.allow?.network
+    if (Array.isArray(net)) for (const d of net) domains.add(d)
+  }
+  await initSandbox({ allowedDomains: [...domains] })
+  return true
+}
 
 /**
  * The sandbox half of an `ExecuteRequest` for one task, shared by the

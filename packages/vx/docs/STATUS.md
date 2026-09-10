@@ -1436,6 +1436,16 @@ stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
     stays, with the reason on it (the `finally` releases the barrier
     after the task settles, not when its promise is handed back).
 
+56. DONE (pure motion, the fourth slice): arming the sandbox runtime
+    for a run — which tasks opt in, the platform probe that refuses
+    when one cannot be honoured, the union of every task's network
+    allowlist for the one proxy SRT runs — was twenty lines inside
+    `run()`. `sandbox-request.ts` already owned the sandbox half of a
+    request; `armSandbox(nodes)` now sits beside it and returns
+    whether it armed, which is what the run's end-of-try reset keys
+    on. 916 → 895 lines. `tests/sandbox-hint.test.ts` still validates
+    the unavailable message's field name against the loader.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the

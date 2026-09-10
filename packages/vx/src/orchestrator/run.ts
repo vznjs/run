@@ -6,7 +6,7 @@ import type { ProjectEntry } from '../workspace/index.js'
 import os from 'node:os'
 import { type CacheLayer, type CachePolicy, FULL_CACHE_POLICY } from '../cache/index.js'
 import { VERSION } from '../version.js'
-import { initSandbox, probeSandbox, resetSandbox } from '../exec/index.js'
+import { resetSandbox } from '../exec/index.js'
 import { DeferredOutputs } from './deferred-outputs.js'
 import { resolveDownloadModes } from './download-policy.js'
 import type { TaskExecutor } from '../exec/index.js'
@@ -17,7 +17,8 @@ import {
   type TaskNode,
   type TaskOutcome,
 } from '../graph/index.js'
-import { mark, MAX_TIMEOUT_MS, printTimings, ulid, UserError, nearest } from '../util/index.js'
+import { mark, MAX_TIMEOUT_MS, printTimings, ulid, nearest } from '../util/index.js'
+import { armSandbox } from './sandbox-request.js'
 import { admitTasks, taintTracker } from './admission.js'
 import { resolveResourceCosts } from './resources.js'
 import { busLogger, createEventBus, terminalSubscriber } from './events.js'
@@ -426,29 +427,7 @@ export async function run(options: RunOptions): Promise<RunSummary> {
       )
     }
 
-    // Lazy SRT init: fire it up if at least one task opts into sandboxing
-    // via its `sandbox: {...}` block. A task that needs sandboxing on an
-    // unsupported platform gets a hard error so it never silently runs
-    // unsandboxed.
-    const sandboxed = [...nodes.values()].filter((n) => n.config.exec?.sandbox !== undefined)
-    const anySandboxed = sandboxed.length > 0
-    if (anySandboxed) {
-      const weakerNested = sandboxed.every((n) => n.config.exec?.sandbox?.weakerWhenNested === true)
-      const avail = await probeSandbox({ weakerNested })
-      if (!avail.available) throw new UserError(`sandbox not available: ${avail.reason}`)
-      // SRT runs ONE filtering proxy per run and checks every request
-      // against the allowlist given to `initialize()` — never the per-call
-      // one (`sandbox-manager.js` 0.0.75). So the run's proxy is armed with
-      // the union of every domain any sandboxed task declared. A task that
-      // declares no domains still reaches nothing: its profile is not given
-      // the proxy's port at all.
-      const domains = new Set<string>()
-      for (const n of sandboxed) {
-        const net = n.config.exec?.sandbox?.allow?.network
-        if (Array.isArray(net)) for (const d of net) domains.add(d)
-      }
-      await initSandbox({ allowedDomains: [...domains] })
-    }
+    const anySandboxed = await armSandbox(nodes.values())
 
     // Focused flow: a requested GROUP has no output of its own, so
     // surface the same-project, non-group tasks it chains (one level)
