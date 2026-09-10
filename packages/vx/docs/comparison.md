@@ -271,7 +271,7 @@ upstream repos.
    time: a task's command is exactly what its config says.
    - vite-task: `enablePrePostScripts` (default true).
 
-10. **`vx prune` — shipped (2026-08-25).** Workspace subset for Docker
+10. **`vx prune` — shipped (2026-08-25), `@vzn/vx-prune` since 2026-09-10.** Workspace subset for Docker
     builds: target + transitive workspace deps, rewritten
     `pnpm-workspace.yaml`, root manifests, unpruned lockfile
     (deliberate — per-format lockfile pruning is out of phase 1),
@@ -314,7 +314,7 @@ upstream repos.
   heuristic — any `/` outside a comment, any non-`@vzn/vx` bare import,
   or a closure past 32 files opts a config out. Warm 1000-project run
   ~400 → 237 ms with the rest of the perf waves.
-- `vx init` (scripts → configs), `vx why`, `vx last`, `vx prune`,
+- `vx init` (scripts → configs), `vx why`, `vx last`, `@vzn/vx-prune`,
   `--download`, remote execution through `@vzn/vx-reapi`,
   `@vzn/vx-github` (job summary + check run), `@vzn/vx-mcp` (an MCP
   server as a plugin verb), the `schedule-history` plugin (critical-path

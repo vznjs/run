@@ -45,23 +45,14 @@ describe('cli run()', () => {
   // Every verb answered `unknown flag: --help` and exited 1 until
   // 2026-09-04 — the one thing every user types first. The list is the
   // dispatcher's own verbs; a new verb that forgets this fails here.
-  it.each([
-    'run',
-    'watch',
-    'cache',
-    'lock',
-    'init',
-    'upgrade',
-    'show',
-    'info',
-    'why',
-    'last',
-    'prune',
-  ])('`vx %s --help` prints help and exits 0', async (verb) => {
-    expect(await run([verb, '--help'])).toBe(0)
-    expect(stdout).toContain('Usage:')
-    expect(stderr).toBe('')
-  })
+  it.each(['run', 'watch', 'cache', 'lock', 'init', 'upgrade', 'show', 'info', 'why', 'last'])(
+    '`vx %s --help` prints help and exits 0',
+    async (verb) => {
+      expect(await run([verb, '--help'])).toBe(0)
+      expect(stdout).toContain('Usage:')
+      expect(stderr).toBe('')
+    },
+  )
 
   // Every argument error points at the verb's own help, which is only
   // useful because `vx <verb> --help` prints something (same day). A verb
@@ -72,7 +63,6 @@ describe('cli run()', () => {
     ['last', ['last', '--lst']],
     ['init', ['init', '--dyr']],
     ['why', ['why', '--fmt', 'x']],
-    ['prune', ['prune', '--dockerr', 'app']],
     ['lock', ['lock', '--chk']],
     ['info', ['info', 'extra']],
     ['cache', ['cache', 'bogus']],

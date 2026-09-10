@@ -112,6 +112,20 @@
         "@vzn/vx": "*",
       },
     },
+    "packages/vx-prune": {
+      "name": "@vzn/vx-prune",
+      "version": "0.0.0",
+      "bin": {
+        "vx-prune": "./src/bin.ts",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.4.0",
+        "@vzn/vx": "workspace:*",
+      },
+      "peerDependencies": {
+        "@vzn/vx": "*",
+      },
+    },
     "packages/vx-reapi": {
       "name": "@vzn/vx-reapi",
       "version": "0.0.0",
@@ -642,6 +656,8 @@
     "@vzn/vx-nx-cache": ["@vzn/vx-nx-cache@workspace:packages/vx-nx-cache"],
 
     "@vzn/vx-otel": ["@vzn/vx-otel@workspace:packages/vx-otel"],
+
+    "@vzn/vx-prune": ["@vzn/vx-prune@workspace:packages/vx-prune"],
 
     "@vzn/vx-reapi": ["@vzn/vx-reapi@workspace:packages/vx-reapi"],
 

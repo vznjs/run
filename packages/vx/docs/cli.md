@@ -1304,61 +1304,28 @@ why, diff }`).
 
 ## `vx prune`
 
-Emit a self-contained SUBSET of the workspace for Docker builds
-(Turbo `turbo prune` parity): one project plus its transitive
-workspace dependencies, with root manifests, any `vx.workspace.*`, and
-the lockfile.
+Moved out of core on 2026-09-10: `@vzn/vx-prune` emits a self-contained
+SUBSET of the workspace for Docker builds (Turbo `turbo prune` parity)
+— one project plus its transitive workspace dependencies, the root
+manifests rewritten to the subset, any `vx.workspace.*`, and the
+lockfile (unpruned). Two ways in, one body:
 
 ```
-vx prune <project> [--out-dir <dir>] [--docker]
+bunx @vzn/vx-prune <project> [--out-dir <dir>] [--docker]   # no workspace file needed
+vx prune <project> [--out-dir <dir>] [--docker]             # when vx.workspace.ts declares prune()
 ```
 
-`pnpm-workspace.yaml` is REWRITTEN to the exact subset dirs (a glob
-matching absent dirs breaks installs), and so is `package.json`'s
-`workspaces` field — that is where bun, npm and yarn read membership.
-The distinction matters: a glob that matches nothing is tolerated, but
-an entry naming an exact directory the subset does not contain is
-fatal, and `bun install` exits 1 with `Workspace not found "…"` before
-anything is installed. Both array and `{ packages: [...] }` forms are
-rewritten, a `"."` entry is preserved, and the rest of the manifest is
-carried through untouched. The lockfile is copied
-**unpruned** — every package manager tolerates a superset lockfile,
-and a wrongly-pruned one is worse than a big correct one; per-format
-lockfile pruning is deliberately out of phase 1. `node_modules`,
-`.git`, `.vx` and `.turbo` are excluded from the copy.
-
-### What the configs pull in
-
-The subset is the package graph plus one thing the package graph does
-not know about: a workspace package that `vx.workspace.*` **imports**.
-The workspace config loads before any task, so a plugin living in a
-workspace package is as load-bearing as a dependency — without it
-`vx run` inside the container cannot load the config at all. Those
-packages (and their own dependency closure) are added to the subset.
-
-Runnability is otherwise **not** guaranteed, and prune says so rather
-than pretending. A config may import any path; only imports naming a
-workspace package can be resolved and carried. Two shapes get a warning
-on stderr instead:
-
-- a relative import escaping its own package (`../../shared/util.ts`) —
-  it reaches a file no subset short of the whole tree would contain;
-- an import of the workspace ROOT package, which cannot be copied into
-  a subset because it _is_ the workspace.
-
-The scan is static — `from '…'`, `import '…'`, `import('…')` — so a
-computed specifier is invisible to it.
-
-`--docker` splits the output into `json/` (root files + each package's
-`package.json` only — `COPY` this first so the install layer caches
-independently of source edits) and `full/` (the sources):
-
-```dockerfile
-COPY out/json/ .
-RUN pnpm install --frozen-lockfile
-COPY out/full/ .
-RUN pnpm vx run build
+```ts
+// vx.workspace.ts
+import { prune } from '@vzn/vx-prune'
+export default { plugins: [prune()] }
 ```
+
+Typing `vx prune` in a workspace that does not declare it prints that
+pointer and exits 1. The rules (what is rewritten, what is excluded,
+what `--docker` splits, what the config scan warns about) live in the
+package's README. This is the `commands` seam in use: a verb core does
+not know, owned by a plugin the workspace declares.
 
 ## `vx last`
 
@@ -1521,7 +1488,7 @@ The schema is documented in
 ## What's still missing vs Turbo
 
 Tracked in [`comparison.md`](./comparison.md). Nothing visible from the
-CLI is open: `--output-logs hash-only`, `vx prune`, `--continue=<mode>`
+CLI is open: `--output-logs hash-only`, `@vzn/vx-prune`, `--continue=<mode>`
 and `--cache-dir <path>` all shipped and are documented above.
 Remote-cache credentials are not core CLI flags at all: core carries no
 HTTP cache client — a remote cache arrives through a plugin's `cache`

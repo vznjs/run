@@ -42,7 +42,7 @@ packages/vx/            @vzn/vx core (src/ + tests/ + docs/); paths below relati
   src/bin.ts            shebang → cli
   src/index.ts          public façade (snapshot-pinned by tests/package-boundaries.unsafe.test.ts)
   src/config.ts         user schema: defineProject / defineWorkspace
-  src/cli/              verbs: run watch cache lock init show info why last prune upgrade;
+  src/cli/              verbs: run watch cache lock init show info why last upgrade;
                         plugin-commands.ts resolves plugin verbs (`commands` seam);
                         workspace-config.ts is the workspace as every verb sees it (config
                         stage applied, cache dir, staged projects); select.ts is what a run
@@ -70,6 +70,7 @@ packages/vx-nx-cache    Nx self-hosted remote cache plugin (`/v1/cache`)
 packages/vx-turbo       zero-migration Turbo plugin: turbo.json + scripts → tasks via the `project` stage;
                         owns the Turbo mapper @vzn/vx-migrate renders from
 packages/vx-migrate     `bunx @vzn/vx-migrate`: turbo.json or an Nx graph → vx.config.ts (core keeps `vx init`)
+packages/vx-prune       `bunx @vzn/vx-prune` / the `prune` verb via the commands seam: a workspace subset for Docker
 packages/vx-schedule-history  `schedule` plugin: order by the critical path learned from run history
 packages/vx-docs        Astro Starlight site; packages/vx/docs is imported by scripts/import-docs.ts
 packages/vx-bench       synthetic workspace generator + runners (vx / turbo / nx)

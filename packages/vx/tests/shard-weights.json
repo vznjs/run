@@ -85,7 +85,6 @@
   "prepare-perf.test.ts": 260,
   "prepare-run.test.ts": 1524,
   "project-loader.test.ts": 257,
-  "prune-workspace.test.ts": 2188,
   "resources.test.ts": 803,
   "restore-git-spawns.test.ts": 942,
   "retries.test.ts": 1609,

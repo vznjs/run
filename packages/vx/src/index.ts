@@ -17,6 +17,9 @@ export { VERSION } from './version.js'
 // parser, whose entire purpose is that `Number()` silently accepts `0x10` and
 // `1e3` at a boundary where a typo must be an error, not a different number.
 export { clampInt, parseDecimalInt, parseSize, UserError, isUserError } from './util/index.js'
+// "Did you mean": the hint core's own verbs give for a near-miss name, for a
+// plugin verb to give the same one.
+export { nearMatches } from './util/index.js'
 
 // Schema types and helpers (used by user vx.config files and presets).
 export type {
@@ -113,6 +116,9 @@ export {
   listProjects as listProjectMetas,
 } from './workspace/index.js'
 export type { ProjectMeta } from './workspace/index.js'
+// The package graph as a run sees it (workspace deps by manifest), for a tool
+// that needs a project's transitive closure the way `vx run` computes it.
+export { buildPackageGraph } from './workspace/index.js'
 // The run path's RESOLVED view — plugin `config` and `project` stages
 // applied, cached evaluations served — for a reader outside the CLI (the
 // MCP server's `listTasks`, an embedder's task catalog). What `vx show`

@@ -1700,6 +1700,27 @@ migrate` was 1,475 lines of core that knew Turbo's and Nx's file
     runner's format anywhere in `src/`; the façade gained the seam
     and lost the mapper.
 
+67. DONE (`vx prune` is `@vzn/vx-prune`): the Docker workspace-subset
+    verb — 290 lines of copying, manifest rewriting and config scanning
+    that no run ever needed — left core as a package with two ways in
+    and one body: `bunx @vzn/vx-prune <project>` (its own bin, no
+    workspace file needed) and the `prune` verb a workspace gets by
+    declaring `prune()` (the `commands` seam, in use for the first time
+    by a verb core used to own). For that, `migrate` and `prune` left
+    `CORE_VERBS` — the validator refuses a plugin verb that names a
+    core verb, so a moved verb must stop being one — and became
+    `MOVED_VERBS`: the dispatcher prints the pointer only after the
+    declared plugins had their chance, so the plugin's verb wins and
+    a bare workspace still learns where the verb went. The façade
+    gained `buildPackageGraph` (a project's transitive closure the way
+    `vx run` computes it) and `nearMatches` (the "did you mean" core's
+    own verbs give), so the package reimplements nothing. Its suite
+    moved with it (ten cases through its bin) plus one through the vx
+    CLI: a workspace without the plugin gets the pointer, one with it
+    gets the subset. Core's verbs are now run, watch, cache, lock,
+    init, upgrade, show, info, why, last — orchestration and its own
+    cache, history and lock, nothing else.
+
 **Two warm-path probes refuted after item 61 (2026-09-10).** Cold
 config evaluation, measured by deleting `config_evals` and
 `config_closures` on the warm 1,000-project copy: the `load configs`

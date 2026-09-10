@@ -6,7 +6,7 @@ import { VERSION } from '../version.js'
 import { runCmd } from './run.js'
 import { CORE_VERBS, printHelp } from './help.js'
 import { pluginCommandHelp, resolvePluginCommand } from './plugin-commands.js'
-import { nearest, UserError } from '../util/index.js'
+import { MOVED_VERBS, nearest, UserError } from '../util/index.js'
 
 // Every verb but `run` is imported when invoked. `vx run` is the hot path
 // and nearly every invocation; the other verbs' modules are code that
@@ -47,13 +47,6 @@ export async function run(argv: readonly string[]): Promise<number> {
       return await (await import('./cache.js')).cacheCmd(rest)
     case 'lock':
       return await (await import('./lock.js')).lockCmd(rest)
-    case 'migrate': {
-      // The Turbo and Nx mappers left core (2026-09-10); the verb points
-      // at the package so a remembered command still lands somewhere.
-      const { MIGRATE_MOVED } = await import('./init.js')
-      process.stderr.write(`${MIGRATE_MOVED}\n`)
-      return 1
-    }
     case 'init':
       return await (await import('./init.js')).initCmd(rest)
     case 'upgrade':
@@ -67,8 +60,6 @@ export async function run(argv: readonly string[]): Promise<number> {
       return await (await import('./why.js')).whyCmd(rest)
     case 'last':
       return await (await import('./last.js')).lastCmd(rest)
-    case 'prune':
-      return await (await import('./prune.js')).pruneWorkspaceCmd(rest)
     default: {
       // Not a core verb: a plugin declared in the workspace around the cwd
       // may own it (`VxPlugin.commands`). Core verbs were matched above, so
@@ -94,6 +85,14 @@ export async function run(argv: readonly string[]): Promise<number> {
         resolved !== null && 'loadError' in resolved
           ? `\n  (plugin verbs could not be looked up: vx.workspace failed to load: ${resolved.loadError})`
           : ''
+      // A verb core owned once (`migrate`, `prune`) and a package owns now:
+      // the pointer, but only after the plugins had their chance — a
+      // workspace that declares @vzn/vx-prune keeps `vx prune`.
+      const moved = MOVED_VERBS[command]
+      if (moved !== undefined) {
+        process.stderr.write(`${moved}${loadNote}\n`)
+        return 1
+      }
       if (command === 'serve' || command === 'dev') {
         // vx core is only a task runner — it has no service layer of its
         // own. A dashboard, remote cache, distributed execution, etc. are
@@ -124,7 +123,6 @@ export { parseInitArgs, type InitArgs } from './init.js'
 export { parseShowArgs, type ShowArgs } from './show.js'
 export { parseWhyArgs } from './why.js'
 export { parseLastArgs } from './last.js'
-export { parsePruneWorkspaceArgs } from './prune.js'
 export { formatBytes } from './format.js'
 
 /**

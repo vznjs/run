@@ -44,7 +44,7 @@ For the high-level data flow, read
 | [`upgrade.md`](./upgrade.md)                 | `src/cli/upgrade.ts` — `vx upgrade` binary self-update.                                                                             |
 
 The remaining subcommand parsers —
-`src/cli/{lock,show,info,last,why,prune,init}.ts`
+`src/cli/{lock,show,info,last,why,init}.ts`
 — are user-facing commands documented in [`docs/cli.md`](../cli.md)
 rather than as module pages. `tests/doc-references.test.ts` holds this index
 to the tree: every `src/**/*.ts` is named here, itself or in a brace

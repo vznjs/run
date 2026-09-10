@@ -30,11 +30,6 @@ export function parseInitArgs(args: readonly string[]): InitArgs {
   return out
 }
 
-/** The pointer `vx migrate` prints: the verb moved out of core with the Turbo and Nx mappers. */
-export const MIGRATE_MOVED =
-  'vx migrate moved to @vzn/vx-migrate: run `bunx @vzn/vx-migrate` (turbo.json or an Nx ' +
-  'project graph → vx.config.ts); `vx init` reads package.json scripts'
-
 export async function initCmd(args: readonly string[]): Promise<number> {
   const parsed = parseInitArgs(args)
   if (parsed.error) {
