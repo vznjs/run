@@ -42,9 +42,9 @@ export { defineProject, defineWorkspace } from './config.js'
 // on the stability gate); `captureGitContext`/`captureWorkspaceIdentity`
 // give agents + the submitter identity before/without a telemetry run.
 export { run, planRun, prepareRun } from './orchestrator/index.js'
-// The per-task duration history a `schedule` plugin learns from (see
-// src/plugins/schedule-history — core's own plugins import core only via
-// this façade, which is what put these here).
+// The per-task duration history a `schedule` plugin learns from
+// (`@vzn/vx-schedule-history` does; a plugin package reaches core only
+// through this façade, which is what put these here).
 export { EmptyHistoryProvider, LocalHistoryProvider } from './orchestrator/index.js'
 export type { HistoryProvider, HistoryTable, TaskHistory } from './orchestrator/index.js'
 export type { PreparedRun } from './orchestrator/index.js'
