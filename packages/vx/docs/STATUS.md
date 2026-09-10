@@ -1468,6 +1468,53 @@ import()` inside `beforeAll` for module-mock ordering. The inline
     `beforeEach` scaffolds (~14 files, ~12 lines each) migrate when a
     file is next touched.
 
+58. DONE (the suite's wall time is the heaviest shard, and the alphabet
+    dealt it): `bun test --shard=i/n` deals files round-robin by sorted
+    name, so on this box the eight shards ran 10–24 s of wall and the
+    gate waited on the 24. `scripts/test-shard.ts <i> 8` deals them by
+    recorded weight instead — longest first, each into the lightest
+    bin — from `tests/shard-weights.json`, refreshed with `--weigh
+<junit-dir>` from Bun's JUnit reports. The weight is the FILE-level
+    suite time, not the sum of its cases: the first deal used the sum
+    and still ran 24 s, because `scale-graph`'s 2,000-package
+    generator and warm plan are a 9.5 s `beforeAll` no case carries
+    (1.9 s of cases, 11.5 s of file). An unknown file weighs the
+    median (246 ms), so a new file costs nothing to add.
+    `tests/shard-partition.test.ts` pins the deal: every file exactly
+    once, deterministic, heaviest bin within 1.25× of the lightest,
+    and every weighed name still exists (a rename must carry its
+    weight or it falls to the median). Eight shards in parallel on
+    four cores: 24.4 → 18.2 s, the shards 15.8–18.2 s (the sum-weighted first deal read 24.4 with one shard at 24 and the rest at 15–20). Next-list 8(h) closed by this. The darwin
+    CI job's sequential `--shard=$i/4` loop is untouched: its time is
+    the sum, which a deal cannot move.
+
+**Why the suite is not instant (2026-09-10, asked by the owner; main
+and this branch measured alike).** JUnit reports over eight shards:
+2,647 cases, 119 s of case time (main: 2,582 cases, 121 s), 24 s of
+wall on four cores. The median case is 1 ms; 2,145 cases under 50 ms
+sum to 12.6 s — the unit tier is already instant. The time is two
+bands. 464 cases between 50 and 500 ms sum to 65 s: the end-to-end
+band, whose floor is processes, not timers — a `git init` plus two
+`config` is 7 ms, an in-process `run()` on a one-task workspace 12 ms
+warm, a `node -e` task 40 ms, and one CLI spawn 91 ms, of which 46 ms
+is Bun loading the source tree (`bun bin.ts --version`; bun's own
+start is 4 ms; pre-bundling measured slower, Next 8(h)). Nineteen
+files spawn the CLI (~250 cases), forty-two init a repo, twenty-seven
+call `run()`. 38 cases over 500 ms sum to 41 s: the rate and volume
+measurements (`output-memory` 11 s — two 1 s + 3 s floods per line
+shape and four RSS probes, differential by design; `cache-baseline`,
+`scheduler`, `scale-graph` ~5 s of scaling pins), the scheduler spans
+(`options-resolve`, three cases at 1 s: two tasks each sleeping
+0.3 s to prove co-admission), and the git-commit-heavy pins
+(`stale-hit` 2.2 s and `affected-workspace-files` 2.4 s in one case
+each — five commits and five runs). Timeouts inflate nothing: a
+timeout is a cap, and the only timed waits left are the floods, the
+spans, the debounce and settle windows (item 45 took the rest). To
+go faster the suite would have to spawn less — fewer CLI-spawned
+cases (91 ms each) and shorter floods — not shorten timeouts; the
+deal in item 58 makes the wall the average shard instead of the
+worst.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the
@@ -1807,7 +1854,8 @@ then exits on SIGINT` times out again, keep that run's stdout: the
    whatever a plugin returned (a secret, if a plugin ever folds one).
    Neither is worth it today; revisit when a plugin's part is the
    thing people debug.
-   (h) Shard balance (measured 2026-09-10, after item 45): `bun test
+   (h) DONE as item 58 (the weighted deal). Was: shard balance
+   (measured 2026-09-10, after item 45): `bun test
 --shard` splits by file count, so shard 5 carries `output-memory`
    (a 4 s rate measurement that spawns RSS probes) plus `task-timeout`
    and runs 18 s wall while the others run 5–13 s — the critical path

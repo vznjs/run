@@ -56,7 +56,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=1/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 1 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -77,7 +77,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=2/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 2 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -98,7 +98,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=3/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 3 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -119,7 +119,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=4/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 4 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -140,7 +140,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=5/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 5 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -161,7 +161,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=6/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 6 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -182,7 +182,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=7/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 7 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
@@ -203,7 +203,7 @@ export default defineProject({
       description: 'bun test',
       dependsOn: ['install'],
       exec: {
-        command: 'bun test --shard=8/8 --path-ignore-patterns="**/*.unsafe.test.ts"',
+        command: 'bun test $(bun scripts/test-shard.ts 8 8)',
         env: { passThrough: ['VX_REQUIRE_SANDBOX'] },
         sandbox: {
           allow: {
