@@ -9,7 +9,6 @@ import path from 'node:path'
 import { describe, expect, it } from 'bun:test'
 
 const pkg = path.resolve(import.meta.dir, '..')
-const repo = path.resolve(pkg, '..', '..')
 
 function walk(dir: string, ext: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -20,15 +19,16 @@ function walk(dir: string, ext: string, out: string[] = []): string[] {
   return out
 }
 
-/** Prose that names files: the docs, the module pages, the site guides, CLAUDE.md. */
+/**
+ * Prose that names files: the docs and the module pages. The site guides
+ * and CLAUDE.md live outside this project, which a sandboxed shard cannot
+ * read (the cross-project law) — `doc-references.unsafe.test.ts` holds
+ * them to the same rule.
+ */
 function proseFiles(): string[] {
-  return [
-    ...walk(path.join(pkg, 'docs'), '.md').filter(
-      (p) => !p.includes(`${path.sep}design${path.sep}`) && !p.endsWith('STATUS.md'),
-    ),
-    ...walk(path.join(repo, 'packages', 'vx-docs', 'src', 'content', 'docs', 'guides'), '.md'),
-    path.join(repo, 'CLAUDE.md'),
-  ]
+  return walk(path.join(pkg, 'docs'), '.md').filter(
+    (p) => !p.includes(`${path.sep}design${path.sep}`) && !p.endsWith('STATUS.md'),
+  )
 }
 
 describe('every file path the docs name exists', () => {
@@ -38,7 +38,7 @@ describe('every file path the docs name exists', () => {
       const text = readFileSync(file, 'utf8')
       for (const m of text.matchAll(/`((?:src|tests|docs)\/[A-Za-z0-9_./-]+\.(?:ts|md|mjs))`/g)) {
         const ref = m[1]!
-        if (!existsSync(path.join(pkg, ref))) missing.push(`${path.relative(repo, file)}: ${ref}`)
+        if (!existsSync(path.join(pkg, ref))) missing.push(`${path.relative(pkg, file)}: ${ref}`)
       }
     }
     expect(missing).toEqual([])
