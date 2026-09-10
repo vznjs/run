@@ -1734,9 +1734,13 @@ migrate` was 1,475 lines of core that knew Turbo's and Nx's file
     and once end to end (the very first run starts the assumed-long
     chain), and this repo's `vx.workspace.ts` declares it with the one
     assumption — the first workspace to dogfood the `schedule` seam. The
-    expected CI shape: the docs build starts at ~1 s and the run ends
-    when the shards do, ~70 s of the same work. Measure it on the next
-    green run and record the number here.
+    measured on the next run (9d84877, same runner class, cold): 98.7 s
+    → 82.8 s for the same 53 tasks; the docs build started at second
+    three, right behind the cross-compiles, and ran 50.8 s beside the
+    shards instead of 29 s alone at the end — the run now ends when
+    the package suites do. The remaining gap to the ~70 s ideal is
+    that contention: the same work on four cores, which no order
+    removes.
 
 **Plugin names, one convention (2026-09-10).** `vx info` listed the
 repo's own plugins as `vzn/otel`, `@vzn/vx-github`, `vx/mcp` and
