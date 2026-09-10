@@ -1377,6 +1377,26 @@ vx-cache-v27 · index schema v25` — the two constants a bug report
     index row, `orchestrator.md` and the CLAUDE.md layout updated; the
     signal suites pass unchanged.
 
+54. DONE (the few milliseconds against main, named and taken back):
+    every clean-protocol A/B since item 49 read the head 3–7 ms slower
+    than main by median with the sign steady, small enough to call
+    spread and consistent enough not to. Fresh copies with equal
+    warm-up (the old head copy carried 197,000 `runs` rows against the
+    base's 141,000 — another asymmetry, ruled out) still read +3–6.
+    A clean stage table named it: `classify + probe` +3.4 and `run
+graph` +3.1, with the accumulated `output dirs` +3.0 and `output
+stat` +2.1 — the two proofs a warm hit runs, 2,000 calls per run —
+    and `startup` −2.4 in head's favour. The proofs' code is identical;
+    item 11's composition had wrapped their delegation (and the two
+    file-hash entry points) in `async` methods with `return await`,
+    one extra promise and microtask hop per call. The four wrappers
+    now return the slice's own promise. Measured against the pushed
+    head under the clean protocol: `run graph` −2.3 ms, `output stat`
+    −2.2 accumulated, and the twenty-rep A/B reads the fix faster by
+    median in both orders (239 → 236, 249 → 241; min 220 → 221,
+    229 → 225). Rule for the slices: a delegation returns the inner
+    promise; `async` on a wrapper is a cost on every call it forwards.
+
 **Profiles after item 50 (2026-09-10).** `bun --cpu-prof` on the
 pre-warmed 1,000-project copy, third run of three. `vx show` (93 ms
 sampled): 28% in the discovery closure (`workspace.ts:303` — the
