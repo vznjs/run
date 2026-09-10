@@ -1325,6 +1325,21 @@ undefined?` whenever nothing was within two edits — `nearest`
     (CLAUDE.md): arms on different `SCHEMA_VERSION`s never share a
     workspace copy.
 
+50. DONE (DX, one row): `vx info` prints `cache versions: keys
+vx-cache-v27 · index schema v25` — the two constants a bug report
+    needs and the reset notice (39) names, read from the source
+    constants (now exported from `cache/index.ts`), and pinned against
+    those same constants so a bump shows up in the doctor without a
+    second copy. Found while chasing item 49: the doctor had no way to
+    say which schema an index was on.
+    Seen and deferred: 26 test files carry their own `makeWorkspace`,
+    23 an `addProject`, 9 a silent logger — the second-copy class at
+    suite scale. A shared `tests/helpers/workspace.ts` would drop a few
+    hundred lines, but each copy differs a little (git init, heredoc
+    configs, extra packages) and the move is mechanical risk for no
+    behaviour; do it file by file when a suite is touched for another
+    reason, not as one commit.
+
 **Warm path after item 46 (2026-09-10).** Interleaved A/B, 1,000
 projects, twelve reps, both orders, base = the immutable c0b20ca
 worktree: main min 225 / med 242 ms vs head 231 / 246 in one order,

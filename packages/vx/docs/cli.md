@@ -1303,6 +1303,7 @@ git status cache:  core.fsmonitor, core.untrackedCache off — `git config core.
 workspace root:    /work/repo
 projects:       12 (34 tasks)
 cache dir:      /work/repo/.vx/cache
+cache versions: keys vx-cache-v27 · index schema v25
 cache entries:  42 (1.3 GB)
 orphans:        3 artifacts (12.4 MB) the index does not know — `vx cache prune` reaps them
 runs (24h):     7 (5 cache hits)
@@ -1317,6 +1318,10 @@ vx-lock.json:   yes
   critical path. git's `core.fsmonitor` (a daemon that watches the
   worktree) and `core.untrackedCache` make it near-free after the first
   run; both are off by default, so `vx info` says when they are.
+- `cache versions` are the two constants a bug report needs and the
+  reset notice names: the key prefix (`CACHE_VERSION`; a bump orphans
+  every entry) and the index schema (`SCHEMA_VERSION`; a mismatch drops
+  every table on the next open, which the run then says once).
 - `orphans` appears only when the cache directory holds artifacts or
   save temps the index has no row for, older than an hour (what a
   `SCHEMA_VERSION` reset leaves behind; a fresh one is a save in

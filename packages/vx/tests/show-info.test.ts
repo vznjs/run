@@ -9,6 +9,7 @@ import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
 import { parseShowArgs } from '../src/cli/index.js'
 import { VERSION } from '../src/version.js'
+import { CACHE_VERSION, SCHEMA_VERSION } from '../src/cache/index.js'
 
 const BIN = path.resolve(import.meta.dir, '..', 'src', 'bin.ts')
 const TIMEOUT = 20_000
@@ -362,6 +363,10 @@ describe('vx info (e2e)', () => {
       expect(r.out).toContain(path.basename(root))
       expect(r.out).toMatch(row('projects', '2 (4 tasks)'))
       expect(r.out).toContain('cache dir:')
+      // The constants themselves, not a copy of them: a bump shows up here.
+      expect(r.out).toMatch(
+        row('cache versions', `keys ${CACHE_VERSION} · index schema ${SCHEMA_VERSION}`),
+      )
       expect(r.out).toMatch(row('cache entries', '0 (0 B)'))
       expect(r.out).toMatch(row('runs (24h)', '0'))
       expect(r.out).toMatch(row('vx-lock.json', 'no'))

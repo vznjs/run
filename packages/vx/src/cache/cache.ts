@@ -125,7 +125,7 @@ import { RunHistory } from './run-history.js'
 // `LayeredCache` uploads them, so the reach is a whole team's shared cache
 // rather than one developer's disk. Pre-alpha, so one cold rebuild is the
 // cheap side of that trade.
-const CACHE_VERSION = 'vx-cache-v27'
+export const CACHE_VERSION = 'vx-cache-v27'
 
 /**
  * An artifact or temp file without an `entries` row is reaped by
@@ -185,7 +185,7 @@ export function noteSchemaReset(cache: Cache, warn: (message: string) => void): 
 //        runs every time by design, and `vx last` could not mark it the
 //        way the terminal summary does (`no-cache`). Analytics-only —
 //        the cache KEY is unchanged.
-const SCHEMA_VERSION = 'v25'
+export const SCHEMA_VERSION = 'v25'
 
 /**
  * SQL predicate selecting `runs` rows that record an EXECUTION.

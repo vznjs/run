@@ -24,6 +24,8 @@ export {
   OUTPUT_DIRS_RACY_MS,
   noteSchemaReset,
   type SchemaReset,
+  CACHE_VERSION,
+  SCHEMA_VERSION,
 } from './cache.js'
 export { type CASBackend, FsCASBackend } from './cas-backend.js'
 export { type Digest } from './digest.js'

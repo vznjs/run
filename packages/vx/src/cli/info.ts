@@ -2,7 +2,7 @@
 // workspace + cache facts for bug reports and quick sanity checks.
 // `vx stats` is a deprecated alias (info absorbed it).
 
-import { Cache, noteSchemaReset } from '../cache/index.js'
+import { Cache, CACHE_VERSION, noteSchemaReset, SCHEMA_VERSION } from '../cache/index.js'
 import { seeHelp } from './help.js'
 import { VERSION } from '../version.js'
 import { loadCliProjects, loadCliWorkspace, warnToStderr } from './workspace-config.js'
@@ -60,6 +60,10 @@ export async function infoCmd(args: readonly string[]): Promise<number> {
     ['workspace root', root],
     ['projects', `${metas.length} (${taskCount} task${taskCount === 1 ? '' : 's'})`],
     ['cache dir', cacheDir],
+    // The two versions a bug report needs and the reset notice names: the
+    // key prefix (a bump orphans every entry) and the index schema (a
+    // mismatch drops every table).
+    ['cache versions', `keys ${CACHE_VERSION} · index schema ${SCHEMA_VERSION}`],
     ['cache entries', `${stats.entryCount} (${formatBytes(stats.totalBytes)})`],
     // Only when there is something to say: the index is authoritative, so a
     // row-less artifact is bytes nothing will ever hit — and only `vx cache
